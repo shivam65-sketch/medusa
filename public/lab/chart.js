@@ -18,7 +18,7 @@
 // charts of different coins (or of files with different candle sizes) stay in step.
 
 import { createChart, CandlestickSeries, BarSeries, LineSeries, HistogramSeries, createSeriesMarkers, CrosshairMode, PriceScaleMode, LineStyle } from './vendor/lightweight-charts.mjs';
-import { $, $$, esc, ymd, plural, INTERVAL_MS, DAY, toast, download, icon } from './util.js';
+import { $, $$, esc, ymd, plural, INTERVAL_MS, DAY, toast, download, icon, money } from './util.js';
 import * as data from './data.js';
 
 let host = null;
@@ -50,6 +50,7 @@ const IC = {
   log: '<path d="M4 20h16M4 4v16"/><path d="M6 17c4 0 6-3 7-6s3-6 7-6"/>',
   flask: '<path d="M9.5 3.5h5M10.5 3.5v5.5l-5 8.6A1.6 1.6 0 0 0 6.9 20h10.2a1.6 1.6 0 0 0 1.4-2.4l-5-8.6V3.5"/><path d="M7.6 14.5h8.8"/>',
   shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
+  me: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20.5a7 7 0 0 1 14 0"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
 };
 const LAYOUT_IC = {
@@ -416,6 +417,8 @@ function newPane(i) {
     undoAll: null,       // what "Delete all" removed, for Ctrl+Z
     shownTo: 0, K: 0,    // the last chart candle shown, and the file candles shown
     strat: null,         // the backtest drawn on the chart (see setStrat)
+    mine: null,          // your journal trades on this chart's coin (see mineOf)
+    focusMine: null,     // a journal trade to centre once the file is open
     pending: null,       // a result to draw once its data file is open
     pos: null, ptrades: [],   // practice trades in a replay
     chart: null, main: null, vol: null, layer: null, markers: null, hlines: [], posLine: null,
@@ -432,6 +435,7 @@ const G = {
   replay: null,                  // {cut, start, end (ms or null), playing, timer, speed, by: 'bar'|'file'}
   picking: null,                 // choosing the replay portion: {a, b (cuts), h (under the pointer), fromStr, toStr}
   sform: null, sshow: null,      // the Strategy menu's choices, what of a backtest is drawn
+  mine: false, wantMine: null,   // your journal trades shown; a journal trade waiting for the file list
   menu: null,                    // the open toolbar menu ("ind" or "strat")
   running: false,
   pre: null,                     // a file or result asked for before the tab was first drawn
@@ -467,6 +471,7 @@ function restore() {
   if (G.pre) { A().id = G.pre.id; A().pending = G.pre.pending || null; G.pre = null; }
   G.sform = Object.assign({ strategy: 'turtle', params: {}, save: false }, load('sform', {}));
   G.sshow = Object.assign({ trades: true, lines: true, equity: false }, load('sshow', {}));
+  G.mine = Boolean(load('mine', false));
 }
 
 export function paintChart(el, context) {
@@ -480,6 +485,7 @@ export function paintChart(el, context) {
       <div class="lab-ch-replay" id="lab-ch-replay" hidden></div>
       <div class="lab-ch-stage" id="lab-ch-stage">${panes.map((p) => `<div class="lab-ch-main empty" data-pi="${p.i}"><div class="lab-ch-legend"></div><div class="lab-ch-plegs"></div><div class="lab-ch-hint" hidden></div><div class="lab-ch-pempty" hidden></div></div>`).join('')}</div>
       <div class="lab-ch-strat" id="lab-ch-strat" hidden></div>
+      <div class="lab-ch-strat lab-ch-mine" id="lab-ch-mine" hidden></div>
       <p class="faint small lab-ch-foot">Scroll to zoom, drag to move, drag a price scale to stretch it (double-click it to reset), drag the line between panes to resize them. The buttons on the left show 1 to 4 charts: they share the timeframe and the replay, and <b>Sync</b> links their crosshair and scrolling; the toolbar works on the chart with the green border (click a chart to pick it). Times are in your time zone. Keys: <kbd>Esc</kbd> stops a drawing tool or closes a menu, <kbd>Delete</kbd> removes every drawing and indicator on the chart, <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes; in a replay <kbd>Space</kbd> plays or pauses and <kbd>→</kbd> / <kbd>←</kbd> step. Chart by <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a> Lightweight Charts.</p>
     </div>`;
     for (const p of panes) {
@@ -506,6 +512,7 @@ export function paintChart(el, context) {
   paintBar();
   const ids = new Set(ctx.datasets().map((d) => d.id));
   each(() => { if (!st.ds && !st.loading && st.id && ids.has(st.id)) openFile(st.id); else paintEmpty(); }, live());
+  if (G.wantMine) on(A(), tryMine);
 }
 
 /** The Lab's file list changed (main.js): refresh the file pickers and the saved results. */
@@ -518,6 +525,7 @@ export function paintFiles() {
     else paintEmpty();
   }, live());
   paintBar();
+  if (G.wantMine) on(A(), tryMine);
 }
 
 /** Opens a data file from another tab ("Chart" button in Files), in the active chart. */
@@ -624,6 +632,7 @@ function paintBarNow() {
       <summary class="btn btn-sm ${st.strat ? 'lab-ch-on' : ''}">${ic(IC.flask)}Strategy</summary>
       <div class="lab-ch-pop lab-ch-spop">${stratMenu()}</div>
     </details>
+    <button class="btn btn-sm ${G.mine ? 'lab-ch-on' : ''}" data-ch="mine" title="Show your journal trades on this coin" aria-pressed="${G.mine}">${ic(IC.me)}My trades</button>
     <span class="lab-ch-tools" role="group" aria-label="Drawing tools">
       ${TOOLS.map(([t, label, svg]) => `<button class="btn btn-sm lab-ch-tool ${G.tool === t ? 'on' : ''}" data-ch="tool" data-tool="${t}" title="${label}" aria-label="${label}" aria-pressed="${G.tool === t}">${ic(svg)}</button>`).join('')}
       <button class="btn btn-sm lab-ch-tool" data-ch="undo" title="Undo (Ctrl+Z)" aria-label="Undo" ${st.B && (st.drawings.length || st.undoAll) ? '' : 'disabled'}>${ic(IC.undo)}</button>
@@ -722,6 +731,7 @@ async function openFile(id) {
   if (changed) setTf(tf, p);
   else { G.tf = tf; save('tf', tf); }
   build();
+  if (p.focusMine) { const fid = p.focusMine; p.focusMine = null; focusMineId(fid); }
   if (changed) toast(`Every chart now shows ${tfName(tf)} candles: the charts share one timeframe.`);
   if (!pend && !p.strat) restoreStrat(id);
 }
@@ -849,7 +859,7 @@ function haOf(B) {
 
 function destroyChart() {
   if (st.chart) st.chart.remove();
-  Object.assign(st, { chart: null, main: null, vol: null, layer: null, markers: null, posLine: null, hlines: [], feeds: [], groups: [], fills: [] });
+  Object.assign(st, { chart: null, main: null, vol: null, layer: null, markers: null, markSig: '', posLine: null, hlines: [], feeds: [], groups: [], fills: [] });
   if (st.el) { $('.lab-ch-plegs', st.el).innerHTML = ''; $('.lab-ch-legend', st.el).innerHTML = ''; }
 }
 
@@ -1181,15 +1191,33 @@ function addStrategySeries(nextPane) {
   }
 }
 
+/** How many trades of a list (sorted by entry) had started by `now`, and how many had ended (binary
+    searches, so a replay step costs the same with 10 trades or 10,000). */
+function upto(list, now) {
+  let a = 0, b = list.length;
+  while (a < b) { const m = (a + b) >> 1; if (list[m].et <= now) a = m + 1; else b = m; }
+  return a;
+}
+function ended(set, now) {
+  const xs = set.xts || (set.xts = Float64Array.from(set.trades, (x) => x.xt).sort());
+  let a = 0, b = xs.length;
+  while (a < b) { const m = (a + b) >> 1; if (xs[m] <= now) a = m + 1; else b = m; }
+  return a;
+}
 /** The trades shown now (in a replay: the ones that have started). */
-const shownTrades = () => { const s = st.strat, now = nowT(); return s ? s.trades.filter((x) => x.et <= now) : []; };
+const shownTrades = () => { const s = st.strat; return s ? s.trades.slice(0, upto(s.trades, nowT())) : []; };
 const tradeResult = (x) => (x.r != null && fin(x.r) ? `${x.r >= 0 ? '+' : ''}${x.r.toFixed(2)}R` : `${x.ret >= 0 ? '+' : ''}${(x.ret * 100).toFixed(2)}%`);
 const openResult = (x) => { const p = st.ds.cols.c[st.K - 1]; return { p, ret: ((p - x.ep) / x.ep) * x.side }; };
 
-function paintMarkers() {
+function paintMarkers(force = false) {
   if (!st.markers || !st.B) return;
-  const m = [];
   const now = nowT();
+  const s0 = st.strat && G.sshow.trades ? st.strat : null, me0 = mineOf();
+  const cnt = (set, k) => (set ? `${k}.${upto(set.trades, now)}.${ended(set, now)}.${set.sel}` : '-');
+  const sig = `${cnt(s0, s0 && s0.R.meta.made)}|${cnt(me0, me0 && me0.key)}|${G.replay ? `${st.ptrades.filter((x) => x.t <= now).length}.${st.ptrades.filter((x) => x.xt <= now).length}.${st.pos ? st.pos.t : 0}` : ''}`;
+  if (!force && sig === st.markSig) return;              // nothing entered or left: the markers stay as they are
+  st.markSig = sig;
+  const m = [];
   const at = (ms) => sec(st.B.T[indexOfTime(ms)]);
   const s = st.strat;
   if (s && G.sshow.trades) {
@@ -1198,6 +1226,15 @@ function paintMarkers() {
       const sel = s.sel === x.n - 1, long = x.side > 0;
       m.push({ time: at(x.et), position: long ? 'belowBar' : 'aboveBar', color: long ? UP : DOWN, shape: long ? 'arrowUp' : 'arrowDown', text: long ? 'Long' : 'Short', size: sel ? 2 : 1, id: `e${x.n}` });
       if (x.xt <= now) m.push({ time: at(x.xt), position: long ? 'aboveBar' : 'belowBar', color: x.pnl >= 0 ? '#86efac' : '#fca5a5', shape: 'circle', text: tradeResult(x), size: sel ? 1.4 : 0.7, id: `x${x.n}` });
+    }
+  }
+  const me = mineOf();
+  if (me) {
+    for (const x of me.trades) {
+      if (x.et > now) break;
+      const sel = me.sel === x.n - 1, long = x.side > 0;
+      m.push({ time: at(x.et), position: long ? 'belowBar' : 'aboveBar', color: MINE, shape: long ? 'arrowUp' : 'arrowDown', text: long ? 'My long' : 'My short', size: sel ? 2 : 1 });
+      if (x.xt <= now) m.push({ time: at(x.xt), position: long ? 'aboveBar' : 'belowBar', color: x.pnl >= 0 ? '#86efac' : '#fca5a5', shape: 'square', text: netText(x), size: sel ? 1.2 : 0.6 });
     }
   }
   if (G.replay) {
@@ -1247,19 +1284,20 @@ function stepTrade(dir) {
 
 /** The panel under the charts: the active chart's test, its numbers and its list of trades (click one to see it). */
 let stratSig = '';
-function paintStrat(force = false) { if (host) on(A(), () => paintStratNow(force)); }
+function paintStrat(force = false) { if (host) on(A(), () => { paintStratNow(force); paintMineNow(force); }); }
 function paintStratNow(force) {
   const el = $('#lab-ch-strat', host);
   if (!el) return;
   const s = st.strat;
   if (!s || !st.ds || !st.B) { el.hidden = true; el.innerHTML = ''; stratSig = ''; return; }
-  const list = shownTrades();
   const now = nowT();
-  const open = list.length && list[list.length - 1].xt > now ? list[list.length - 1] : null;
-  const sig = `${st.i}|${s.R.meta.made}|${s.id}|${list.length}|${open ? open.n : 0}|${s.sel}|${G.sshow.trades}|${G.sshow.lines}|${G.sshow.equity}|${s.plotsLoading}|${s.plotsErr}|${s.plots ? s.plots.map((p) => +p.on).join('') : ''}|${Boolean(G.replay)}`;
+  const nShown = upto(s.trades, now), lastT = s.trades[nShown - 1];
+  const open = lastT && lastT.xt > now ? lastT : null;
+  const sig = `${st.i}|${s.R.meta.made}|${s.id}|${nShown}|${open ? open.n : 0}|${s.sel}|${G.sshow.trades}|${G.sshow.lines}|${G.sshow.equity}|${s.plotsLoading}|${s.plotsErr}|${s.plots ? s.plots.map((p) => +p.on).join('') : ''}|${Boolean(G.replay)}`;
   if (!force && sig === stratSig && !el.hidden) { paintStratLive(); return; }
   stratSig = sig;
   el.hidden = false;
+  const list = shownTrades();
   const R = s.R, sm = R.summary, ts = sm.trades || {};
   const closed = list.filter((x) => x.xt <= now);
   const pct = (v, dp = 1) => (fin(v) ? `${v >= 0 ? '+' : ''}${(v * 100).toFixed(dp)}%` : '–');
@@ -1323,12 +1361,193 @@ function paintStratNow(force) {
 function paintStratLive() {
   const cell = $('#lab-ch-strat [data-live]', host);
   if (!cell || !st.strat) return;
-  const list = shownTrades();
-  const x = list[list.length - 1];
+  const x = st.strat.trades[upto(st.strat.trades, nowT()) - 1];
   if (!x) return;
   const { ret } = openResult(x);
   cell.textContent = `${ret >= 0 ? '+' : ''}${(ret * 100).toFixed(2)}%`;
   cell.className = ret >= 0 ? 'pos' : 'neg';
+}
+
+/* ======================= your trades from the journal ======================= */
+
+const MINE = '#38bdf8';
+/** CoinDCX futures pair -> Binance symbol: B-BTC_USDT -> BTCUSDT (CoinDCX's "B-" markets are Binance's). */
+const binanceSym = (t) => (t.pair ? String(t.pair).replace(/^[A-Z]+-/, '').replace(/_/g, '') : `${t.base || ''}${t.mcur || ''}`).toUpperCase();
+const netText = (x) => (x.mcur && x.mcur !== 'USDT' ? `${x.pnl >= 0 ? '+' : ''}${x.pnl.toFixed(2)} ${x.mcur}` : `${x.pnl >= 0 ? '+' : ''}${money(x.pnl)}`);
+/** The file candle open at time ms (its index), for the price check. */
+function fileAt(ms) {
+  const t = st.ds.cols.t;
+  let a = 0, b = st.ds.n - 1;
+  while (a < b) { const m = (a + b + 1) >> 1; if (t[m] <= ms) a = m; else b = m - 1; }
+  return a;
+}
+/**
+ * Your journal trades on this chart's coin, in the shape of a backtest's trades (so they are drawn the
+ * same way). Worked out once per file and journal, then kept. Prices are checked against the candles:
+ * a coin quoted per 1,000 units on one exchange and per unit on the other is scaled; one that doesn't
+ * match at all isn't drawn.
+ */
+function mineOf() {
+  if (!G.mine || !st.ds || !st.row || !ctx.myTrades) return null;
+  const all = ctx.myTrades() || [];
+  const key = `${st.id}|${all.length}|${all.length ? all[all.length - 1].id : ''}`;
+  if (st.mine && st.mine.key === key) return st.mine;
+  const sym = String(st.row.symbol).toUpperCase();
+  const t0 = st.ds.cols.t[0], t1 = st.ds.cols.t[st.ds.n - 1] + st.base;
+  const coin = all.filter((t) => binanceSym(t) === sym && fin(t.entryAt) && fin(t.closeAt) && fin(t.entry) && fin(t.exit) && t.entry > 0);
+  const inside = coin.filter((t) => t.entryAt >= t0 && t.closeAt <= t1).sort((a, b) => a.entryAt - b.entryAt);
+  const ratios = inside.slice(0, 60).map((t) => t.entry / st.ds.cols.c[fileAt(t.entryAt)]).filter((x) => fin(x) && x > 0).sort((a, b) => a - b);
+  let scale = 1, mismatch = false;
+  if (ratios.length) {
+    const r = ratios[ratios.length >> 1], k = 10 ** Math.round(Math.log10(r));
+    if (Math.abs(r / k - 1) > 0.15) mismatch = true;
+    else scale = 1 / k;
+  }
+  const trades = mismatch ? [] : inside.map((t, i) => {
+    const side = t.side === 'short' ? -1 : 1, ep = t.entry * scale, xp = t.exit * scale;
+    return { n: i + 1, id: t.id, et: t.entryAt, xt: t.closeAt, ep, xp, side, pnl: t.net ?? 0, ret: ((xp - ep) / ep) * side, why: t.exitKind || '', mcur: t.mcur, pair: t.pair };
+  });
+  st.mine = { key, trades, sel: -1, total: coin.length, outside: coin.length - inside.length, scale, mismatch, levels: 'none' };
+  if (trades.length) loadLevels(st.mine, all.length);
+  return st.mine;
+}
+/* The stop loss and take profit you set on CoinDCX: one request per coin (not per trade), kept for the
+   visit, and asked again only when the journal changes. */
+const levelCache = new Map();
+function loadLevels(me, version) {
+  if (!ctx.myLevels) return;
+  const keys = [...new Set(me.trades.filter((x) => x.pair).map((x) => `${x.pair}|${x.mcur || 'USDT'}`))];
+  if (!keys.length) return;
+  me.levels = 'loading';
+  Promise.all(keys.map((k) => {
+    const ck = `${k}|${version}`;
+    if (!levelCache.has(ck)) {
+      const [pair, mcur] = k.split('|');
+      levelCache.set(ck, ctx.myLevels(pair, mcur).catch((e) => { levelCache.delete(ck); throw e; }));
+    }
+    return levelCache.get(ck);
+  })).then((maps) => {
+    const lv = Object.assign({}, ...maps);
+    for (const x of me.trades) {
+      const v = lv[x.id];
+      if (!v) continue;
+      if (fin(v[0])) x.stop = v[0] * me.scale;
+      if (fin(v[1])) x.tp = v[1] * me.scale;
+      x.hit = v[2] === 1 ? 'sl' : v[2] === 2 ? 'tp' : '';
+      const risk = fin(x.stop) ? Math.abs(x.ep - x.stop) : 0;
+      if (risk > 0) x.r = ((x.xp - x.ep) * x.side) / risk;
+    }
+    me.levels = 'ready';
+    for (const p of loaded()) if (p.mine === me && p.layer) p.layer.redraw();
+    paintStrat(true);
+  }).catch(() => { me.levels = 'error'; paintStrat(true); });
+}
+function setMine(on) {
+  G.mine = on;
+  save('mine', on);
+  each(() => { st.mine = null; paintMarkers(); if (st.layer) st.layer.redraw(); });
+  paintBar();
+  paintStrat(true);
+  const me = on && st.B ? mineOf() : null;
+  if (me && !me.total) toast(`Your journal has no ${st.row.symbol} trades.`);
+}
+/** Centres your trade i on the chart and marks it. */
+function focusMine(i) {
+  const me = mineOf();
+  const x = me && me.trades[i];
+  if (!x || x.et > nowT()) return;
+  me.sel = i;
+  const eb = indexOfTime(x.et), xb = x.xt <= nowT() ? indexOfTime(x.xt) : st.shownTo;
+  const pad = Math.max(25, (xb - eb) * 0.7);
+  setRange({ from: eb - pad, to: xb + pad });
+  paintMarkers();
+  if (st.layer) st.layer.redraw();
+  paintStrat(true);
+}
+function focusMineId(id) {
+  const me = mineOf();
+  const i = me ? me.trades.findIndex((x) => x.id === id) : -1;
+  if (i < 0) { toast(me && me.mismatch ? `This file's prices don't match your ${st.row.symbol} trades.` : 'That trade isn’t in this file’s dates.'); return; }
+  if (G.replay && me.trades[i].et > nowT()) stopReplay();
+  focusMine(i);
+}
+function stepMine(dir) {
+  const me = mineOf();
+  if (!me) return;
+  const now = nowT(), list = me.trades.filter((x) => x.et <= now);
+  if (!list.length) return;
+  const cur = list.findIndex((x) => x.n - 1 === me.sel);
+  const pos = Math.max(0, Math.min(list.length - 1, cur < 0 ? (dir > 0 ? 0 : list.length - 1) : cur + dir));
+  focusMine(list[pos].n - 1);
+}
+/** The journal's "Show on chart": opens a downloaded file of the trade's coin that covers it, on the active chart. */
+export function showMine(id) { G.wantMine = id; if (host) on(A(), tryMine); }
+function tryMine() {
+  const id = G.wantMine;
+  const t = id && (ctx.myTrades ? ctx.myTrades() : []).find((x) => x.id === id);
+  if (!t) { G.wantMine = null; return; }
+  if (ctx.filesLoaded && !ctx.filesLoaded()) return;          // the file list is on its way (paintFiles comes back here)
+  G.wantMine = null;
+  if (!G.mine) setMine(true);
+  const sym = binanceSym(t);
+  const fits = (d) => d && String(d.symbol).toUpperCase() === sym && d.start_ts <= t.entryAt && d.end_ts + DAY >= t.closeAt;
+  const shown = live().find((p) => p.ds && fits(p.row));
+  if (shown) { if (shown !== A()) setActive(shown); on(shown, () => focusMineId(id)); return; }
+  const rows = ctx.datasets().filter(fits).sort((a, b) => (a.market === 'futures' ? 0 : 1) - (b.market === 'futures' ? 0 : 1) || (INTERVAL_MS[a.interval] || 0) - (INTERVAL_MS[b.interval] || 0));
+  if (!rows.length) { toast(`No downloaded ${sym} file covers this trade (${ymd(t.entryAt)}). Download ${sym} in Get data, then press Show on chart again.`, 'error'); return; }
+  st.focusMine = id;
+  openFile(rows[0].id);
+}
+
+/** The panel under the charts: your trades on the active chart's coin (click one to see it). */
+let mineSig = '';
+function paintMineNow(force) {
+  const el = $('#lab-ch-mine', host);
+  if (!el) return;
+  const me = st.B ? mineOf() : null;
+  if (!me) { el.hidden = true; el.innerHTML = ''; mineSig = ''; return; }
+  const now = nowT(), nShown = upto(me.trades, now);
+  const sig = `${st.i}|${me.key}|${nShown}|${ended(me, now)}|${me.sel}|${Boolean(G.replay)}|${me.levels}`;
+  if (!force && sig === mineSig && !el.hidden) return;
+  mineSig = sig;
+  const list = me.trades.slice(0, nShown), closed = list.filter((x) => x.xt <= now);
+  el.hidden = false;
+  const sym = esc(st.row.symbol);
+  const hideBtn = `<button class="btn btn-sm" data-ch="mine" title="Hide your trades">${ic(IC.close)}<span class="sr-only">Hide my trades</span></button>`;
+  if (!me.total || me.mismatch || !me.trades.length) {
+    const why = !me.total ? 'Your journal has no trades on this coin.'
+      : me.mismatch ? `This file's prices don't match your ${me.total} ${sym} trades on CoinDCX, so they aren't drawn.`
+        : `Your ${plural(me.total, 'trade')} on this coin are outside this file's dates (${ymd(st.ds.cols.t[0])} → ${ymd(st.ds.cols.t[st.ds.n - 1])}).`;
+    el.innerHTML = `<div class="lab-ch-shead"><div class="lab-ch-sname"><b>My trades on ${sym}</b><span class="faint small">${why}</span></div><div class="lab-ch-sbtns">${hideBtn}</div></div>`;
+    return;
+  }
+  const net = closed.reduce((a, x) => a + x.pnl, 0), wins = closed.filter((x) => x.pnl > 0).length;
+  const sum = { pnl: net, mcur: me.trades[0].mcur };
+  const notes = [me.outside ? `${plural(me.outside, 'trade')} outside this file's dates` : '', me.scale !== 1 ? `prices scaled ×${+me.scale.toPrecision(3)} to match the file` : '',
+    me.levels === 'loading' ? 'getting your stop losses and take profits…' : me.levels === 'error' ? 'your stop losses and take profits couldn’t be loaded' : ''].filter(Boolean).join(' · ');
+  const rows = list.slice(-3000).map((x) => {
+    const isOpen = x.xt > now;
+    return `<tr data-ch="mtrade" data-n="${x.n - 1}" class="${me.sel === x.n - 1 ? 'on' : ''}" tabindex="0">
+      <td>${x.n}</td><td class="${x.side > 0 ? 'pos' : 'neg'}">${x.side > 0 ? 'Long' : 'Short'}</td>
+      <td>${esc(when(x.et, true))}<br><span class="faint">${fmt(x.ep)}</span></td>
+      <td>${isOpen ? '<span class="faint">open</span>' : `${esc(when(x.xt, true))}<br><span class="faint">${fmt(x.xp)}</span>`}</td>
+      <td class="neg">${fin(x.stop) ? fmt(x.stop) : '<span class="faint">–</span>'}</td><td class="pos">${fin(x.tp) ? fmt(x.tp) : '<span class="faint">–</span>'}</td>
+      <td class="${isOpen ? '' : x.pnl >= 0 ? 'pos' : 'neg'}">${isOpen ? '–' : netText(x)}${!isOpen && fin(x.r) ? `<br><span class="faint">${x.r >= 0 ? '+' : ''}${x.r.toFixed(2)}R</span>` : ''}</td><td class="l">${esc(isOpen ? '' : x.why)}</td></tr>`;
+  }).join('');
+  const chip = (k, v, t = '') => `<span class="lab-ch-chip"><span class="faint">${k}</span><b class="${t}">${v}</b></span>`;
+  el.innerHTML = `
+    <div class="lab-ch-shead">
+      <div class="lab-ch-sname"><b><i class="lab-ch-dot lab-ch-medot"></i>My trades on ${sym}</b><span class="faint small">From your journal (CoinDCX)${notes ? ` · ${esc(notes)}` : ''}</span></div>
+      <div class="lab-ch-schips">${chip(G.replay ? 'Closed so far' : 'Trades', closed.length.toLocaleString('en-US'))}${chip('Won', closed.length ? `${((wins / closed.length) * 100).toFixed(0)}%` : '–')}${chip('Net P&amp;L', closed.length ? netText(sum) : '–', net > 0 ? 'pos' : net < 0 ? 'neg' : '')}</div>
+      <div class="lab-ch-sbtns">
+        <button class="btn btn-sm" data-ch="mprev" title="Previous trade">${ic(IC.prev)}<span class="sr-only">Previous trade</span></button>
+        <button class="btn btn-sm" data-ch="mnext" title="Next trade">${ic(IC.next)}<span class="sr-only">Next trade</span></button>
+        ${hideBtn}
+      </div>
+    </div>
+    ${list.length ? `<div class="lab-ch-tscroll"><table class="lab-table lab-ch-trades"><thead><tr><th>#</th><th>Side</th><th>Entry</th><th>Exit</th><th>Stop loss</th><th>Take profit</th><th>Net</th><th class="l">Exit</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="dim small">None of your trades yet at this point of the replay.</p>'}`;
+  const box = $('.lab-ch-tscroll', el);
+  if (box) { const sel = $('tr.on', box); if (sel) box.scrollTop = sel.offsetTop - box.clientHeight / 2; else if (G.replay) box.scrollTop = box.scrollHeight; }
 }
 
 /* ---------- the Strategy menu: run a backtest on this chart, or open a saved one ---------- */
@@ -1605,13 +1824,19 @@ function paintFills(g) {
 }
 
 function paintTrades(g) {
-  const s = st.strat;
-  if (!s || !G.sshow.trades || !st.chart) return;
+  if (!st.chart) return;
+  const s = st.strat, me = mineOf();
+  if (s && G.sshow.trades) drawTrades(g, s.trades, s.sel, false);
+  if (me) drawTrades(g, me.trades, me.sel, true);
+}
+/** One list of trades: a line from entry to exit (dashed for a backtest, solid for your own), the
+    stop and target zones of the chosen or open trade, and its label. */
+function drawTrades(g, list, selI, mine) {
   const ts = st.chart.timeScale(), r = ts.getVisibleLogicalRange();
   if (!r) return;
   const now = nowT(), main = st.main;
   g.save();
-  for (const x of s.trades) {
+  for (const x of list) {
     if (x.et > now) break;
     const eb = indexOfTime(x.et);
     const isOpen = x.xt > now;
@@ -1621,7 +1846,7 @@ function paintTrades(g) {
     const live = isOpen ? openResult(x) : null;
     const y1 = main.priceToCoordinate(x.ep), y2 = main.priceToCoordinate(isOpen ? live.p : x.xp);
     if (x1 == null || x2 == null || y1 == null || y2 == null) continue;
-    const sel = s.sel === x.n - 1;
+    const sel = selI === x.n - 1;
     if (sel || isOpen) {
       const w = Math.max(8, x2 - x1);
       for (const [lvl, col] of [[x.stop, 'rgba(240,75,75,0.14)'], [x.tp, 'rgba(34,197,94,0.14)']]) {
@@ -1631,16 +1856,29 @@ function paintTrades(g) {
         g.fillRect(x1, Math.min(y1, y), w, Math.abs(y - y1));
       }
     }
+    if (mine && (fin(x.stop) || fin(x.tp))) {
+      const xr = Math.max(x2, x1 + 8);
+      g.lineWidth = sel ? 1.6 : 1.1;
+      g.setLineDash([3, 3]);
+      for (const [lvl, col] of [[x.stop, 'rgba(240,75,75,0.95)'], [x.tp, 'rgba(34,197,94,0.95)']]) {
+        const y = fin(lvl) ? main.priceToCoordinate(lvl) : null;
+        if (y == null) continue;
+        g.strokeStyle = col;
+        g.beginPath(); g.moveTo(x1, y); g.lineTo(xr, y); g.stroke();
+        if (sel) { g.font = '11px ' + getComputedStyle(document.body).fontFamily; g.fillStyle = col; g.fillText(`${lvl === x.stop ? 'SL' : 'TP'} ${fmt(lvl)}`, xr + 4, y + 4); }
+      }
+      g.setLineDash([]);
+    }
     g.strokeStyle = isOpen ? 'rgba(229,231,235,0.85)' : x.pnl >= 0 ? 'rgba(34,197,94,0.95)' : 'rgba(240,75,75,0.95)';
     g.lineWidth = sel ? 2.2 : 1.2;
-    g.setLineDash([5, 4]);
+    g.setLineDash(mine ? [] : [5, 4]);
     g.beginPath();
     g.moveTo(x1, y1);
     g.lineTo(x2, y2);
     g.stroke();
     g.setLineDash([]);
     if (sel) {
-      const text = `#${x.n} ${x.side > 0 ? 'Long' : 'Short'} ${isOpen ? `${live.ret >= 0 ? '+' : ''}${(live.ret * 100).toFixed(2)}% open` : tradeResult(x)}`;
+      const text = `${mine ? 'My ' : ''}#${x.n} ${x.side > 0 ? 'Long' : 'Short'} ${isOpen ? `${live.ret >= 0 ? '+' : ''}${(live.ret * 100).toFixed(2)}% open` : mine ? netText(x) : tradeResult(x)}`;
       g.font = '12px ' + getComputedStyle(document.body).fontFamily;
       const w = g.measureText(text).width + 12;
       const bx = (x1 + x2) / 2 - w / 2, by = Math.min(y1, y2) - 26;
@@ -1840,10 +2078,13 @@ function onChartClick(param) {
   if (!param.inMain) return;
   if (!G.tool) {
     // A click on a trade's entry or exit candle selects that trade.
-    const s = st.strat;
-    if (!s || !G.sshow.trades || param.logical == null) return;
+    if (param.logical == null) return;
     const j = Math.round(param.logical), now = nowT();
-    const hit = s.trades.find((x) => x.et <= now && (indexOfTime(x.et) === j || (x.xt <= now && indexOfTime(x.xt) === j)));
+    const at = (x) => x.et <= now && (indexOfTime(x.et) === j || (x.xt <= now && indexOfTime(x.xt) === j));
+    const s = st.strat, me = mineOf();
+    const mineHit = me && me.trades.find(at);
+    if (mineHit) { me.sel = mineHit.n - 1; paintMarkers(); if (st.layer) st.layer.redraw(); paintStrat(true); return; }
+    const hit = s && G.sshow.trades && s.trades.find(at);
     if (hit) { s.sel = hit.n - 1; paintMarkers(); if (st.layer) st.layer.redraw(); paintStrat(true); }
     return;
   }
@@ -1969,7 +2210,7 @@ function startReplay(cut, end = null) {
   if (ks.every((k, q) => k >= ps[q].ds.n)) { toast('That is after the last candle. Pick an earlier start.'); return; }
   if (ks.every((k) => k < 1)) { toast('That is before the first candle. Pick a later start.'); return; }
   const old = G.replay;
-  if (old) clearInterval(old.timer);
+  if (old) cancelAnimationFrame(old.timer);
   G.picking = null;
   G.replay = { cut, start: cut, end, playing: false, timer: null, speed: old ? old.speed : load('speed', 2), by: old ? old.by : load('by', 'bar') };
   hint('');
@@ -1995,7 +2236,7 @@ function stopReplay() {
   const r = G.replay;
   G.picking = null;
   if (r) {
-    clearInterval(r.timer);
+    cancelAnimationFrame(r.timer);
     G.replay = null;
     each(() => {
       st.pos = null;
@@ -2043,12 +2284,20 @@ function step(dir = 1) {
     if (!fin(cut) || ps.every((p) => kAt(p, cut) < 2)) return;
   }
   r.cut = cut;
-  each(() => {
-    moveTo(kAt(st, cut));
-    paintMarkers();
-    if (st.layer) st.layer.redraw();
-    legend(null);
-  }, ps);
+  for (const p of ps) on(p, () => { const k = kAt(st, cut); if (k !== st.K) { moveTo(k); p.dirty = true; } });   // a chart with nothing new isn't touched
+  uiSoon();
+}
+/* The legends, markers and panels follow the replay once per screen frame, however many steps that
+   frame had (several charts, fast speeds, a held arrow key). */
+let uiFrame = 0;
+function uiSoon() { if (!uiFrame) uiFrame = requestAnimationFrame(flushUi); }
+function flushUi() {
+  if (uiFrame) { cancelAnimationFrame(uiFrame); uiFrame = 0; }
+  for (const p of loaded()) {
+    if (!p.dirty) continue;
+    p.dirty = false;
+    on(p, () => { paintMarkers(); if (st.layer) st.layer.redraw(); legend(null); });
+  }
   paintReplayInfo();
   paintStrat();
 }
@@ -2057,18 +2306,30 @@ function play() {
   if (!r || r.playing) return;
   if ((r.end != null && r.cut >= r.end) || loaded().every((p) => p.K >= p.ds.n)) { toast('The replay is at the end. Pick an earlier start.'); return; }
   r.playing = true;
-  r.timer = setInterval(() => {
+  // In step with the screen: each frame takes the steps that are due at this speed (a slow frame skips
+  // ahead in time instead of queueing steps), then paints once.
+  const t0 = performance.now();
+  let done = 0;
+  const tick = (now) => {
+    if (G.replay !== r || !r.playing) return;
     if (!host || host.closest('[hidden]') || document.hidden) { pause(); return; }
-    step(1);
-  }, 1000 / r.speed);
+    const due = Math.floor(((now - t0) / 1000) * r.speed) - done;
+    const n = Math.min(due, 4);
+    for (let i = 0; i < n && r.playing; i++) step(1);
+    done += Math.max(0, due);
+    if (n) flushUi();
+    if (r.playing) r.timer = requestAnimationFrame(tick);
+  };
+  r.timer = requestAnimationFrame(tick);
   paintReplay();
 }
 function pause() {
   const r = G.replay;
   if (!r) return;
+  const was = r.playing;
   r.playing = false;
-  clearInterval(r.timer);
-  paintReplay();
+  cancelAnimationFrame(r.timer);
+  if (was) paintReplay();                                    // the Play button shows Play again
 }
 const nowPrice = () => st.ds.cols.c[st.K - 1];
 const nowMs = () => st.ds.cols.t[st.K - 1];
@@ -2180,6 +2441,7 @@ function click(el) {
       return;
     }
     case 'png': savePng(); return;
+    case 'mine': setMine(!G.mine); return;
     case 'full': setFull(!isFull()); return;
     case 'replay': if (G.replay || G.picking) stopReplay(); else if (loaded().length) startPicking(); return;
     case 'rpick': stopReplay(); startPicking(); return;
@@ -2207,6 +2469,9 @@ function click(el) {
     case 'snext': stepTrade(1); break;
     case 'sreport': if (st.strat) ctx.openReport(st.strat.R, st.strat.id); break;
     case 'sremove': removeStrat(); break;
+    case 'mtrade': { const me = mineOf(), i = Number(el.dataset.n); if (me && me.sel === i) { me.sel = -1; paintMarkers(); if (st.layer) st.layer.redraw(); paintStrat(true); } else focusMine(i); break; }
+    case 'mprev': stepMine(-1); break;
+    case 'mnext': stepMine(1); break;
     case 'sedit': G.menu = 'strat'; paintBar(); $('#lab-ch-smenu', host).scrollIntoView({ block: 'nearest' }); break;
     default: break;
   }

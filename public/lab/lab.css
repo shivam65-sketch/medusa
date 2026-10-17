@@ -492,3 +492,5 @@ html.lab-ch-locked, html.lab-ch-locked body { overflow: hidden; overscroll-behav
   .lab-ch.full .lab-ch-legend { font-size: 11px; }
 }
 @media (max-height: 500px) { .lab-ch.full .lab-ch-strat { display: none; } }   /* a phone on its side: every pixel for the candles */
+/* your journal trades on the chart */
+.lab-ch-medot { background: #38bdf8; margin: 0 6px 0 0; }

@@ -193,8 +193,13 @@ const chartContext = {
   store,
   log,
   datasets: () => S.datasets,
+  filesLoaded: () => Boolean(S.loaded),
   runs: () => S.runs,
   strategies: () => S.catalog.strategies,
+  /** The journal's closed trades (from the journal page, already in memory). */
+  myTrades: () => (app && app.trades ? app.trades() || [] : []),
+  /** The stop loss and take profit of your trades on one coin: {tradeId: [stop, target, filled]}. */
+  myLevels: (pair, mcur) => api('GET', `/api/levels?pair=${encodeURIComponent(pair)}&mcur=${encodeURIComponent(mcur || 'USDT')}`).then((r) => r.levels || {}),
   /** The Dashboard form's costs and money settings (a chart backtest uses them). */
   costs: () => { const f = S.form; return { fee_pct: f.fee_pct, slippage_pct: f.slippage_pct, capital: f.capital, sizing: f.sizing, risk_pct: f.risk_pct, notional_pct: f.notional_pct, max_leverage: f.max_leverage, fill: f.fill }; },
   fetchResult,
@@ -232,6 +237,10 @@ const chartContext = {
     go('dashboard');
   },
 };
+/** Shows one of the journal's trades on the Chart tab (the trade window's "Show on chart"). */
+export function showMyTrade(id) {
+  chartTab().then((c) => { c.showMine(id); go('chart'); }).catch(fail);
+}
 /** Shows a backtest result on the Chart tab. */
 function openOnChart(R, id) {
   chartTab().then((c) => { c.showResult(R, id || null); go('chart'); }).catch(fail);

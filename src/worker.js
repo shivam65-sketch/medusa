@@ -122,6 +122,39 @@ async function levels(env, uid, url) {
   return json({ sl: out(sl), tp: out(tp) });
 }
 
+/**
+ * The stop loss and take profit of every trade on one coin, for the Lab's chart: two queries in one
+ * round trip, then the same choice as levels() (the last one placed that was live while the trade was
+ * open), found by a short search per trade so it stays well inside the free plan's CPU time.
+ * Answer: {levels: {tradeId: [stop, target, 1 if the stop filled / 2 if the target filled / 0]}}.
+ */
+async function coinLevels(env, uid, url) {
+  const pair = url.searchParams.get('pair') || '', mcur = url.searchParams.get('mcur') || 'USDT';
+  if (!pair || pair.length > 60 || mcur.length > 10) return fail(400, 'Unknown coin.');
+  const [tr, tg] = await env.DB.batch([
+    env.DB.prepare('SELECT id, side, open_ts, close_ts FROM trades WHERE user_id = ? AND pair = ? AND mcur = ?').bind(uid, pair, mcur),
+    env.DB.prepare('SELECT side, kind, price, status, created_at, updated_at FROM triggers WHERE user_id = ? AND pair = ? AND mcur = ? ORDER BY created_at').bind(uid, pair, mcur),
+  ]);
+  const bySide = { buy: [], sell: [] };
+  for (const x of tg.results || []) if (bySide[x.side]) bySide[x.side].push(x);
+  const LOOK = 90 * DAY;                                     // an order placed more than 90 days before the trade isn't its stop
+  const out = {};
+  for (const t of tr.results || []) {
+    const list = bySide[t.side === 'long' ? 'sell' : 'buy'];
+    let a = 0, b = list.length;
+    while (a < b) { const m = (a + b) >> 1; if (list[m].created_at <= t.close_ts) a = m + 1; else b = m; }
+    let sl = null, tp = null;
+    for (let i = a - 1; i >= 0 && (!sl || !tp) && list[i].created_at >= t.open_ts - LOOK; i--) {
+      const x = list[i];
+      if (x.updated_at < t.open_ts) continue;
+      if (x.kind === 'sl' && !sl) sl = x;
+      else if (x.kind === 'tp' && !tp) tp = x;
+    }
+    if (sl || tp) out[t.id] = [sl ? sl.price : null, tp ? tp.price : null, sl && sl.status === 'filled' ? 1 : tp && tp.status === 'filled' ? 2 : 0];
+  }
+  return json({ levels: out });
+}
+
 async function runImport(env, uid) {
   try {
     return json(await importStep(env, uid, coindcx(await loadCreds(env, uid), env)));
@@ -273,7 +306,7 @@ async function route(req, env, url) {
     return json({ ok: true, coindcx: await credsInfo(env, uid) });
   }
   if (path === '/api/candles' && method === 'GET') return candles(url);
-  if (path === '/api/levels' && method === 'GET') return levels(env, uid, url);
+  if (path === '/api/levels' && method === 'GET') return url.searchParams.has('pair') ? coinLevels(env, uid, url) : levels(env, uid, url);
   if (path.startsWith('/api/lab/')) return labRoute(req, env, url, uid);
   if (path === '/api/logs') return logsRoute(req, env, url, uid);
   if (path === '/api/fx' && method === 'GET') return usdtInr();

@@ -21,6 +21,7 @@
     download: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 19.5h14"/>',
     close: '<path d="M6 6l12 12M18 6 6 18"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.01"/>',
+    chart: '<path d="M7 4v3M7 17v3M17 3v4M17 15v5"/><rect x="5" y="7" width="4" height="10" rx="1"/><rect x="15" y="7" width="4" height="8" rx="1"/>',
     calc: '<rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.5 6.5h7M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01M8.5 15h.01M12 15h.01M15.5 15h.01M8.5 18.5h.01M12 18.5h3.5"/>',
   };
   const icon = (name) => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
@@ -1233,7 +1234,7 @@
         <div class="box"><div class="chart" id="replay"><p class="dim">Loading the chart…</p></div></div>
         <label><span class="label">Notes</span><textarea class="input" id="note" placeholder="Why you took it, what happened, what you'd do again">${esc(t.note.notes || '')}</textarea></label>
       </div>
-      <div class="modal-foot"><button class="btn" data-action="whatif">${icon('calc')}Leverage what-if</button><span style="flex:1"></span>
+      <div class="modal-foot"><button class="btn" data-action="whatif">${icon('calc')}Leverage what-if</button><button class="btn" data-action="onchart" title="Open this trade on the Lab's chart, on a downloaded file of this coin">${icon('chart')}Show on chart</button><span style="flex:1"></span>
         <button class="btn" data-action="close">Close</button><button class="btn btn-green" data-action="save-note" id="save-note">Save note</button></div>`;
     showModal(m.innerHTML);
     drawReplay($('#replay'), t);
@@ -1597,6 +1598,7 @@
       case 'info': showInfo(el); break;
       case 'calc': openCalc(null); break;
       case 'whatif': openCalc(state.trades.find((x) => x.id === openId) || null); break;
+      case 'onchart': { const id = openId; closeTrade(); setView('lab:chart'); if (labLoad) labLoad.then((m) => { if (m && m.showMyTrade) m.showMyTrade(id); }); break; }
       case 'calc-side':
         calcSide = el.dataset.side;
         $$('[data-action="calc-side"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.side === calcSide)));
@@ -1778,7 +1780,7 @@
     css.href = '/lab/lab.css?v=8';
     document.head.appendChild(css);
     $('#lab').innerHTML = '<div class="loading">Opening the Lab…</div>';
-    labLoad = import('/lab/main.js?v=5')
+    labLoad = import('/lab/main.js?v=6')
       .then((m) => { m.mount($('#lab'), window.MedusaApp, tab); return m; })
       .catch((e) => {
         labLoad = null;
@@ -1960,6 +1962,7 @@
   // from one account can stay on screen for the next one.
   window.MedusaApp = {
     toast: showToast, showModal, closeModal: closeTrade, signedOut: () => location.reload(), log,
+    trades: () => state.trades,                       // the journal's closed trades (the Lab's chart draws them)
     fx: fxRate, onFx: (cb) => fxListeners.push(cb),
     navChanged: (key) => {
       if (!key.startsWith('lab:') || view !== 'lab') return;
