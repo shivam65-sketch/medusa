@@ -1,4 +1,78 @@
-# MEDUSA
+<p align="center">
+  <img src="public/medusa.svg" alt="MEDUSA logo" width="120" height="120">
+</p>
+<h1 align="center">MEDUSA</h1>
+<p align="center">A trading journal and backtesting lab that runs free on Cloudflare.<br>
+Version in <a href="public/version.json"><code>public/version.json</code></a> · every release in <a href="CHANGELOG.md">CHANGELOG.md</a></p>
+
+<p align="center"><img src="docs/images/journal.webp" alt="The journal: net P&L, win rate, profit factor, performance chart and advanced statistics" width="900"></p>
+
+## Screenshots
+
+The screenshots use a demo account with made-up trades placed on real Binance prices.
+
+| | |
+|---|---|
+| ![Trading calendar, P&L by coin and trade history](docs/images/journal-calendar.webp) | ![A backtest report in the Lab](docs/images/backtest-report.webp) |
+| **Journal:** trading calendar, P&L by coin and every trade | **Lab:** a backtest report, with warnings first |
+| ![Four charts side by side with indicators](docs/images/chart-four.webp) | ![A replay of a picked portion on two charts](docs/images/chart-replay.webp) |
+| **Chart:** four coins side by side, one timeframe | **Replay:** a picked portion, candle by candle, on every chart |
+| ![Your journal trades on the chart with stop loss and take profit](docs/images/chart-my-trades.webp) | <img src="docs/images/phone-journal.webp" alt="The journal on a phone" width="49%"> <img src="docs/images/phone-chart-full-screen.webp" alt="Two charts in full screen on a phone" width="49%"> |
+| **My trades:** your trades on the chart, with stop loss and take profit | **Phone:** the journal, and two charts in full screen |
+
+## How it fits together
+
+```mermaid
+flowchart LR
+  subgraph B["Your browser (phone or computer)"]
+    direction TB
+    J["Journal page<br>index.html · app.js · stats.js"]
+    subgraph L["MEDUSA Lab (loaded when opened)"]
+      direction TB
+      LM["main.js<br>dashboard · files · strategies"]
+      LD["data.js<br>Binance downloads · file format"]
+      LR["report.js · standalone.js · learn.js<br>reports · exported Python · guide"]
+      LC["chart.js + Lightweight Charts<br>1–4 charts · indicators · replay · my trades"]
+      LP["console.js · editor.js<br>Python tab"]
+      PY["py-worker.js → Pyodide (Python 3.14)<br>py/ engine · indicators · stats · strategies/"]
+    end
+  end
+
+  subgraph CF["Cloudflare (free plan)"]
+    direction TB
+    A["Static files<br>public/ (page, Lab, Pyodide)"]
+    W["Worker: src/worker.js (the API)<br>auth.js · vault.js · sync.js · trades.js<br>coindcx.js · lab.js · logs.js · logos.js"]
+    D[("D1 · SQLite<br>accounts · sessions · orders · trades<br>stop loss/take profit · notes · days<br>Lab file lists · results list · logs")]
+    K[("Workers KV · LAB<br>downloads/ · uploads/ · results/")]
+    S["Secret: ENCRYPTION_KEY<br>(passwords, 2-step, CoinDCX keys)"]
+    C["Cron (optional)<br>import every 30 minutes"]
+  end
+
+  subgraph X["Outside services"]
+    direction TB
+    CD["CoinDCX private API<br>read-only: futures orders,<br>position transactions"]
+    CP["CoinDCX public data<br>trade candles · USDT/INR"]
+    BN["Binance public data<br>candles · funding · monthly archives"]
+    LG["Coin logos<br>CoinCap · CoinGecko"]
+  end
+
+  B -->|"pages and scripts"| A
+  J -->|"/api/* (session cookie)"| W
+  L -->|"/api/lab/* · /api/levels"| W
+  LD -->|"candles, straight from the browser"| BN
+  LM -.->|"backtests run here"| PY
+  W --> D
+  W --> K
+  S -.->|"encrypts"| W
+  C --> W
+  W -->|"import (key decrypted only here)"| CD
+  W --> CP
+  W --> LG
+```
+
+**In short:** the page and the Lab are static files. Everything that needs your account goes through the Worker, which only ever reads your own rows in D1 and your own Lab files in KV. Your CoinDCX key is stored encrypted and only the Worker can decrypt it, and Medusa only reads your trade history with it. Backtests and charts run in your browser (Python with Pyodide), because the free plan gives the server only a few milliseconds per request. Candles come straight from Binance to your browser.
+
+## What it does
 
 A one-page trading journal that imports your closed CoinDCX futures trades: net P&L, win rate, profit factor, average win and loss, max drawdown, performance chart, advanced statistics, trading calendar, P&L by coin (with logos) and your trade history, with notes for each trade. Works on phone, tablet and computer.
 
@@ -159,4 +233,6 @@ The Lab's folders use Workers KV: 1 GB in total, 100,000 reads and 1,000 writes 
 - `schema.sql`: the database tables (for a new install)
 - `migrations/`: upgrading a single-password database to accounts (`001_accounts.sql`, then `claim.sql`); the Lab's tables (`002_lab.sql`, optional)
 - `wrangler.example.toml`: the Cloudflare settings, without anyone's ids; copy it to `wrangler.toml` (step 4)
+- `CHANGELOG.md`: every release and what changed in it (the current version is in `public/version.json`)
+- `docs/images/`: the screenshots in this README
 - `THIRD_PARTY_NOTICES.md`: the open-source software bundled with MEDUSA and its licences

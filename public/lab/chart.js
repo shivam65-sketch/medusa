@@ -1729,9 +1729,17 @@ function msToLogical(ms) {
   const i = indexOfTime(ms);
   return i + (ms - T[i]) / Math.max(1, T[i + 1] - T[i]);
 }
+/** The x of logical position L. The library has no x for a place to the right of the last candle
+    shown (a replay's future), so there it is counted on from that candle with the candle spacing. */
+function xOf(L) {
+  const ts = st.chart.timeScale(), last = st.shownTo;
+  if (last < 1 || L <= last) return ts.logicalToCoordinate(L);
+  const a = ts.logicalToCoordinate(last), b = ts.logicalToCoordinate(last - 1);
+  return a == null || b == null ? null : a + (L - last) * (a - b);
+}
 /** The x of a replay cut: the line just after the last candle it shows. */
 function cutX(ms) {
-  const x = st.chart.timeScale().logicalToCoordinate(msToLogical(ms) - 0.5);
+  const x = xOf(msToLogical(ms) - 0.5);
   return x == null ? null : Math.max(-10, Math.min(10000, x));
 }
 
@@ -1892,7 +1900,7 @@ function drawTrades(g, list, selI, mine) {
 }
 
 function xy(pt) {
-  const x = st.chart.timeScale().logicalToCoordinate(msToLogical(pt.t));
+  const x = xOf(msToLogical(pt.t));
   const y = st.main.priceToCoordinate(pt.p);
   return x == null || y == null ? null : [x, y];
 }
@@ -2287,6 +2295,13 @@ function step(dir = 1) {
   for (const p of ps) on(p, () => { const k = kAt(st, cut); if (k !== st.K) { moveTo(k); p.dirty = true; } });   // a chart with nothing new isn't touched
   uiSoon();
 }
+/** Keeps a replay's newest candle on screen (several steps in one frame can run past the right edge). */
+function follow() {
+  const r = st.chart && st.chart.timeScale().getVisibleLogicalRange();
+  if (!r || st.shownTo < 0) return;
+  const d = st.shownTo > r.to - 3 ? st.shownTo - (r.to - 12) : st.shownTo < r.from + 3 ? st.shownTo - (r.from + 30) : 0;
+  if (d) setRange({ from: r.from + d, to: r.to + d }, false);
+}
 /* The legends, markers and panels follow the replay once per screen frame, however many steps that
    frame had (several charts, fast speeds, a held arrow key). */
 let uiFrame = 0;
@@ -2296,7 +2311,7 @@ function flushUi() {
   for (const p of loaded()) {
     if (!p.dirty) continue;
     p.dirty = false;
-    on(p, () => { paintMarkers(); if (st.layer) st.layer.redraw(); legend(null); });
+    on(p, () => { follow(); paintMarkers(); if (st.layer) st.layer.redraw(); legend(null); });
   }
   paintReplayInfo();
   paintStrat();

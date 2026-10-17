@@ -3,6 +3,12 @@
 Every release of MEDUSA, newest first. The current version is in `public/version.json` (shown in the
 app's menu and on the sign-in page); each release adds a section here with the same number.
 
+## 1.2.1 (2026-10-18)
+
+- Chart: in a replay, the End line of the picked portion was drawn at the left edge, and so were drawings in the empty area right of the last candle; they now sit where they belong.
+- Chart: a replay always keeps its newest candle on screen, also when several steps come at once (a held arrow key).
+- README: the logo, screenshots of the app (a demo account) and a diagram of how MEDUSA fits together; the pictures are in `docs/images/`.
+
 ## 1.2.0 (2026-10-18)
 
 - Chart: **My trades** draws your journal trades on the chart's coin, like a backtest's trades, with a list under the chart; in a replay they appear as their time comes.

@@ -1,9 +1,9 @@
 {
-  "version": "1.2.0",
+  "version": "1.2.1",
   "date": "2026-10-18",
   "changes": [
-    "Chart: your journal trades on the chart (My trades, and Show on chart in each trade)",
-    "Chart: your stop loss and take profit on each of your trades, with their R",
-    "Chart: faster replay, also with four charts"
+    "Chart: in a replay the End line of the portion (and drawings in the empty area to the right) now sit in the right place",
+    "Chart: a replay always keeps its newest candle on screen",
+    "README: logo, screenshots and an architecture diagram"
   ]
 }
