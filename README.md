@@ -238,3 +238,13 @@ The Lab's folders use Workers KV: 1 GB in total, 100,000 reads and 1,000 writes 
 - `CHANGELOG.md`: every release and what changed in it (the current version is in `public/version.json`)
 - `docs/images/`: the screenshots in this README
 - `THIRD_PARTY_NOTICES.md`: the open-source software bundled with MEDUSA and its licences
+
+## Licence
+
+MEDUSA is free for personal, non-commercial use under the
+[PolyForm Noncommercial License 1.0.0](LICENSE) (SPDX: `PolyForm-Noncommercial-1.0.0`).
+Selling it, offering it as a paid service, or using it in a business needs
+my permission: contact me through GitHub.
+
+Third-party code bundled with MEDUSA keeps its own licence; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
