@@ -1,9 +1,11 @@
 {
-  "version": "1.2.1",
+  "version": "1.3.0",
   "date": "2026-10-18",
   "changes": [
-    "Chart: in a replay the End line of the portion (and drawings in the empty area to the right) now sit in the right place",
-    "Chart: a replay always keeps its newest candle on screen",
-    "README: logo, screenshots and an architecture diagram"
+    "Phone: the menu is a slim bar of icons; its button slides the full menu over the page when you need it",
+    "About MEDUSA (⋯ menu, or tap the version): the version, its release date, what's new and how your data is protected",
+    "Dev tools (in the menu, with the Logs as a tab): version check, speed, storage on this device, speed-ups, clean-up (clear the cache, temporary data, settings) and a diagnostic report",
+    "A newer version is noticed while MEDUSA is open, and a small bar offers to reload",
+    "Chart: the chosen trade's label sits above the candles instead of on them, and the legend folds to one line"
   ]
 }

@@ -147,6 +147,14 @@ export function mount(host, appApi, tab) {
 /** Called by the sidebar: show one of the Lab's pages. */
 export function goTab(tab) { if (root && TABS.some(([t]) => t === tab)) go(tab); }
 
+/** Dev tools: the Python engine's state, and stopping it to free memory (whatever needs it starts it again). */
+export const engineState = () => ({ state: engine.state, busy: Boolean(S.running) });
+export function stopEngine() {
+  if (S.running) return false;
+  engine.stop();
+  return true;
+}
+
 function go(tab, opts = {}) {
   S.tab = tab;
   store.set('tab', tab);

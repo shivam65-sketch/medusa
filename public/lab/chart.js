@@ -51,6 +51,8 @@ const IC = {
   flask: '<path d="M9.5 3.5h5M10.5 3.5v5.5l-5 8.6A1.6 1.6 0 0 0 6.9 20h10.2a1.6 1.6 0 0 0 1.4-2.4l-5-8.6V3.5"/><path d="M7.6 14.5h8.8"/>',
   shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
   me: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20.5a7 7 0 0 1 14 0"/>',
+  up: '<path d="m6 15 6-6 6 6"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
 };
 const LAYOUT_IC = {
@@ -436,6 +438,7 @@ const G = {
   picking: null,                 // choosing the replay portion: {a, b (cuts), h (under the pointer), fromStr, toStr}
   sform: null, sshow: null,      // the Strategy menu's choices, what of a backtest is drawn
   mine: false, wantMine: null,   // your journal trades shown; a journal trade waiting for the file list
+  legendMin: false,              // the legends folded to one line (so they don't cover the candles on a phone)
   menu: null,                    // the open toolbar menu ("ind" or "strat")
   running: false,
   pre: null,                     // a file or result asked for before the tab was first drawn
@@ -472,6 +475,7 @@ function restore() {
   G.sform = Object.assign({ strategy: 'turtle', params: {}, save: false }, load('sform', {}));
   G.sshow = Object.assign({ trades: true, lines: true, equity: false }, load('sshow', {}));
   G.mine = Boolean(load('mine', false));
+  G.legendMin = load('legendMin', null) ?? innerWidth <= 640;
 }
 
 export function paintChart(el, context) {
@@ -1630,7 +1634,8 @@ function legend(j) {
   const el = st.el && $('.lab-ch-legend', st.el);
   if (!el || !st.B) return;
   const r = st.row;
-  const head = `<div class="lab-ch-sym"><b>${esc(r.symbol)}</b> <span class="faint">· ${tfName(G.tf)} · ${esc(r.market === 'spot' ? 'Binance spot' : r.market === 'futures' ? 'Binance futures' : r.market)}</span>${G.replay ? ' <span class="lab-ch-rtag">REPLAY</span>' : ''}</div>`;
+  const fold = `<button class="lab-ch-lmin" type="button" data-ch="legend" title="${G.legendMin ? 'Show the prices and indicator values' : 'Fold this to one line'}" aria-label="${G.legendMin ? 'Show the legend' : 'Fold the legend'}">${ic(G.legendMin ? IC.down : IC.up)}</button>`;
+  const head = `<div class="lab-ch-sym">${fold}<b>${esc(r.symbol)}</b> <span class="faint">· ${tfName(G.tf)} · ${esc(r.market === 'spot' ? 'Binance spot' : r.market === 'futures' ? 'Binance futures' : r.market)}</span>${G.replay ? ' <span class="lab-ch-rtag">REPLAY</span>' : ''}</div>`;
   const pl = $('.lab-ch-plegs', st.el);
   if (!st.K) {
     el.innerHTML = `${head}<div class="lab-ch-time faint">This file has no candles yet at this point of the replay.</div>`;
@@ -1645,6 +1650,11 @@ function legend(j) {
   const prev = j > 0 ? st.B.C[j - 1] : bar.o;
   const ch = bar.c - prev, chp = prev ? (ch / prev) * 100 : 0;
   const tone = bar.c >= bar.o ? 'pos' : 'neg';
+  if (G.legendMin) {
+    el.innerHTML = `<div class="lab-ch-sym">${fold}<b>${esc(r.symbol)}</b> <span class="faint">· ${tfName(G.tf)}</span> <b class="${tone}">${fmt(shown.c)}</b> <span class="${tone}">${chp >= 0 ? '+' : ''}${chp.toFixed(2)}%</span>${G.replay ? ' <span class="lab-ch-rtag">REPLAY</span>' : ''}</div>`;
+    if (pl) for (const box of pl.children) box.innerHTML = '';
+    return;
+  }
   const vals = (g) => g.feeds.map((f) => `<b style="color:${f.color}">${f.fmt(done ? f.get(j, K, null, true) : f.get(j, K, bar, false))}</b>`).join(' ');
   const name = (g) => (g.key === 'splots' ? g.feeds.map((f) => f.name).join(' · ') : g.label);
   const inds = st.groups.filter((g) => g.pane === 0).map((g) => `<span><span class="faint">${esc(name(g))}</span> ${vals(g)}${removable(g) ? xBtn(g.key, name(g)) : ''}</span>`).join('');
@@ -1748,7 +1758,7 @@ class Layer {
   constructor(p) {
     this.views = [
       { zOrder: () => 'bottom', renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace(({ context: g, mediaSize }) => on(p, () => { paintPortion(g, mediaSize); paintFills(g); })) }) },
-      { zOrder: () => 'top', renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace(({ context: g, mediaSize }) => on(p, () => { paintEnd(g, mediaSize); paintTrades(g); paintDrawings(g, mediaSize); })) }) },
+      { zOrder: () => 'top', renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace(({ context: g, mediaSize }) => on(p, () => { paintEnd(g, mediaSize); paintTrades(g, mediaSize); paintDrawings(g, mediaSize); })) }) },
     ];
   }
   attached({ requestUpdate }) { this.update = requestUpdate; }
@@ -1831,15 +1841,15 @@ function paintFills(g) {
   }
 }
 
-function paintTrades(g) {
+function paintTrades(g, size) {
   if (!st.chart) return;
   const s = st.strat, me = mineOf();
-  if (s && G.sshow.trades) drawTrades(g, s.trades, s.sel, false);
-  if (me) drawTrades(g, me.trades, me.sel, true);
+  if (s && G.sshow.trades) drawTrades(g, s.trades, s.sel, false, size);
+  if (me) drawTrades(g, me.trades, me.sel, true, size);
 }
 /** One list of trades: a line from entry to exit (dashed for a backtest, solid for your own), the
     stop and target zones of the chosen or open trade, and its label. */
-function drawTrades(g, list, selI, mine) {
+function drawTrades(g, list, selI, mine, size) {
   const ts = st.chart.timeScale(), r = ts.getVisibleLogicalRange();
   if (!r) return;
   const now = nowT(), main = st.main;
@@ -1885,18 +1895,38 @@ function drawTrades(g, list, selI, mine) {
     g.lineTo(x2, y2);
     g.stroke();
     g.setLineDash([]);
-    if (sel) {
-      const text = `${mine ? 'My ' : ''}#${x.n} ${x.side > 0 ? 'Long' : 'Short'} ${isOpen ? `${live.ret >= 0 ? '+' : ''}${(live.ret * 100).toFixed(2)}% open` : mine ? netText(x) : tradeResult(x)}`;
-      g.font = '12px ' + getComputedStyle(document.body).fontFamily;
-      const w = g.measureText(text).width + 12;
-      const bx = (x1 + x2) / 2 - w / 2, by = Math.min(y1, y2) - 26;
-      g.fillStyle = 'rgba(17,17,17,0.85)';
-      g.fillRect(bx, by, w, 20);
-      g.fillStyle = '#fff';
-      g.fillText(text, bx + 6, by + 14);
-    }
+    if (sel) tradeLabel(g, x, { eb, xb, x1, x2, y1, y2, isOpen, live, mine }, size);
   }
   g.restore();
+}
+
+/** The chosen trade's label, above the candles it spans (below them when there's no room at the top),
+    so it never sits on a candle. In a replay only the candles shown so far count. */
+function tradeLabel(g, x, { eb, xb, x1, x2, y1, y2, isOpen, live, mine }, size) {
+  const main = st.main, K = st.K, F = st.B.first;
+  let hi = -Infinity, lo = Infinity;
+  for (let j = Math.max(0, eb); j <= Math.min(xb, st.shownTo); j++) {
+    const full = j < st.shownTo || K >= F[j + 1];
+    const b = full ? null : partial(j, K);
+    hi = Math.max(hi, full ? st.B.H[j] : b.h);
+    lo = Math.min(lo, full ? st.B.L[j] : b.l);
+  }
+  const ys = [y1, y2, hi, lo, x.stop, x.tp].map((v, q) => (q < 2 ? v : fin(v) ? main.priceToCoordinate(v) : null)).filter((v) => v != null);
+  const text = `${mine ? 'My ' : ''}#${x.n} ${x.side > 0 ? 'Long' : 'Short'} ${isOpen ? `${live.ret >= 0 ? '+' : ''}${(live.ret * 100).toFixed(2)}% open` : mine ? netText(x) : tradeResult(x)}`;
+  g.font = '11px ' + getComputedStyle(document.body).fontFamily;
+  const w = g.measureText(text).width + 12, h = 18;
+  let by = Math.min(...ys) - h - 8;
+  if (by < 4) by = Math.max(...ys) + 8;                      // no room above: under the candles instead
+  if (by + h > size.height - 4) by = 4;
+  const bx = Math.max(4, Math.min(size.width - w - 4, (x1 + x2) / 2 - w / 2));
+  const good = isOpen ? live.ret >= 0 : x.pnl >= 0;
+  g.fillStyle = 'rgba(17,17,17,0.6)';
+  g.fillRect(bx, by, w, h);
+  g.strokeStyle = good ? 'rgba(34,197,94,0.7)' : 'rgba(240,75,75,0.7)';
+  g.lineWidth = 1;
+  g.strokeRect(bx + 0.5, by + 0.5, w - 1, h - 1);
+  g.fillStyle = '#fff';
+  g.fillText(text, bx + 6, by + 12.5);
 }
 
 function xy(pt) {
@@ -2456,6 +2486,7 @@ function click(el) {
       return;
     }
     case 'png': savePng(); return;
+    case 'legend': G.legendMin = !G.legendMin; save('legendMin', G.legendMin); each(() => legend(null)); return;
     case 'mine': setMine(!G.mine); return;
     case 'full': setFull(!isFull()); return;
     case 'replay': if (G.replay || G.picking) stopReplay(); else if (loaded().length) startPicking(); return;

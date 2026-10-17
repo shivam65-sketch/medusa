@@ -26,7 +26,7 @@ The screenshots use a demo account with made-up trades placed on real Binance pr
 flowchart LR
   subgraph B["Your browser (phone or computer)"]
     direction TB
-    J["Journal page<br>index.html · app.js · stats.js"]
+    J["Journal page<br>index.html · app.js · stats.js<br>devtools.js (Dev tools, loaded when opened)"]
     subgraph L["MEDUSA Lab (loaded when opened)"]
       direction TB
       LM["main.js<br>dashboard · files · strategies"]
@@ -82,11 +82,13 @@ A one-page trading journal that imports your closed CoinDCX futures trades: net 
 - **Leverage calculator** (the calculator button, or **Leverage what-if** on a trade): what the same move would make at another leverage.
 - **(i)** next to each number says what it means. The greeting uses the name you gave when signing up (change it in **⋯ → Your name**).
 - **Accounts:** anyone with the link can create their own private account (name, email and password), then connects their own CoinDCX key. Each account only ever sees its own trades, notes and CoinDCX key. Optional two-step login with an authenticator app, and a recovery code for a forgotten password.
-- **Menu on the left:** Journal, the Lab's pages and Logs, as small icons with their names; **Collapse** shrinks it to icons only (hover an icon for its name). On a phone it is always the narrow icon bar.
+- **Menu on the left:** Journal, the Lab's pages and Dev tools, as small icons with their names; **Collapse** shrinks it to icons only (hover an icon for its name). On a phone it is a slim bar of icons; its button at the bottom slides the full menu over the page.
+- **About MEDUSA** (in the **⋯** menu, or tap the version under the menu): the version, when it was released, what's new, and how your data is protected.
 - **Market hours:** a strip under the header shows the markets that move crypto most (US stocks, CME Bitcoin futures, London, Frankfurt, India, Shanghai, Hong Kong, Seoul, Tokyo): open now, or when they open next, in your time (regular hours; holidays aren't included). Hover one for its hours.
 - **Your time zone everywhere:** dates and times in the journal, the Lab, the reports, the Logs and the guide are in your device's time zone.
 - **₹ INR** (top right): shows every USDT amount and price in rupees, at CoinDCX's live USDT/INR price (fetched by the Worker and cached for 5 minutes; shown next to the switch). Percentages and R multiples don't change. Works in the journal and the Lab; backtests still run in USDT.
-- **Logs** (in the menu): a short line for every action (imports, downloads, backtests, saves, deletes, errors), one folder per day in your time zone, kept on MEDUSA's server for your account only (up to 20,000 lines, the oldest go first). **Detailed logging** adds page changes and every request for debugging. Download a day as a text file, delete a day or all logs. Keys, passwords and codes are never written.
+- **Dev tools** (in the menu): the app's version and the newest on the server (a newer one is also noticed while MEDUSA is open, with a bar to reload), speed (the server's round trip and data centre, load times, memory, your connection, a live speed meter), speed-ups (get the Lab ready in the background, download the Python engine or libraries ahead of time), what this device stores for MEDUSA, clean-up (clear the cache, clear temporary data, reset settings, delete chart drawings, clear everything on this device; you stay signed in and your account isn't touched) and a diagnostic report without personal data.
+- **Logs** (a tab in Dev tools): a short line for every action (imports, downloads, backtests, saves, deletes, errors), one folder per day in your time zone, kept on MEDUSA's server for your account only (up to 20,000 lines, the oldest go first). **Detailed logging** adds page changes and every request for debugging. Download a day as a text file, delete a day or all logs. Keys, passwords and codes are never written.
 - **Nothing is saved twice:** repeating an action (the same download, upload, backtest result or strategy file, or a retried log line) finds what is already there instead of making a copy.
 - **MEDUSA Lab** (in the menu): download any coin's history from Binance (into MEDUSA or to your computer), backtest strategies written in Python with a full report, keep every result (exportable as CSV), add your own strategies, and read a Strategy guide that explains every strategy with charts of real trades. See [MEDUSA Lab](#medusa-lab) below.
 
@@ -218,10 +220,10 @@ The Lab's folders use Workers KV: 1 GB in total, 100,000 reads and 1,000 writes 
 
 ## Files
 
-- `public/`: the page (`index.html`, `app.js` (the journal, the menu, market hours, the INR switch and the Logs page), `stats.js`, icons)
+- `public/`: the page (`index.html`, `app.js` (the journal, the menu, market hours, the INR switch and the Logs), `devtools.js` (the Dev tools page, loaded when it is opened), `stats.js`, `version.json` (the release), icons)
 - `public/lab/`: MEDUSA Lab, loaded only when the Lab is opened: `main.js` (the tabs: dashboard, get data, files, strategies), `console.js` (the Python tab, loaded when opened), `chart.js` (the Chart tab, loaded when opened; `vendor/` holds its chart library), `data.js` (Binance downloads, files for your computer, reading uploads, the compressed file format), `report.js` (the report and its CSV export), `standalone.js` (a result's standalone Python code), `learn.js` (the Strategy guide), `util.js`, `lab.css`, `py-worker.js` (the Python engine thread), `py/` (the Python engine), `strategies/` (built-in strategies and `index.json`), `template.py` (the new-strategy template), `docs/` (Strategy guide pages, and `examples/` with the real trades their charts show), `pyodide/` (Python for the browser)
 - `src/lab.js`: the Lab's API: the Downloads, Uploads and Results folders (KV, listed in D1), free storage, and your strategy files
-- `src/worker.js`: the API; every query is limited to the signed-in account. Also `/api/fx` (CoinDCX's USDT/INR price)
+- `src/worker.js`: the API; every query is limited to the signed-in account. Also `/api/fx` (CoinDCX's USDT/INR price), `/api/ping` and `/api/clear-site-data` (for Dev tools)
 - `src/logs.js`: the Logs (table `app_logs`, created the first time it's used)
 - `src/auth.js`: accounts, sessions, two-step login, recovery codes, rate limits
 - `src/http.js`: small shared response helpers

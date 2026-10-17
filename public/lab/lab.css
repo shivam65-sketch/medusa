@@ -494,3 +494,9 @@ html.lab-ch-locked, html.lab-ch-locked body { overflow: hidden; overscroll-behav
 @media (max-height: 500px) { .lab-ch.full .lab-ch-strat { display: none; } }   /* a phone on its side: every pixel for the candles */
 /* your journal trades on the chart */
 .lab-ch-medot { background: #38bdf8; margin: 0 6px 0 0; }
+/* the legend's fold button (folded: one line, so it doesn't cover the candles) */
+.lab-ch-lmin { pointer-events: auto; display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 6px; padding: 0; border: 1px solid var(--border-2); border-radius: 5px; background: rgba(0,0,0,0.45); color: var(--text-2); vertical-align: -4px; cursor: pointer; }
+.lab-ch-lmin:hover, .lab-ch-lmin:focus-visible { color: #fff; border-color: var(--green-btn); }
+.lab-ch-lmin .ic { width: 13px; height: 13px; }
+.lab-ch-sym .pos { color: #4ade80; } .lab-ch-sym .neg { color: #f87171; }
+.lab-ch-sym { white-space: nowrap; }

@@ -60,6 +60,15 @@
     clearTimeout(LOG.timer);
     LOG.timer = setTimeout(() => flushLogs(), LOG.buf.length >= 30 ? 0 : 4000);
   }
+  const ERRORS = [];
+  function noteError(msg, where) {
+    ERRORS.push({ at: Date.now(), msg: String(msg || 'Error').slice(0, 300), where: where ? String(where).slice(0, 200) : '' });
+    if (ERRORS.length > 30) ERRORS.shift();
+    if (ERRORS.length <= 10) log('error', String(msg || 'Error').slice(0, 300), where ? { where } : null, 'error');
+  }
+  addEventListener('error', (e) => { if (e.message) noteError(e.message, e.filename ? `${e.filename.replace(location.origin, '')}:${e.lineno}` : ''); });
+  const signedOutError = (r) => { try { return r instanceof SignedOut; } catch { return false; } };   // (defined further down)
+  addEventListener('unhandledrejection', (e) => { const r = e.reason; if (!signedOutError(r) && !(r && r.stopped)) noteError(r && r.message ? r.message : String(r), 'promise'); });
   async function flushLogs(keepalive = false) {
     if (!LOG.on || !LOG.buf.length) return;
     const batch = LOG.buf.splice(0, 100);
@@ -1582,8 +1591,12 @@
     if (!el || el.disabled) return;
     switch (el.dataset.action) {
       case 'import': runImport(false); break;
-      case 'nav': setView(el.dataset.nav); if (matchMedia('(max-width: 700px)').matches) window.scrollTo({ top: 0 }); break;
-      case 'side': setSide(!$('#side').classList.contains('collapsed')); break;
+      case 'nav': setPhoneMenu(false); setView(el.dataset.nav); if (isPhone()) window.scrollTo({ top: 0 }); break;
+      case 'side': if (isPhone()) setPhoneMenu(!$('#side').classList.contains('open')); else setSide(!$('#side').classList.contains('collapsed')); break;
+      case 'about': setMenu(false); setPhoneMenu(false); openAbout(); break;
+      case 'reload': location.reload(); break;
+      case 'dev-tab': setView(`devtools:${el.dataset.tab}`); break;
+      case 'update-later': { const bar = $('#update-bar'); if (bar) bar.remove(); break; }
       case 'fx': setFx(!state.fx.on); break;
       case 'log-view': showLogDay(el.dataset.day); break;
       case 'log-dl': downloadLogDay(el.dataset.day); break;
@@ -1728,7 +1741,8 @@
     if (state.fx.on) loadFx(true).then((ok) => { if (!ok) state.fx.on = false; applyFx(); });
     const fromHash = (fallback) => {
       const h = location.hash.slice(1);
-      return h.startsWith('lab') ? `lab:${h.split('/')[1] || 'dashboard'}` : h === 'logs' ? 'logs' : h === 'journal' ? 'journal' : fallback;
+      if (h === 'logs' || h === 'devtools/logs') return 'devtools:logs';   // the Logs used to be a page of their own
+      return h.startsWith('lab') ? `lab:${h.split('/')[1] || 'dashboard'}` : h === 'devtools' ? 'devtools:tools' : h === 'journal' ? 'journal' : fallback;
     };
     const want = fromHash(store.get('view', 'journal'));
     if (want !== 'journal') setView(want, false);
@@ -1736,7 +1750,7 @@
     addEventListener('hashchange', () => setView(fromHash('journal')));   // a #lab/... link or the address bar
     if (!store.get('menuHint', false)) {                                   // once: where the pages went
       store.set('menuHint', true);
-      setTimeout(() => showToast('The Journal, the Lab’s pages (Dashboard, Get data, Files, Chart, Strategies, Python, Strategy guide) and Logs are in the menu on the left.', '', 10000), 1200);
+      setTimeout(() => showToast('The Journal, the Lab’s pages (Dashboard, Get data, Files, Chart, Strategies, Python, Strategy guide) and Dev tools (with the Logs) are in the menu on the left.', '', 10000), 1200);
     }
     if (importNow && state.hasKey) runImport(false);
   }
@@ -1746,6 +1760,7 @@
   let view = 'journal';
   let labTab = 'dashboard';
   let labLoad = null;
+  let devTab = 'tools';                                       // Dev tools' tab: tools or logs
   function markNav() {
     const key = view === 'lab' ? `lab:${labTab}` : view;
     $$('[data-nav]').forEach((b) => b.setAttribute('aria-current', b.dataset.nav === key ? 'page' : 'false'));
@@ -1753,34 +1768,55 @@
   function setView(v, save = true) {
     let tab = null;
     if (v.startsWith('lab:')) { tab = v.slice(4); v = 'lab'; }
-    view = v === 'lab' || v === 'logs' ? v : 'journal';
+    if (v === 'logs') v = 'devtools:logs';
+    if (v.startsWith('devtools:')) { devTab = v.slice(9) === 'logs' ? 'logs' : 'tools'; v = 'devtools'; }
+    view = v === 'lab' || v === 'devtools' ? v : 'journal';
     if (tab) labTab = tab;
     $('#app').dataset.view = view;
     $('#journal').hidden = view !== 'journal';
     $('#lab').hidden = view !== 'lab';
-    $('#logs').hidden = view !== 'logs';
-    if (save) store.set('view', view === 'lab' ? `lab:${labTab}` : view);
-    history.replaceState(null, '', view === 'journal' ? location.pathname + location.search : view === 'lab' ? `#lab/${labTab}` : '#logs');
+    $('#devtools').hidden = view !== 'devtools';
+    if (save) store.set('view', view === 'lab' ? `lab:${labTab}` : view === 'devtools' ? `devtools:${devTab}` : view);
+    history.replaceState(null, '', view === 'journal' ? location.pathname + location.search : view === 'lab' ? `#lab/${labTab}` : devTab === 'logs' ? '#devtools/logs' : '#devtools');
     markNav();
-    if (view !== 'lab') log('nav', view === 'logs' ? 'Logs' : 'Journal', null, 'debug');   // the Lab logs its own pages
+    if (view !== 'lab') log('nav', view === 'devtools' ? (devTab === 'logs' ? 'Logs' : 'Dev tools') : 'Journal', null, 'debug');   // the Lab logs its own pages
     if (view === 'lab') openLab(labTab);
-    else if (view === 'logs') openLogs();
+    else if (view === 'devtools') openDevtools();
     else if (state.loaded) render();
   }
+  /* On a phone the menu is a slim bar of icons; its button slides the full menu over the page (with a
+     shade behind it: a tap there, or picking a page, closes it). */
+  const isPhone = () => matchMedia('(max-width: 700px)').matches;
+  function setPhoneMenu(open) {
+    const side = $('#side');
+    if (side.classList.contains('open') === open) return;
+    side.classList.toggle('open', open);
+    $('#side-toggle').setAttribute('aria-expanded', String(open));
+    let shade = $('#side-shade');
+    if (open && !shade) {
+      shade = document.createElement('div');
+      shade.id = 'side-shade';
+      shade.className = 'side-shade';
+      shade.addEventListener('pointerdown', () => setPhoneMenu(false));
+      side.after(shade);
+    } else if (!open && shade) shade.remove();
+  }
+  addEventListener('resize', () => { if (!isPhone()) setPhoneMenu(false); });
   function setSide(collapsed) {
     $('#side').classList.toggle('collapsed', collapsed);
     $('#side-toggle').setAttribute('aria-expanded', String(!collapsed));
     $('#side-toggle').dataset.tip = collapsed ? 'Expand the menu' : 'Collapse the menu';
     store.set('side', collapsed);
   }
+  const LAB_JS = '/lab/main.js?v=7', LAB_CSS = '/lab/lab.css?v=10';
   function openLab(tab) {
     if (labLoad) { labLoad.then((m) => { if (m) m.goTab(tab); }); return; }
     const css = document.createElement('link');
     css.rel = 'stylesheet';
-    css.href = '/lab/lab.css?v=8';
+    css.href = LAB_CSS;
     document.head.appendChild(css);
     $('#lab').innerHTML = '<div class="loading">Opening the Lab…</div>';
-    labLoad = import('/lab/main.js?v=6')
+    labLoad = import(LAB_JS)
       .then((m) => { m.mount($('#lab'), window.MedusaApp, tab); return m; })
       .catch((e) => {
         labLoad = null;
@@ -1788,6 +1824,45 @@
         $('#lab').innerHTML = `<div class="banner"><div><b>The Lab couldn’t be opened.</b> ${esc(e.message)} Reload the page to try again.</div></div>`;
         return null;
       });
+  }
+
+  /* ---------- Dev tools (devtools.js, downloaded only when the page is opened) ---------- */
+  let devLoad = null;
+  function openDevtools() {
+    $$('[data-action="dev-tab"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tab === devTab)));
+    $('#logs').hidden = devTab !== 'logs';
+    $('#dev-tools').hidden = devTab !== 'tools';
+    if (devTab === 'logs') { openLogs(); return; }
+    const host = $('#dev-tools');
+    if (!devLoad) {
+      host.innerHTML = '<div class="loading">Opening Dev tools…</div>';
+      devLoad = import('/devtools.js?v=1').catch((e) => {
+        devLoad = null;
+        host.innerHTML = `<div class="banner"><div><b>Dev tools couldn’t be opened.</b> ${esc(e.message)} Reload the page to try again.</div></div>`;
+        return null;
+      });
+    }
+    devLoad.then((m) => { if (m && view === 'devtools' && devTab === 'tools') m.render(host, devApi); });
+  }
+  const devApi = {
+    release: () => release, errors: () => ERRORS.slice(), store, call, log, flushLogs, toast: showToast,
+    checkVersion: () => checkVersion(true), openAbout, preloadLab: () => preloadLab(true),
+    lab: () => labLoad, go: (v) => setView(v === 'logs' ? 'devtools:logs' : v),
+  };
+
+  /* Optional (Dev tools): once the journal has loaded and the browser is idle, fetch the Lab's and the
+     Chart's code, so they open at once. The Python engine still starts only in the Lab. */
+  function preloadLab(now = false) {
+    if ((!now && !store.get('preloadLab', false)) || labLoad) return;
+    const go = () => {
+      if (labLoad) return;
+      import(LAB_JS).then(() => import('/lab/chart.js')).catch(() => {});
+      const css = document.createElement('link');
+      css.rel = 'prefetch';
+      css.href = LAB_CSS;
+      document.head.appendChild(css);
+    };
+    if ('requestIdleCallback' in window) requestIdleCallback(go, { timeout: 8000 }); else setTimeout(go, 3000);
   }
 
   /* ---------- market hours (the strip under the header) ---------- */
@@ -1948,7 +2023,7 @@
   }
   async function deleteLogs(day) {
     const key = day || '*';
-    if (LOGV.armed !== key) { LOGV.armed = key; paintLogs(); setTimeout(() => { if (LOGV.armed === key) { LOGV.armed = null; if (view === 'logs') paintLogs(); } }, 4000); return; }
+    if (LOGV.armed !== key) { LOGV.armed = key; paintLogs(); setTimeout(() => { if (LOGV.armed === key) { LOGV.armed = null; if (view === 'devtools' && devTab === 'logs') paintLogs(); } }, 4000); return; }
     LOGV.armed = null;
     try {
       const r = await call('DELETE', day ? `/api/logs?day=${day}` : '/api/logs');
@@ -1974,15 +2049,69 @@
   };
 
   /** The release version, kept in one place (/version.json), shown in the menu and on the sign-in card. */
+  let release = null;
   function paintVersion() {
     fetch('/version.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).then((v) => {
       if (!v || !v.version) return;
+      release = v;
       for (const el of document.querySelectorAll('[data-version]')) {
         el.textContent = `v${v.version}`;
         el.title = `MEDUSA ${v.version}${v.date ? `, released ${v.date}` : ''}`;
         el.hidden = false;
       }
     }).catch(() => {});
+  }
+
+  /* A newer release is noticed while MEDUSA is open (every 30 minutes, and when you come back to it), and a
+     small bar offers to reload. It can be switched off in Dev tools. */
+  let versionAt = Date.now();
+  function checkVersion(force = false) {
+    if (!force && (!store.get('autoUpdate', true) || Date.now() - versionAt < 30 * 60_000)) return Promise.resolve(null);
+    versionAt = Date.now();
+    return fetch('/version.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((v) => {
+      if (v && v.version && release && v.version !== release.version && !force) showUpdate(v);
+      return v;
+    }).catch(() => null);
+  }
+  function showUpdate(v) {
+    let bar = $('#update-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'update-bar';
+      bar.className = 'update-bar';
+      bar.setAttribute('role', 'status');
+      document.body.appendChild(bar);
+    }
+    bar.innerHTML = `<span>MEDUSA ${esc(v.version)} is ready.</span><button class="btn btn-sm btn-green" data-action="reload">Reload</button><button class="btn btn-sm btn-icon" data-action="update-later" aria-label="Not now">${icon('close')}</button>`;
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkVersion(); });
+  setInterval(() => { if (!document.hidden) checkVersion(); }, 30 * 60_000);
+
+  /* ---------- About MEDUSA: the version, when it was released, what changed, and how your data is protected ---------- */
+  const SECURITY = [
+    ['Your CoinDCX key', 'encrypted with AES-256-GCM, tied to your account, and never sent back to the browser (only its last 4 characters are shown). The encryption key sits in Cloudflare’s secret store, not in the database.'],
+    ['Read-only by design', 'the key can only sign CoinDCX’s two trade-history calls. MEDUSA has no code that places, changes or cancels orders or moves money. Connecting or replacing the key asks for your password again.'],
+    ['Passwords', 'stored only as a salted PBKDF2-SHA256 hash (25,000 rounds) of a keyed HMAC, so a copy of the database can’t reveal or test them.'],
+    ['Sign-in', 'optional two-step login with an authenticator app (each code works once, the secret is stored encrypted), and a recovery code shown once.'],
+    ['Sessions', 'a random 256-bit token in an HttpOnly, Secure, SameSite=Strict cookie; only its SHA-256 is stored. Changing the password signs out every other device.'],
+    ['Guessing is slowed down', '10 wrong passwords per address or account in 15 minutes, 6 wrong two-step codes, 6 wrong recovery codes an hour, and limits on new accounts.'],
+    ['Your data stays yours', 'every database query is limited to the signed-in account; deleting the account removes its trades, notes, key, sessions and Lab files.'],
+    ['The page itself', 'a strict Content Security Policy (only MEDUSA’s own scripts), HTTPS everywhere (HSTS), no framing, no referrer, no sniffing, camera/microphone/location off, and changes are accepted only from MEDUSA’s own pages.'],
+    ['Backtests', 'your Python strategies run in your own browser, in a background thread with network access switched off.'],
+    ['No tracking or request logs', 'no analytics or third-party scripts, and Cloudflare’s request logging is off, so nothing you send is logged. The Logs (in Dev tools) never record keys, passwords or codes.'],
+  ];
+  function openAbout() {
+    const v = release || {};
+    const date = v.date ? new Date(`${v.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+    const li = (items) => `<ul>${items.map((x) => `<li>${x}</li>`).join('')}</ul>`;
+    showModal(`<div class="modal-head"><img class="logo" src="/medusa.svg" alt="" width="36" height="36"><h2 id="modal-title">About MEDUSA</h2><span style="flex:1"></span>
+        <button class="btn btn-icon" data-action="close" aria-label="Close">${icon('close')}</button></div>
+      <div class="modal-body">
+        <div><div class="big">${v.version ? `Version ${esc(v.version)}` : 'Version unknown'}</div><div class="dim">${date ? `Released ${esc(date)}` : ''}</div></div>
+        ${v.changes && v.changes.length ? `<div class="about-sec"><h3>New in this version</h3>${li(v.changes.map(esc))}</div>` : ''}
+        <div class="about-sec"><h3>How your data is protected</h3>${li(SECURITY.map(([k, d]) => `<b>${esc(k)}:</b> ${esc(d)}`))}</div>
+      </div>
+      <div class="modal-foot"><span style="flex:1"></span><button class="btn" data-action="close">Close</button></div>`);
   }
 
   async function start() {
@@ -2020,6 +2149,7 @@
     }
     state.account = session.account;
     openApp();
+    preloadLab();
   }
   start();
 })();

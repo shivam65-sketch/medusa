@@ -311,6 +311,17 @@ async function route(req, env, url) {
   if (path === '/api/logs') return logsRoute(req, env, url, uid);
   if (path === '/api/fx' && method === 'GET') return usdtInr();
 
+  // Dev tools: how far the server is (and which Cloudflare data centre answered), and clearing what this
+  // browser keeps for MEDUSA. Only the site's own response can ask a browser to clear that (Clear-Site-Data);
+  // it never includes cookies, so it doesn't sign you out.
+  if (path === '/api/ping' && method === 'GET') return json({ colo: (req.cf && req.cf.colo) || null, at: Date.now() });
+  if (path === '/api/clear-site-data' && method === 'POST') {
+    const want = (await readBody(req)).types;
+    const types = ['cache', 'storage'].filter((t) => Array.isArray(want) && want.includes(t));
+    if (!types.length) return fail(400, 'Nothing to clear.');
+    return json({ ok: true, cleared: types }, 200, { 'clear-site-data': types.map((t) => `"${t}"`).join(', ') });
+  }
+
   // Account and security.
   if (path === '/api/account' && method === 'GET') return json(await accountInfo(env, user));
   if (path === '/api/account' && method === 'DELETE') return deleteAccount(req, env, user);
