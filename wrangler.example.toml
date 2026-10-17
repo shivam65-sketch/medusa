@@ -1,0 +1,45 @@
+# Copy this file to wrangler.toml and put your own ids in it (README, steps 4 and 5).
+# wrangler.toml stays on your computer: .gitignore keeps it out of git.
+
+name = "medusa"
+main = "src/worker.js"
+compatibility_date = "2026-09-20"
+
+# Your app's link: https://medusa.<your-subdomain>.workers.dev
+workers_dev = true
+# Cloudflare's extra test link for every version stays off, so the link above is the only way in.
+preview_urls = false
+
+# The web page (HTML, JS, icons). Served by Cloudflare for free.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+# /docs/ (the Architecture guide PDF) goes through the Worker first, so only signed-in people get it.
+run_worker_first = ["/docs/*"]
+
+# The SQLite database. Replace the zeros with the database_id that
+# `npx wrangler@4 d1 create medusa` prints (step 4 in the README).
+[[d1_databases]]
+binding = "DB"
+database_name = "medusa"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+# MEDUSA Lab's candle files and saved backtest results (Workers KV: free, 1 GB). Replace the zeros
+# with the id that `npx wrangler@4 kv namespace create LAB` prints (README, "MEDUSA Lab").
+[[kv_namespaces]]
+binding = "LAB"
+id = "00000000000000000000000000000000"
+
+# Lab storage per account, and for all accounts together (KV's free plan holds 1 GB in total).
+[vars]
+LAB_QUOTA_MB = "300"
+LAB_TOTAL_MB = "950"
+
+# Request logs stay off, so nothing you send (like your CoinDCX key) is ever logged.
+[observability]
+enabled = false
+
+# Optional: import new trades every 30 minutes even while the app is closed.
+# Remove the # from the next two lines, then deploy again.
+# [triggers]
+# crons = ["*/30 * * * *"]

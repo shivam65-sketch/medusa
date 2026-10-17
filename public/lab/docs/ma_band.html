@@ -1,0 +1,46 @@
+<h1>Price vs moving average (with a band)</h1>
+<p class="lead">The textbook academic trading rule: be long while the price is more than 1% above its 50-candle average, short while more than 1% below. Tested on a century of stock data, and on high-frequency Bitcoin data, where it did better than any other classic rule.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Trend following</td></tr>
+    <tr><td>Candles</td><td>Any (the Bitcoin study used 1 minute)</td></tr>
+    <tr><td>Trades</td><td>Long and short, always holding the last signal</td></tr>
+    <tr><td>Sources</td><td>Brock, Lakonishok &amp; LeBaron, “Simple Technical Trading Rules and the Stochastic Properties of Stock Returns”, <i>Journal of Finance</i> (1992); Corbet, Eraslan, Lucey &amp; Sensoy, <a href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3454216" target="_blank" rel="noopener">“The effectiveness of technical trading rules in cryptocurrency markets”</a> (2019); Hudson &amp; Urquhart, “Technical trading and cryptocurrencies”, <i>Annals of Operations Research</i> (2021)</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea, and where it comes from</h2>
+<p>Brock, Lakonishok and LeBaron tested simple moving-average rules on 90 years of the Dow Jones and found they predicted returns. Their “variable-length moving average” rule compares a short average (1 = the price itself) with a long one, and acts only when the gap is bigger than a band, to skip whipsaws. Corbet and co-authors found that rule worked best of the classic rules on high-frequency Bitcoin data; Hudson and Urquhart tested almost 15,000 technical rules on cryptocurrencies and found significant predictability.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>Ratio = short average (1 candle = the close) ÷ 50-candle simple average − 1.</li>
+  <li>Ratio above +1% → be long; below −1% → be short; in between → keep the current position.</li>
+  <li>A move to the other side closes and reverses the position at the next open. No stop.</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="ma_band" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="ma_band" data-part="loss"></figure>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Short average</td><td>1</td><td>2–5 smooths the price a little.</td></tr>
+    <tr><td>Long average</td><td>50</td><td>The classic study also used 150 and 200.</td></tr>
+    <tr><td>Band</td><td>1%</td><td>0 = act on every cross; wider = fewer, later trades.</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>5-minute</td><td>0 of 2</td><td>3,176</td><td>−0.235% <span class="faint">(t −3.9)</span></td><td>−0.033% <span class="faint">(t −0.6)</span></td><td>−0.214%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>15-minute</td><td>0 of 7</td><td>19,856</td><td>−0.130% <span class="faint">(t −3.2)</span></td><td>+0.075% <span class="faint">(t +1.9)</span></td><td>−0.110%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>1-hour</td><td>0 of 7</td><td>8,416</td><td>+0.035% <span class="faint">(t +0.4)</span></td><td>+0.262% <span class="faint">(t +2.9)</span></td><td>+0.016%</td><td><span class="lab-verdict gross">Edge before costs only</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout warn">
+  <p>The papers were right that there is something here: on 1-hour candles the trades made a clear profit before costs. But costs took nearly all of it, and on 5-minute candles, the closest to the Bitcoin study, there was nothing left at all. In both papers trading costs were small or left out.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="ma_band">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="ma_band">View the Python code</button></div>

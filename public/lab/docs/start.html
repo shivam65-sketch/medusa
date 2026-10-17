@@ -1,0 +1,77 @@
+<h1>What is backtesting?</h1>
+<p class="lead">A backtest takes a set of trading rules and replays them on past prices, candle by candle, as if you had traded them back then. It tells you how the rules <em>would have</em> done, including fees, before you risk real money.</p>
+
+<div class="callout good">
+  <p><b>In one sentence:</b> write the rules down so precisely that a computer can follow them, let it trade years of history in seconds, and look hard at the result, especially at what could make it misleading.</p>
+</div>
+
+<h2>Candles: what the data looks like</h2>
+<p>Exchanges summarise prices in <b>candles</b>. Each candle covers a fixed slice of time (the <b>timeframe</b>: 1 minute, 1 hour, 4 hours, 1 day…) and records four prices plus the volume traded:</p>
+<svg class="diagram" viewBox="0 0 640 210" role="img" aria-label="Anatomy of a candle">
+  <line x1="120" y1="20" x2="120" y2="190" stroke="#22c55e" stroke-width="2"/>
+  <rect x="95" y="60" width="50" height="90" fill="#22c55e"/>
+  <text x="160" y="24">High: the highest price in that time</text>
+  <text x="160" y="64">Close: the last price (top, because the price rose)</text>
+  <text x="160" y="152">Open: the first price</text>
+  <text x="160" y="192">Low: the lowest price</text>
+  <line x1="420" y1="30" x2="420" y2="180" stroke="#f04b4b" stroke-width="2"/>
+  <rect x="395" y="55" width="50" height="95" fill="#f04b4b"/>
+  <text x="460" y="62">A red candle:</text>
+  <text x="460" y="80">it closed lower</text>
+  <text x="460" y="98">than it opened</text>
+  <text x="460" y="140">(open on top,</text>
+  <text x="460" y="158">close at the bottom)</text>
+</svg>
+<p>A 4-hour chart of BTC since 2019 is about 15,500 candles. A 1-minute chart of one year is about 525,000. More candles is not automatically better: small timeframes have more noise and much higher costs relative to each move (see the turtle on 1-minute candles in the <button class="link" data-lab="doc" data-doc="report">report guide</button>).</p>
+
+<h2>A strategy is a set of exact rules</h2>
+<p>“Buy when it looks cheap” is not a strategy. A strategy answers four questions without any judgement left over:</p>
+<ol class="rules">
+  <li><b>When do I enter?</b> For example: “when the 9-candle average crosses above the 21-candle average, buy at the next candle’s open”.</li>
+  <li><b>Where is my stop?</b> The price at which I admit I was wrong and get out, for example “2 × ATR below my entry”.</li>
+  <li><b>When do I take profit?</b> A target price, an opposite signal, or a time limit.</li>
+  <li><b>How much do I buy?</b> Usually so that hitting the stop loses a fixed share of the account, like 1%.</li>
+</ol>
+<p>Every built-in strategy in the Lab answers these four questions in a few lines of Python. Their pages (left) walk through real trades, number by number.</p>
+
+<h2>Risk in “R”: the one unit worth learning</h2>
+<p>Traders measure results in <b>R</b>, where <b>1R is what you lose if the first stop is hit</b>. If you risk $10 per trade and a trade makes $25, that trade made <b>+2.5R</b>. R lets you compare trades of different sizes and coins, and it makes the core arithmetic obvious:</p>
+<svg class="diagram" viewBox="0 0 640 230" role="img" aria-label="Entry, stop and targets measured in R">
+  <rect x="40" y="20" width="560" height="190" fill="#212121" stroke="#303030"/>
+  <line x1="60" y1="60" x2="580" y2="60" stroke="#22c55e" stroke-dasharray="6 4"/><text x="64" y="54" fill="#86efac">Target at +2R: the trade makes twice what it risked</text>
+  <line x1="60" y1="105" x2="580" y2="105" stroke="#3a3a3a" stroke-dasharray="3 3"/><text x="64" y="99">+1R</text>
+  <line x1="60" y1="150" x2="580" y2="150" stroke="#e4e4e7"/><text x="64" y="144">Entry</text>
+  <line x1="60" y1="195" x2="580" y2="195" stroke="#f04b4b" stroke-dasharray="6 4"/><text x="64" y="189" fill="#ff8a8a">Stop: −1R (the planned loss)</text>
+  <path d="M520 150 v-88" stroke="#22c55e" stroke-width="2" marker-end="none"/><text x="528" y="110" fill="#86efac">reward</text>
+  <path d="M520 150 v43" stroke="#f04b4b" stroke-width="2"/><text x="528" y="178" fill="#ff8a8a">risk</text>
+</svg>
+<p>With a 2R target you can lose two trades out of three and still break even before costs: one win of +2R pays for two losses of −1R. That is why a <b>low win rate is not a problem by itself</b>; what matters is the average trade in R after costs.</p>
+
+<h2>How a backtest runs</h2>
+<p>The engine walks forward one candle at a time. At each candle’s <b>close</b> your strategy sees every candle up to that one (never the next) and may place an order. The order fills at the <b>next candle’s open</b>, plus slippage and a fee. Inside each candle the engine checks whether the price touched your stop or target. When the data ends, it adds everything up into the report. The details are in <button class="link" data-lab="doc" data-doc="lab">How MEDUSA Lab works</button>.</p>
+
+<h2>Why a good backtest can still lose money</h2>
+<p>A backtest is an experiment, and experiments can fool you. These are the usual ways, roughly from most to least common:</p>
+<ul>
+  <li><b>Overfitting (curve fitting).</b> Try enough settings and one will look brilliant on the past purely by luck. Its future is the average of all the ones you threw away. Protect yourself with a <b>held-back date</b>: choose settings on the first part only, then check the second part once.</li>
+  <li><b>Costs.</b> Every trade pays a fee and slippage on the way in and out. Many strategies that look good “before costs” lose money after them (the report shows both). Funding on futures adds up when positions are held for days.</li>
+  <li><b>Too few trades.</b> 20 trades can be wildly lucky. Look for 100 or more, and an average trade whose <b>t-statistic</b> is about 2 or more.</li>
+  <li><b>Look-ahead bias.</b> A rule that accidentally uses a future price (for example tomorrow’s close) looks magical in a backtest and fails live. The Lab’s <b>Check</b> button tests every strategy file for this.</li>
+  <li><b>The market changed.</b> Crypto in 2021 and 2023 behaved very differently. A strategy that only worked in one year probably found that year, not an edge. Check the “By year” table.</li>
+  <li><b>You won’t trade it like the computer.</b> A 40% drawdown looks survivable on a chart and feels unbearable in real life.</li>
+</ul>
+
+<div class="callout warn">
+  <p><b>What our own research found.</b> Before the Lab existed, this project tested dozens of ideas on Binance data with held-back periods. Almost everything that looked good on the first part failed on the second, especially after costs. The one rule set that survived a strict one-shot test was the <button class="link" data-lab="doc" data-doc="turtle">Turtle breakout</button> on 4-hour candles across a wide basket of futures, and even that is a modest, bumpy edge. Expect most ideas to fail; that is normal and cheap here.</p>
+</div>
+
+<h2>A sensible way to work</h2>
+<ol>
+  <li>Write the idea down as exact rules (or pick a built-in strategy).</li>
+  <li>Download several years of data, and set a <b>held-back date</b> (for example the last 18 months).</li>
+  <li>Run it with realistic costs (the defaults are Binance futures taker fees). Read the warnings first.</li>
+  <li>Adjust settings using the first part only. Change one thing at a time and keep notes.</li>
+  <li>Look at the held-back part <b>once</b>. If it falls apart, the idea probably wasn’t real.</li>
+  <li>If it survives: test it on other coins and timeframes, then forward-test it (paper or tiny size) before trusting it.</li>
+</ol>
+<div class="row-btns"><button class="btn btn-green" data-lab="tab" data-tab="data">Get some data</button><button class="btn" data-lab="doc" data-doc="report">Next: reading the report</button></div>

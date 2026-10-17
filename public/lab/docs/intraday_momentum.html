@@ -1,0 +1,47 @@
+<h1>First half-hour momentum</h1>
+<p class="lead">If the session’s first half-hour went up, buy for its last half-hour; if it went down, sell. A famous academic finding in stocks, also reported in Bitcoin.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Intraday time-series momentum</td></tr>
+    <tr><td>Candles</td><td>1 hour or shorter (5–30 minutes is best)</td></tr>
+    <tr><td>Trades</td><td>One a day, held for the last half-hour</td></tr>
+    <tr><td>Sources</td><td>Gao, Han, Li &amp; Zhou, “Market Intraday Momentum”, <i>Journal of Financial Economics</i> (2018); Shen, Urquhart &amp; Wang, <a href="https://research.birmingham.ac.uk/en/publications/bitcoin-intraday-time-series-momentum/" target="_blank" rel="noopener">“Bitcoin Intraday Time Series Momentum”</a>, <i>Financial Review</i> (2022)</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea, and where it comes from</h2>
+<p>Gao and co-authors found that in US stock index funds the first half-hour’s return predicts the last half-hour’s: news and orders that arrive overnight are absorbed at the open, and traders who rebalance late in the day push the same way. Shen, Urquhart and Wang found that the first half-hour positively predicts the last half-hour in Bitcoin too, most strongly on high-volume, high-volatility days. They defined Bitcoin’s “trading day” using volume; this version uses a 24-hour clock session from 00:00 UTC.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>First window: from the session’s open to 30 minutes later (rounded up to whole candles). Its return = close at the end of the window ÷ session open − 1.</li>
+  <li>At the close of the candle that ends 30 minutes before the session’s end: return &gt; 0 → buy, &lt; 0 → sell, at the next open.</li>
+  <li>The position is closed at the session’s last close (the time exit).</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="intraday_momentum" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="intraday_momentum" data-part="loss"></figure>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Session start</td><td>0 (UTC)</td><td>13.5 uses the US stock day, where the effect was found.</td></tr>
+    <tr><td>First window</td><td>30 minutes</td><td>The signal period.</td></tr>
+    <tr><td>Trade window</td><td>30 minutes</td><td>How long the trade lasts at the end of the session.</td></tr>
+    <tr><td>Only if the first window moved at least</td><td>0%</td><td>Trade only after big first moves (the papers found those predict best).</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>5-minute</td><td>0 of 2</td><td>5,082</td><td>−0.199% <span class="faint">(t −29.1)</span></td><td>+0.002% <span class="faint">(t +0.3)</span></td><td>−0.208%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>15-minute</td><td>0 of 7</td><td>15,622</td><td>−0.199% <span class="faint">(t −34.4)</span></td><td>+0.001% <span class="faint">(t +0.2)</span></td><td>−0.194%</td><td><span class="lab-verdict none">No edge</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout warn">
+  <p>Before costs the trades averaged almost exactly zero, so with the midnight-UTC clock there was nothing to trade. The papers’ effect depends on a real open and close; try the 13:30 UTC session or the minimum-move filter, and judge it on a held-back period.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="intraday_momentum">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="intraday_momentum">View the Python code</button></div>

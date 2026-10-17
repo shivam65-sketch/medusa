@@ -1,0 +1,49 @@
+<h1>RSI(2) pullback (Larry Connors)</h1>
+<p class="lead">In an uptrend, buy when a 2-day RSI says the market is deeply oversold, and sell as soon as it bounces back above its 5-day average. One of the best-known short-term rules for stocks.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Short-term mean reversion within a trend</td></tr>
+    <tr><td>Candles</td><td>Daily (as designed); also tested on 4 hours</td></tr>
+    <tr><td>Trades</td><td>Long and short, held a few candles, no stop</td></tr>
+    <tr><td>Source</td><td>Larry Connors &amp; Cesar Alvarez, <i>Short Term Trading Strategies That Work</i> (2008)</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea</h2>
+<p>Connors found that in US stocks a very short RSI (2 days) below 10 inside a long-term uptrend (above the 200-day average) marks a pullback that usually bounces within days. The quick exit, a close back above the 5-day average, takes the bounce and leaves. He argued that stops hurt this kind of strategy, so the original has none.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li><b>Long:</b> close above the 200-candle simple average and RSI(2) below 10. <b>Short:</b> close below the 200 average and RSI(2) above 90.</li>
+  <li><b>Exit a long</b> when the close is back above the 5-candle average (a short, below it), at the next open.</li>
+  <li>No stop, no time limit (both can be added in the settings).</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="connors_rsi2" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="connors_rsi2" data-part="loss"></figure>
+<p>Without a stop, a short against a fast rally can lose a large share of the position before the exit rule fires.</p>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>RSI length</td><td>2</td><td>Longer RSIs give fewer, slower signals.</td></tr>
+    <tr><td>Buy below / short above</td><td>10 / 90</td><td>Connors found 5 / 95 worked better but trades less.</td></tr>
+    <tr><td>Trend filter average</td><td>200</td><td>0 = no trend filter.</td></tr>
+    <tr><td>Exit average</td><td>5</td><td>When the bounce is taken.</td></tr>
+    <tr><td>Stop / time exit</td><td>none</td><td>Optional protection.</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>daily</td><td>2 of 7</td><td>543</td><td>+0.594% <span class="faint">(t +0.7)</span></td><td>+0.803% <span class="faint">(t +1.0)</span></td><td>−0.357%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>4-hour</td><td>2 of 7</td><td>3,915</td><td>−0.067% <span class="faint">(t −1.1)</span></td><td>+0.137% <span class="faint">(t +2.3)</span></td><td>−0.263%</td><td><span class="lab-verdict gross">Edge before costs only</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout warn">
+  <p>A small edge before costs on 4-hour candles, nothing convincing after them, and negative since mid-2024. On daily candles the average trade looks positive but rests on too few trades to mean anything. Short-term pullbacks in stocks bounce; in crypto they keep falling too often.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="connors_rsi2">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="connors_rsi2">View the Python code</button></div>

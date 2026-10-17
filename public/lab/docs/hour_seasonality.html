@@ -1,0 +1,48 @@
+<h1>Bitcoin night hours (21:00–23:00 UTC)</h1>
+<p class="lead">Buy every day at 21:00 UTC and sell at 23:00 UTC. Quantpedia found that a big share of Bitcoin’s long-run gain happened in those two hours, when every major stock exchange is closed.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Time-of-day seasonality</td></tr>
+    <tr><td>Candles</td><td>1 hour or shorter</td></tr>
+    <tr><td>Trades</td><td>Long only, one a day, two hours each</td></tr>
+    <tr><td>Source</td><td>Padyšák &amp; Vojtko (Quantpedia), <a href="https://quantpedia.com/are-there-seasonal-intraday-or-overnight-anomalies-in-bitcoin/" target="_blank" rel="noopener">“Are There Seasonal Intraday or Overnight Anomalies in Bitcoin?”</a> (2022); paper “Seasonality, Trend-following, and Mean reversion in Bitcoin”</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea, and where it comes from</h2>
+<p>Looking at Bitcoin’s average return for each hour of the day from 2015 to 2022 (Gemini exchange), Quantpedia found the hours ending at 22:00 and 23:00 UTC had the largest and most significant gains. They report 33% a year for this two-hour strategy, with a 20.9% annual volatility and a −22.5% worst drawdown, with less risk than holding Bitcoin. Nobody has a solid explanation; New York has just closed and Asia hasn’t opened.</p>
+<p>The Days setting also lets you test other calendar ideas, such as the “Monday effect” reported in early Bitcoin research.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>At the close of the candle ending at 21:00 UTC, buy at the next open (21:00).</li>
+  <li>Sell at the close of the candle ending at 23:00 UTC (the time exit).</li>
+  <li>Long only, every day (or only the chosen days, by the UTC day of the buy).</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="hour_seasonality" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="hour_seasonality" data-part="loss"></figure>
+<p>Note the size of both: two hours of Bitcoin rarely moves more than a fraction of a percent, while every trade pays costs twice.</p>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Buy at</td><td>21 (UTC)</td><td>Any hour: test other times of day.</td></tr>
+    <tr><td>Sell at</td><td>23 (UTC)</td><td>The same hour as the buy holds for 24 hours.</td></tr>
+    <tr><td>Days</td><td>Every day</td><td>Weekdays, weekends or a single day.</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>1-hour</td><td>0 of 7</td><td>15,699</td><td>−0.115% <span class="faint">(t −10.1)</span></td><td>+0.085% <span class="faint">(t +7.5)</span></td><td>−0.139%</td><td><span class="lab-verdict gross">Edge before costs only</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout">
+  <p><b>The effect is real, and it is still there:</b> the strongest before-cost edge of every strategy tested here, on all 7 coins, and still clearly positive after mid-2024. Our own earlier research found the same drift on 15 other coins. But it averages less than 0.1% a trade, and a taker round trip costs about 0.2%, so after costs every coin lost. It could only pay with maker (limit) orders on both sides at 0.02% each and no slippage, and even then thinly. That needs a forward test with real orders, not more backtesting.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="hour_seasonality">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="hour_seasonality">View the Python code</button></div>

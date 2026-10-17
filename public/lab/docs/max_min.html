@@ -1,0 +1,50 @@
+<h1>Bitcoin 10-day high / low (Quantpedia MAX/MIN)</h1>
+<p class="lead">Buy Bitcoin for a day whenever it closes at its highest or lowest close of the last 10 days. Highs tend to keep going and lows tend to bounce, so both are buys.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Short-term trend + bounce, long only</td></tr>
+    <tr><td>Candles</td><td>Daily</td></tr>
+    <tr><td>Trades</td><td>Long only, one day at a time (kept while the signal repeats)</td></tr>
+    <tr><td>Source</td><td>Padyšák &amp; Vojtko (Quantpedia), <a href="https://quantpedia.com/?p=17895" target="_blank" rel="noopener">“Trend-following and Mean-reversion in Bitcoin”</a> (2022), re-checked by Quantpedia in <a href="https://quantpedia.com/revisiting-trend-following-and-mean-reversion-strategies-in-bitcoin/" target="_blank" rel="noopener">2024</a></td></tr>
+  </tbody>
+</table>
+
+<h2>The idea, and where it comes from</h2>
+<p>Quantpedia found that from 2015 to 2022 Bitcoin kept rising the day after it closed at a 10-day high (MAX, trend following), and also bounced the day after a 10-day low (MIN, mean reversion). Shorter lookbacks worked better than longer ones. Holding only on those days gave 98% a year with 48% volatility and a −38% worst drawdown. Their 2024 re-check found MAX still working after publication, while MIN had weakened since 2022.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>At each daily close: close ≥ the highest close of the last 10 days, or ≤ the lowest → buy at the next open.</li>
+  <li>Hold one day; if the next close is again a 10-day high or low, keep holding.</li>
+  <li>Long only, no stop.</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="max_min" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="max_min" data-part="loss"></figure>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Lookback</td><td>10</td><td>Quantpedia tested 10 to 50; 10 was best.</td></tr>
+    <tr><td>Buy at</td><td>both</td><td>MAX only (trend) or MIN only (bounce).</td></tr>
+    <tr><td>Hold</td><td>1 candle</td><td>Days held after the last signal.</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>daily</td><td>7 of 7</td><td>2,710</td><td>+0.892% <span class="faint">(t +4.4)</span></td><td>+1.151% <span class="faint">(t +5.7)</span></td><td>+0.488%</td><td><span class="lab-verdict works">Profitable after costs</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<p><b>On 28 coins it had never seen</b> (every other coin with data: ADA, AVAX, LINK, NEAR, SUI, TAO … same settings, run once): 16 of 28 in profit, 6,822 trades, average +0.379% after costs (t +3.2), +0.622% before costs.</p>
+<div class="callout good">
+  <p><b>It passed:</b> profitable after costs on all 7 coins, still positive since mid-2024, and again on 28 coins it had never seen (16 of 28 in profit).</p>
+</div>
+<div class="callout warn">
+  <p><b>But be clear what it is.</b> It is long only, and crypto rose a lot over this period, so much of the profit is just being long. Compared with an average day for the same coin, its days were better by +0.43% on the 7 test coins (t 2.1), but only +0.15% (t 1.3, not significant) on the 28 fresh coins. It lost in 2022’s bear market. Treat it as a smarter way of being long crypto, with buy-and-hold-sized drawdowns at full size, not as a market-neutral edge.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="max_min">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="max_min">View the Python code</button></div>

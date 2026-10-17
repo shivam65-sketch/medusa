@@ -1,0 +1,47 @@
+<h1>Follow an abnormal day (Caporale &amp; Plastun)</h1>
+<p class="lead">After a day with an unusually big move, bet that the next day moves the same way.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Short-term momentum after extreme days</td></tr>
+    <tr><td>Candles</td><td>Daily</td></tr>
+    <tr><td>Trades</td><td>Long and short, one day each</td></tr>
+    <tr><td>Source</td><td>Caporale &amp; Plastun, <a href="https://econpapers.repec.org/paper/diwdiwwpp/dp1718.htm" target="_blank" rel="noopener">“Momentum effects in the cryptocurrency market after one-day abnormal returns”</a>, <i>Financial Markets and Portfolio Management</i> (2020)</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea, and where it comes from</h2>
+<p>Studying Bitcoin, Ethereum and Litecoin from 2015 to 2019, Guglielmo Maria Caporale and Alex Plastun found that prices keep moving in the direction of an abnormal day’s return, both during that day and on the next, enough for a profitable trading rule. Not always: after Bitcoin’s big up days and Ethereum’s big down days they found a reversal instead. An abnormal day is one whose return lies beyond the recent average return ± k standard deviations.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>Average and standard deviation of daily returns over the previous 30 days.</li>
+  <li>Today’s return above the average + 2 standard deviations → buy at the next open; below the average − 2 → sell short.</li>
+  <li>Close after one day.</li>
+</ol>
+<p class="faint small">The 30 days and k = 2 are our choices; the paper tested several.</p>
+
+<h2>A winning trade</h2>
+<figure data-example="abnormal_momentum" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="abnormal_momentum" data-part="loss"></figure>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Average over</td><td>30 days</td><td>What counts as normal.</td></tr>
+    <tr><td>Abnormal beyond</td><td>2 standard deviations</td><td>Lower: more, smaller signals.</td></tr>
+    <tr><td>Hold</td><td>1 day</td><td>How long to follow the move.</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>daily</td><td>2 of 7</td><td>972</td><td>−0.011% <span class="faint">(t −0.0)</span></td><td>+0.246% <span class="faint">(t +0.8)</span></td><td>+0.209%</td><td><span class="lab-verdict none">No edge</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout warn">
+  <p>Slightly positive before costs but far from significant, and about zero after them. The paper itself found the effect reversing on some coins; on 2019–2026 data it was too weak to trade.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="abnormal_momentum">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="abnormal_momentum">View the Python code</button></div>

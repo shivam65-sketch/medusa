@@ -1,0 +1,92 @@
+<h1>EMA crossover</h1>
+<p class="lead">Buy when a fast moving average crosses above a slow one, sell short when it crosses below. It is the classic way to try to catch the start of a trend, and these are the exact rules MEDUSA’s demo trading bot uses.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Short-term trend following</td></tr>
+    <tr><td>Trades</td><td>Long and short (long only on spot)</td></tr>
+    <tr><td>Entry</td><td>EMA 9 crosses EMA 21, at the next candle’s open</td></tr>
+    <tr><td>Exit</td><td>Stop 2 × ATR, target 4 × ATR (= 2R), or after 24 candles</td></tr>
+    <tr><td>On BTC 4h, 2019–2026</td><td>425 trades (about 60 a year), 44% winners, held 15 candles (2½ days) on average</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea</h2>
+<p>A moving average smooths the price so you can see its direction. A <b>fast</b> average (few candles) follows the price closely; a <b>slow</b> one (more candles) lags behind. When the price starts rising, the fast average turns up first and crosses above the slow one. The strategy treats that moment as “a new up-trend may be starting” and buys; the mirror image (fast crosses below slow) is a short.</p>
+<p>The weakness is built in: averages lag, so the cross comes <i>after</i> part of the move, and in a sideways market the two lines cross back and forth, producing a string of small losses (“whipsaws”). The fixed target and the time limit keep trades short, so the strategy needs many small wins to pay for those.</p>
+
+<h2>The ingredients</h2>
+<h3>EMA: exponential moving average</h3>
+<p>Each new value moves part of the way from the previous average towards the latest close:</p>
+<pre>k = 2 / (n + 1)                    n = 9  →  k = 0.2
+EMA today = close × k + EMA yesterday × (1 − k)</pre>
+<p>Example with n = 9: yesterday’s EMA was 100 and today’s close is 110. Today’s EMA = 110 × 0.2 + 100 × 0.8 = <b>102</b>. A jump in price moves the 9-EMA a fifth of the way, and the 21-EMA (k ≈ 0.09) less than a tenth of the way, which is why the fast one crosses first.</p>
+<h3>ATR: average true range</h3>
+<p>The <b>true range</b> of a candle is its high minus its low, stretched to include any gap from the previous close. <b>ATR(14)</b> is its average over 14 candles (smoothed with an EMA here, like the bot). If BTC’s 4-hour candles typically span $700, ATR ≈ 700, and a stop 2 × ATR away sits $1,400 from the entry: far enough that normal wiggles don’t hit it, close enough to cap the loss. In quiet markets the stop tightens automatically; in wild ones it widens.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>At each candle’s close, compute EMA(9) and EMA(21) of the closes, and ATR(14).</li>
+  <li><b>Long:</b> if EMA 9 is above EMA 21 now, and was at or below it one candle earlier, buy at the next candle’s open.</li>
+  <li><b>Short:</b> the mirror image (EMA 9 crosses below EMA 21).</li>
+  <li><b>Stop:</b> 2 × ATR from the entry price. <b>Target:</b> 4 × ATR from the entry (twice the stop distance, so a win is +2R before costs).</li>
+  <li><b>Time exit:</b> if neither is hit after 24 candles, close at that candle’s close.</li>
+  <li>Only one trade at a time; crosses while a trade is open are ignored, unless “Also exit on the opposite cross” is on: then the trade is closed and one in the new direction opened, at the same open.</li>
+</ol>
+
+<h2>A winning trade, step by step</h2>
+<p>A real trade from Binance BTCUSDT futures on 4-hour candles, with the default settings and costs. Hover the chart to read any candle.</p>
+<figure data-example="ema_cross" data-part="win"></figure>
+<p>Notice the target: it was only 4 × ATR away, so the trade closed with a solid +1.86R (the full +2R minus costs). Had the trend run much further, the strategy would not have followed it.</p>
+
+<h2>A losing trade</h2>
+<figure data-example="ema_cross" data-part="loss"></figure>
+<p>This is the typical loss: the averages crossed after a sharp jump, the strategy bought near the top of that jump, and the price fell back through the stop within four candles. Losses land at about −1.08R rather than −1R because fees and slippage are paid on both the entry and the exit.</p>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Fast EMA / Slow EMA</td><td>9 / 21</td><td>Bigger numbers: fewer, later signals that follow bigger trends and whipsaw less. Smaller: earlier signals but many more false ones.</td></tr>
+    <tr><td>ATR length</td><td>14</td><td>How many candles the “typical range” averages over. Longer is steadier.</td></tr>
+    <tr><td>Stop (× ATR)</td><td>2.0</td><td>Wider stops get hit less often but each loss is the same 1R in money (the position shrinks), so wider stops mean smaller positions.</td></tr>
+    <tr><td>Target (× ATR)</td><td>4.0</td><td>Higher targets win less often but bigger. 0 removes the target and lets the stop, the time exit or the opposite cross end the trade.</td></tr>
+    <tr><td>Time exit after candles</td><td>24</td><td>Closes trades that go nowhere. 0 turns it off.</td></tr>
+    <tr><td>Also exit on the opposite cross</td><td>off</td><td>On: a cross the other way closes the trade at the next open and opens one in the new direction (with long only, it just closes).</td></tr>
+    <tr><td>Trade direction</td><td>both</td><td>Long only often does better in crypto, which rose over the long run.</td></tr>
+  </tbody>
+</table>
+
+<h2>When it works, and when it doesn’t</h2>
+<ul>
+  <li><b>Works:</b> markets that make clean, sustained moves after a turn, on timeframes where each move is large compared with trading costs.</li>
+  <li><b>Fails:</b> sideways, choppy markets (the averages keep crossing) and sharp V-shaped reversals (the cross comes after the move is over).</li>
+</ul>
+
+<h2>What our research found</h2>
+<h3>The 7-coin test (Oct 2026)</h3>
+<p>The same test as every other built-in strategy: default settings, 1-hour and 4-hour candles, 7 coins, after costs.</p>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>1-hour</td><td>1 of 7</td><td>11,070</td><td>−0.122% <span class="faint">(t −3.8)</span></td><td>+0.077% <span class="faint">(t +2.4)</span></td><td>−0.167%</td><td><span class="lab-verdict gross">Edge before costs only</span></td></tr><tr><td>4-hour</td><td>5 of 7</td><td>2,664</td><td>+0.199% <span class="faint">(t +1.6)</span></td><td>+0.399% <span class="faint">(t +3.1)</span></td><td>−0.042%</td><td><span class="lab-verdict gross">Edge before costs only</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<h3>Earlier tests</h3>
+<div class="callout warn">
+  <p><b>BTC 4h, Sep 2019 – Oct 2026 (trading starts after the warm-up), default settings, with fees, slippage and real funding:</b> 425 trades, 44% winners, <b>+9.1%</b> in seven years (buy and hold: +741%), worst drawdown 28.6%. Before costs the same trades made +48.7%. The average trade was +0.03R with t = 0.47: no evidence of an edge.</p>
+  <p><b>Earlier research on the demo bot’s settings (1-hour candles, BTC, ETH, SOL, BNB and PEOPLE):</b> 8,090 trades lost −546R after costs, although they made +395R before costs. Costs were about 0.12R per trade, more than the signal’s edge, and all nine neighbouring EMA pairs (7–11 against 17–25) lost too.</p>
+  <p>So the crossover has a small edge before costs that the costs more than eat on short timeframes. Treat it as a learning example and a starting point, not a money-maker.</p>
+</div>
+
+<h2>Ideas to explore</h2>
+<ul>
+  <li>Test it on <b>1d</b> candles, where each trend move is much larger than the costs.</li>
+  <li>Set the target to 0, turn on “exit on the opposite cross” and the time exit to 0: a pure trend follower that lets winners run.</li>
+  <li><b>Long only</b>, and in your own copy, only buy when the price is above its 200-candle EMA (a trend filter).</li>
+  <li>Whatever you try, set a held-back date first and judge only the first part while tuning.</li>
+</ul>
+
+<h2>Common mistakes</h2>
+<ul>
+  <li>Tuning the two lengths until the backtest looks great: with only two numbers to turn you can still fit the past. Check the neighbours of your favourite setting; if they are much worse, the favourite is luck.</li>
+  <li>Ignoring costs: on 1-minute to 1-hour candles they dominate this strategy.</li>
+</ul>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="ema_cross">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="ema_cross">View the Python code</button></div>

@@ -1,0 +1,14 @@
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+backups/
+
+# Your own Cloudflare settings (your database and storage ids) stay on this computer.
+# A new install copies wrangler.example.toml to wrangler.toml (README, step 4).
+wrangler.toml
+
+# The Architecture guide PDF names the live app's address, so it isn't published either.
+public/docs/

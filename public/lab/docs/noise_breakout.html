@@ -1,0 +1,50 @@
+<h1>Noise-area breakout</h1>
+<p class="lead">Work out how far the price normally wanders from the session’s open by each time of day. Inside that “noise area” do nothing; when the price breaks out of it, trade the breakout and trail the stop.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Intraday momentum with a trailing stop</td></tr>
+    <tr><td>Candles</td><td>1 to 30 minutes</td></tr>
+    <tr><td>Trades</td><td>Long and short, checked every 30 minutes, flat at the session’s end</td></tr>
+    <tr><td>Source</td><td>Zarattini, Aziz &amp; Barbon, <a href="https://concretumgroup.com/beat-the-market-an-effective-intraday-momentum-strategy-for-sp500-etf-spy/" target="_blank" rel="noopener">“Beat the Market: An Effective Intraday Momentum Strategy for S&amp;P500 ETF (SPY)”</a> (2024)</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea, and where it comes from</h2>
+<p>Most intraday price movement is noise. The paper measures it: for each minute of the day, the average absolute move from the day’s open over the last 14 days. Those averages drawn around today’s open form a widening band, the noise area. A price outside it suggests real buying or selling pressure. On SPY from 2007 to early 2024 the authors report 1,985% after costs, 19.6% a year, Sharpe 1.33 (they also size positions by volatility, which this version doesn’t; the Lab’s own sizing is used). It won 4th place in the 2025 Quantpedia Awards.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>For each time slot of the session: σ = the average of |close ÷ session open − 1| at that slot over the previous 14 sessions (at least 7 must exist).</li>
+  <li>Upper band = max(session open, previous session’s close) × (1 + σ); lower band = min(…) × (1 − σ).</li>
+  <li>Only on candles closing at a half hour (HH:00, HH:30): close above the upper band → long; below the lower band → short.</li>
+  <li>Trailing stop, checked at the same times: a long exits when the close falls below the higher of the upper band and the VWAP; a short mirrors it. It can reverse at once if the close is beyond the other band.</li>
+  <li>Everything is closed at the session’s end.</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="noise_breakout" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="noise_breakout" data-part="loss"></figure>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Session start</td><td>0 (UTC)</td><td>Where the bands start from. 13.5 = the US stock open.</td></tr>
+    <tr><td>Average over the last</td><td>14 sessions</td><td>Longer: steadier bands that adapt more slowly.</td></tr>
+    <tr><td>Band width</td><td>1.0</td><td>Wider: only bigger breakouts trade.</td></tr>
+    <tr><td>Check every</td><td>30 minutes</td><td>More often reacts faster but trades on more noise.</td></tr>
+    <tr><td>Trail the stop at the VWAP too</td><td>on</td><td>Off: the stop is only the band.</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>5-minute</td><td>0 of 2</td><td>8,675</td><td>−0.192% <span class="faint">(t −10.3)</span></td><td>+0.008% <span class="faint">(t +0.4)</span></td><td>−0.199%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>15-minute</td><td>0 of 7</td><td>44,841</td><td>−0.199% <span class="faint">(t −18.3)</span></td><td>+0.002% <span class="faint">(t +0.2)</span></td><td>−0.189%</td><td><span class="lab-verdict none">No edge</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout warn">
+  <p>On crypto the breakouts showed no follow-through even before costs: about zero a trade. SPY has a real open and close and dealer hedging flows that crypto lacks; the midnight-UTC session here is an arbitrary line.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="noise_breakout">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="noise_breakout">View the Python code</button></div>

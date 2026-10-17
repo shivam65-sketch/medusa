@@ -1,0 +1,59 @@
+<h1>VWAP trend</h1>
+<p class="lead">Be long while the price is above the day’s volume-weighted average price, short while it is below, and flat when the day ends. The simplest intraday trend-following rule there is, made famous by a 2023 paper that claimed huge returns on US stocks.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Intraday trend following</td></tr>
+    <tr><td>Candles</td><td>1 to 15 minutes</td></tr>
+    <tr><td>Trades</td><td>Long and short, many a day, always flat at the session’s end</td></tr>
+    <tr><td>Source</td><td>Zarattini &amp; Aziz, <a href="https://ssrn.com/abstract=4631351" target="_blank" rel="noopener">“VWAP: The Holy Grail for Day Trading Systems”</a> (2023)</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea, and where it comes from</h2>
+<p>The <b>VWAP</b> is the average price paid for every coin traded so far today, each trade weighted by its size. Big funds use it as their yardstick, so a price above the VWAP means today’s buyers are in profit and in control; below it, the sellers are. Carlo Zarattini and Andrew Aziz tested the bluntest possible use of that on the Nasdaq-100 fund QQQ with 1-minute candles: long above the VWAP, short below, reverse on every cross. They reported a 671% return from 2018 to 2023 with a 9.4% worst drawdown.</p>
+<p>Crypto has no opening bell, so here a session is a 24-hour day starting at 00:00 UTC (you can move it, for example to 13:30 UTC, the US stock market open).</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>The VWAP restarts at each session’s start: typical price (high + low + close) ÷ 3, weighted by volume.</li>
+  <li>From the session’s second candle on, at each close: <b>above the VWAP</b> → be long; <b>below</b> → be short. Orders fill at the next open.</li>
+  <li>On every cross, the position is closed and reversed.</li>
+  <li>At the session’s last candle the position is closed (fills at the next session’s first open).</li>
+  <li>No stop and no target in the original; the opposite cross is the exit.</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="vwap_trend" data-part="win"></figure>
+<p>When the price trends away from the VWAP and stays on one side, the position rides the whole move.</p>
+
+<h2>A losing trade</h2>
+<figure data-example="vwap_trend" data-part="loss"></figure>
+<p>Most of the time the price wanders around the VWAP: every cross flips the position for a small loss plus costs.</p>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Session start (UTC hour)</td><td>0</td><td>When the VWAP resets. 13.5 lines it up with the US stock open, when crypto volume jumps.</td></tr>
+    <tr><td>Wait after the session starts</td><td>1 candle</td><td>The VWAP of one candle means little; waiting longer skips the noisy start.</td></tr>
+    <tr><td>Close must clear the VWAP by</td><td>0%</td><td>A buffer (say 0.1%) skips crosses by a hair and cuts the number of trades a lot.</td></tr>
+    <tr><td>Close at the end of the session</td><td>on</td><td>Off lets a position run overnight into the next session.</td></tr>
+    <tr><td>Stop (× ATR)</td><td>0 = none</td><td>Adds a protective stop; also lets the Lab size trades by risk.</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>5-minute</td><td>0 of 2</td><td>95,718</td><td>−0.188% <span class="faint">(t −67.7)</span></td><td>+0.012% <span class="faint">(t +4.5)</span></td><td>−0.188%</td><td><span class="lab-verdict gross">Edge before costs only</span></td></tr><tr><td>15-minute</td><td>0 of 7</td><td>139,391</td><td>−0.181% <span class="faint">(t −39.7)</span></td><td>+0.020% <span class="faint">(t +4.3)</span></td><td>−0.193%</td><td><span class="lab-verdict gross">Edge before costs only</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout warn">
+  <p>The rule really does have a small edge before costs (a few hundredths of a percent a trade, very consistent), but it trades so often that the fees and slippage are about ten times bigger. Every account went to nearly zero. On QQQ the paper’s trades were cheap; on crypto futures each round trip costs about 0.2%.</p>
+</div>
+
+<h2>Ideas to explore</h2>
+<ul>
+  <li>Set fee and slippage to what you would really pay (maker fees on Binance are 0.02%) and see where the edge disappears.</li>
+  <li>Use a buffer of 0.1–0.3% or the 13:30 UTC session start to trade far less often.</li>
+</ul>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="vwap_trend">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="vwap_trend">View the Python code</button></div>

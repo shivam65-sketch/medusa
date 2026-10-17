@@ -1,0 +1,211 @@
+<h1>Writing your own strategy</h1>
+<p class="lead">A strategy is one small Python class. You compute indicators once, then decide at every candle’s close whether to buy, sell, or get out. If you can write a few <code>if</code> statements, you can write a strategy.</p>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="new-strategy">Open the template</button><button class="btn" data-lab="tab" data-tab="strategies">Go to Strategies</button></div>
+
+<h2>Where to write it</h2>
+<ul>
+  <li><b>In the Lab:</b> Strategies → <b>New strategy</b> opens a fully commented template in the editor. <b>Copy</b> on a built-in strategy gives you its code to change. <b>Upload .py</b> takes a file you wrote elsewhere. <b>Check</b> runs the file on 1,600 test candles and makes sure it doesn’t look into the future; <b>Save</b> keeps it in your account, and it appears in the Backtest list under “My strategies”.</li>
+  <li><b>In the project folder</b> (to make it built-in for every account): see the end of this page.</li>
+</ul>
+
+<h2>The smallest complete strategy</h2>
+<pre class="py">from indicators import sma
+from strategy import Param, Strategy
+
+
+class AboveAverage(Strategy):
+    key = "above_average"            # unique id (letters, digits, _)
+    label = "Above the average"      # the name shown in the Lab
+    description = "Long while the close is above its moving average."
+    params = [Param("length", "Average length (candles)", 50, 2, 1000, 1)]
+
+    def prepare(self, d):            # once, before the first candle
+        self.c = d.c
+        self.avg = sma(d.c, self.p.length)
+
+    def on_bar(self, i, pos, orders):   # at the close of every candle i
+        if i &lt; self.p.length:
+            return                   # the average isn't ready yet
+        if pos is None and self.c[i] &gt; self.avg[i]:
+            orders.buy(tag="Above")
+        elif pos is not None and self.c[i] &lt; self.avg[i]:
+            orders.exit("Below")</pre>
+<p>That is all a strategy needs. It has no stop, so the report can’t measure it in R and the position size falls back to “a % of the account”; real strategies usually set a stop (next sections).</p>
+
+<h2>The parts</h2>
+<h3>Class settings</h3>
+<table class="lab-table">
+  <thead><tr><th>Attribute</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>key</code></td><td>Unique id within the file.</td></tr>
+    <tr><td><code>label</code>, <code>description</code></td><td>Shown in the strategy list and on the backtest form.</td></tr>
+    <tr><td><code>params</code></td><td>A list of <code>Param</code>s; the form is built from it (below).</td></tr>
+    <tr><td><code>directions = True</code></td><td>Adds the “Trade direction” setting (both / long only / short only). Use <code>self.allows(1)</code> or <code>self.allows(-1)</code> before entering. Set it to <code>False</code> to hide that setting.</td></tr>
+    <tr><td>The file’s first string</td><td>Shown on your strategy’s page in the Strategy guide. Describe the idea and the rules there.</td></tr>
+  </tbody>
+</table>
+
+<h3>Settings: <code>Param(key, label, default, min, max, step, choices=None, help="", unit=None, warmup=0)</code></h3>
+<p>The type comes from the default: <code>20</code> makes a whole-number box, <code>2.0</code> a decimal box, <code>True</code>/<code>False</code> a tick box, and <code>choices=[["fast", "Fast"], ["slow", "Slow"]]</code> a drop-down. Read values as <code>self.p.key</code>. Values typed outside min…max are kept inside them.</p>
+<pre class="py">from strategy import EMA, WILDER, WINDOW, Param
+
+params = [
+    Param("length", "RSI length", 14, 2, 200, 1, unit="candles", warmup=WILDER),
+    Param("trend", "Trend EMA", 200, 10, 1000, 1, unit="candles", warmup=EMA),
+    Param("level", "Oversold level", 30.0, 1, 50, 1, help="Buy when RSI comes back above this"),
+    Param("trend_filter", "Only buy above the trend EMA", True),
+    Param("exit_at", "Exit at", "middle", choices=[["middle", "RSI 50"], ["other", "RSI 70"]]),
+]</pre>
+<p><b>Lengths.</b> Give every indicator length <code>unit="candles"</code>. The backtest form then lets you type it in candles, minutes, hours, days or weeks (an “EMA of 35 days” on 1h candles becomes 840 candles), suggests sensible values for the timeframe, and shows how long that is. Your code always receives candles in <code>self.p.length</code>.</p>
+<p><b>Warm-up.</b> <code>warmup=</code> says how many lengths of history the indicator needs before its value can be trusted, so the backtest loads that much data before the first trade: <code>WINDOW</code> (1×) for indicators that look at exactly the last n candles (<code>sma</code>, <code>highest</code>, <code>donchian</code>, …), <code>EMA</code> (4×) for exponential averages, whose start value fades out slowly, and <code>WILDER</code> (8×) for Wilder smoothing (<code>rsi</code>, <code>atr</code>, <code>adx</code>), which fades even more slowly. The strategy’s warm-up is the largest of these, plus one candle; the form shows it next to the settings and it changes as you type. When a value is built from several settings (MACD’s signal line runs on top of its slow EMA), override it:</p>
+<pre class="py">def warmup(self, interval_ms):       # candles of history needed before the first trade
+    return 4 * (self.p.slow + self.p.signal) + 1</pre>
+
+<h3><code>prepare(self, d)</code>: compute indicators</h3>
+<p>Runs once. <code>d</code> holds the candles as numpy arrays: <code>d.o d.h d.l d.c d.v</code> (open, high, low, close, volume) and <code>d.t</code> (open times in milliseconds, UTC). Also <code>len(d)</code>, <code>d.interval</code> (“4h”) and <code>d.interval_ms</code> (its length in milliseconds), <code>d.symbol</code>, <code>d.market</code> (“futures”/“spot”) and <code>d.extra.get("tbv")</code> (taker-buy volume, Binance datasets only). Futures data with funding rates also has <code>d.extra.get("funding_t")</code> and <code>d.extra.get("funding_r")</code>: every funding payment’s time (ms) and rate, for the whole file; use only payments up to the candle’s close (<code>d.t[i] + d.interval_ms</code>). Store what you need on <code>self</code>.</p>
+
+<h3><code>on_bar(self, i, pos, orders)</code>: decide</h3>
+<p>Runs at the close of every candle <code>i</code>, in order. Use index <code>i</code> and earlier only. <code>pos</code> is <code>None</code> when flat, otherwise the open position:</p>
+<table class="lab-table">
+  <thead><tr><th>pos.…</th><th></th></tr></thead>
+  <tbody>
+    <tr><td><code>side</code></td><td>1 long, −1 short</td></tr>
+    <tr><td><code>entry_px</code>, <code>entry_i</code></td><td>fill price (with slippage) and the candle it filled on</td></tr>
+    <tr><td><code>stop</code>, <code>target</code></td><td>current stop and target (None if not set)</td></tr>
+    <tr><td><code>qty</code>, <code>lev</code></td><td>size in coins, and leverage used at entry</td></tr>
+    <tr><td><code>stop0</code>, <code>risk0</code></td><td>the first stop, and the money it risked (1R)</td></tr>
+  </tbody>
+</table>
+
+<h3>Orders</h3>
+<table class="lab-table">
+  <thead><tr><th>Call</th><th>What happens</th></tr></thead>
+  <tbody>
+    <tr><td><code>orders.buy(...)</code> / <code>orders.sell(...)</code></td><td>Enter long / short with a market order at the next candle’s open. Ignored while a position is open, unless you also call <code>orders.exit()</code> in the same candle (that reverses the position).</td></tr>
+    <tr><td><code>orders.buy_stop(price, valid=n, ...)</code></td><td>Enter long if the price trades up to <code>price</code> within the next <code>n</code> candles (a breakout entry). <code>sell_stop</code> is the short version.</td></tr>
+    <tr><td><code>orders.buy_limit(price, valid=n, ...)</code></td><td>Enter long if the price dips to <code>price</code> (a pullback entry). <code>sell_limit</code> is the short version.</td></tr>
+    <tr><td><code>orders.exit("why")</code></td><td>Close the position at the next open; “why” shows in the trade list.</td></tr>
+    <tr><td><code>orders.set_stop(price)</code>, <code>orders.set_target(price)</code></td><td>Move the open position’s stop or target (for example a trailing stop).</td></tr>
+    <tr><td><code>orders.cancel()</code></td><td>Cancel a waiting stop/limit entry. <code>orders.pending</code> shows it.</td></tr>
+    <tr><td><code>orders.last_exit_i</code></td><td>The candle on which the last trade closed (to avoid re-entering at once).</td></tr>
+  </tbody>
+</table>
+<p>Options for every entry: <code>stop=price</code> or <code>stop_dist=distance</code>; <code>target=price</code> or <code>target_r=multiple</code> of the stop distance; <code>max_bars=n</code> to close after n candles; <code>tag="text"</code>. A stop on the wrong side of the entry is refused (the report counts it as skipped).</p>
+
+<h3>Indicators (<code>from indicators import ...</code>)</h3>
+<p>Each returns an array as long as its input; value <code>i</code> uses only data up to <code>i</code>, and is <code>NaN</code> until it can be computed.</p>
+<p>The numbers in the calls are the usual defaults. The last column is the <code>warmup=</code> to give a setting that feeds that indicator’s length.</p>
+<div class="lab-scroll"><table class="lab-table">
+  <thead><tr><th>Function</th><th>Returns</th><th>Warm-up</th></tr></thead>
+  <tbody>
+    <tr class="lab-tgroup"><th colspan="3">Moving averages</th></tr>
+    <tr><td><code>sma(x, n)</code>, <code>wma(x, n)</code></td><td>simple and weighted (newest weighs most) averages</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>ema(x, n)</code>, <code>rma(x, n)</code></td><td>exponential and Wilder averages</td><td><code>EMA / WILDER</code></td></tr>
+    <tr><td><code>dema(x, n)</code>, <code>tema(x, n)</code>, <code>zlema(x, n)</code></td><td>double, triple and zero-lag EMAs (less lag)</td><td><code>EMA</code></td></tr>
+    <tr><td><code>hma(x, n)</code></td><td>Hull average: fast and smooth</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>vwma(c, v, n)</code></td><td>volume-weighted average of the close</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>kama(x, 10, 2, 30)</code></td><td>Kaufman’s adaptive average: fast in trends, slow in noise</td><td><code>EMA</code></td></tr>
+    <tr><td><code>linreg(x, n)</code>, <code>linreg_slope(x, n)</code></td><td>end point and slope of the straight line through the last n values (TradingView’s <code>ta.linreg</code>)</td><td><code>WINDOW</code></td></tr>
+    <tr class="lab-tgroup"><th colspan="3">Momentum and oscillators</th></tr>
+    <tr><td><code>rsi(c, 14)</code></td><td>RSI, 0–100 (TradingView’s method)</td><td><code>WILDER</code></td></tr>
+    <tr><td><code>macd(c, 12, 26, 9)</code>, <code>ppo(c, 12, 26, 9)</code></td><td>(line, signal, histogram); PPO is MACD as a % of the slow EMA</td><td><code>EMA</code></td></tr>
+    <tr><td><code>stoch(h, l, c, 14, 3, 1)</code>, <code>stoch_rsi(c, 14, 14, 3, 3)</code></td><td>(%K, %D), 0–100</td><td><code>WINDOW / WILDER</code></td></tr>
+    <tr><td><code>williams_r(h, l, c, 14)</code></td><td>0 at the top of the range, −100 at the bottom</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>cci(h, l, c, 20)</code></td><td>commodity channel index</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>mfi(h, l, c, v, 14)</code></td><td>money flow index: a volume-weighted RSI, 0–100</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>cmo(x, 9)</code>, <code>tsi(x, 25, 13)</code></td><td>Chande momentum (−100…100), true strength index</td><td><code>WINDOW / EMA</code></td></tr>
+    <tr><td><code>roc(x, 10)</code>, <code>momentum(x, 10)</code></td><td>% change and price change over n candles</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>ultimate(h, l, c, 7, 14, 28)</code></td><td>ultimate oscillator, 0–100</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>awesome(h, l, 5, 34)</code></td><td>awesome oscillator</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>trix(c, 18)</code></td><td>TRIX: change of the triple EMA (TradingView’s version)</td><td><code>EMA</code></td></tr>
+    <tr><td><code>dpo(c, 20)</code></td><td>detrended price oscillator (not centred, so no look-ahead)</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>elder_ray(h, l, c, 13)</code></td><td>(bull power, bear power)</td><td><code>EMA</code></td></tr>
+    <tr class="lab-tgroup"><th colspan="3">Trend and direction</th></tr>
+    <tr><td><code>adx(h, l, c, 14, 14)</code></td><td>(+DI, −DI, ADX) as TradingView’s <code>ta.dmi</code></td><td><code>WILDER</code></td></tr>
+    <tr><td><code>aroon(h, l, 25)</code></td><td>(up, down), 0–100: how recently the high / low was made</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>supertrend(h, l, c, 10, 3.0)</code></td><td>(line, direction): the Supertrend line and 1 (up) / −1 (down), exactly as TradingView computes it</td><td><code>WILDER</code></td></tr>
+    <tr><td><code>psar(h, l, c, 0.02, 0.02, 0.2)</code></td><td>(SAR, direction): Parabolic SAR, as TradingView’s <code>ta.sar</code></td><td>—</td></tr>
+    <tr><td><code>vortex(h, l, c, 14)</code></td><td>(VI+, VI−)</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>ichimoku(h, l, 9, 26, 52)</code></td><td>(conversion, base, span A, span B) as they stand at each candle (the spans are the values plotted 26 candles ahead, i.e. computed 26 candles ago)</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>chop(h, l, c, 14)</code></td><td>choppiness index (about 38 trending … 62 choppy)</td><td><code>WINDOW</code></td></tr>
+    <tr class="lab-tgroup"><th colspan="3">Volatility and channels</th></tr>
+    <tr><td><code>true_range(h, l, c)</code>, <code>atr(h, l, c, n, smoothing="wilder")</code></td><td>candle range and its average (<code>"ema"</code> smoothing as the demo bot uses)</td><td><code>WILDER</code></td></tr>
+    <tr><td><code>natr(h, l, c, 14)</code></td><td>ATR as a % of the close</td><td><code>WILDER</code></td></tr>
+    <tr><td><code>stdev(x, n)</code>, <code>zscore(x, 20)</code></td><td>rolling standard deviation, and how many of them x is from its average</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>hist_vol(c, 20, per_year=365)</code></td><td>historical volatility, yearly %</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>bollinger(c, 20, 2.0)</code></td><td>(middle, upper, lower) bands</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>bb_percent(c, 20, 2.0)</code>, <code>bb_width(c, 20, 2.0)</code></td><td>%B (0 = lower band, 1 = upper) and band width</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>keltner(h, l, c, 20, 1.5)</code></td><td>(middle, upper, lower): the average close ± 1.5 × the average true range</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>donchian(h, l, 20)</code></td><td>(upper, lower, middle) of the last n candles, this one included</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>chandelier(h, l, c, 22, 3.0)</code></td><td>(long stop, short stop): highest high − 3 ATR, lowest low + 3 ATR</td><td><code>WILDER</code></td></tr>
+    <tr class="lab-tgroup"><th colspan="3">Volume</th></tr>
+    <tr><td><code>obv(c, v)</code>, <code>acc_dist(h, l, c, v)</code></td><td>on-balance volume, accumulation/distribution line (running totals)</td><td>—</td></tr>
+    <tr><td><code>cmf(h, l, c, v, 20)</code></td><td>Chaikin money flow, −1…1</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>session_vwap(h, l, c, v, t, start_hour=0)</code></td><td>(VWAP, standard deviation): the session’s volume-weighted average price so far, and the spread around it for VWAP bands</td><td>—</td></tr>
+    <tr class="lab-tgroup"><th colspan="3">Sessions and candles</th></tr>
+    <tr><td><code>session_ids(t, start_hour=0)</code></td><td>the session (day) number of each candle. Crypto never closes, so a session is a 24-hour day from <code>start_hour</code> UTC (13.5 = 13:30)</td><td></td></tr>
+    <tr><td><code>session_clock(t, d.interval_ms, start_hour=0)</code></td><td>(minutes from the session start to each candle’s close, True on the session’s last candle)</td><td></td></tr>
+    <tr><td><code>pivots(h, l, c, t, start_hour=0)</code></td><td>(P, R1, S1, R2, S2): classic floor pivots from the previous session</td><td></td></tr>
+    <tr><td><code>heikin_ashi(o, h, l, c)</code></td><td>(open, high, low, close) of Heikin-Ashi candles</td><td></td></tr>
+    <tr class="lab-tgroup"><th colspan="3">Helpers</th></tr>
+    <tr><td><code>highest(x, n)</code>, <code>lowest(x, n)</code></td><td>highest/lowest of the last n values <b>including the current one</b>; wrap in <code>shift(...)</code> to compare a close with the previous n candles</td><td><code>WINDOW</code></td></tr>
+    <tr><td><code>shift(x, k=1)</code></td><td>the value k candles ago</td><td></td></tr>
+    <tr><td><code>crossed_above(a, b)</code>, <code>crossed_below(a, b)</code></td><td>True on the candle where a crosses b (b may be a number)</td><td></td></tr>
+    <tr><td><code>rising(x, n=1)</code>, <code>falling(x, n=1)</code></td><td>True where x went up (down) on each of the last n candles</td><td></td></tr>
+    <tr><td><code>bars_since(cond)</code></td><td>candles since <code>cond</code> was last True</td><td></td></tr>
+    <tr><td><code>percent_rank(x, 100)</code></td><td>% of the previous n values at or below the current one</td><td><code>WINDOW</code></td></tr>
+  </tbody>
+</table></div>
+<p><code>numpy</code> is available as <code>np</code> for anything else. Strategies run with numpy only, so they start fast; pandas, matplotlib, scipy and statsmodels are in the <button class="link" data-lab="doc" data-doc="python">Python tab</button>.</p>
+
+<h2>The one rule: never look ahead</h2>
+<p>At candle <code>i</code> you only know candles <code>0…i</code>. Using <code>self.c[i + 1]</code>, a centred average, <code>d.c.max()</code> over the whole history, or anything computed from future candles makes a backtest look wonderful and is worthless live. <b>Check</b> catches this: it changes the future candles and fails the file if anything the strategy computed or decided up to that point changes.</p>
+
+<h2>Finding mistakes</h2>
+<ul>
+  <li><b>Check</b> shows Python errors with the line they happened on.</li>
+  <li><code>print(...)</code> inside your strategy shows under the report (“Printed by the strategy”), up to 400 lines. Print sparingly, for example only when a trade opens.</li>
+  <li>If a strategy makes no trades, test a shorter setting or print the indicator at a few candles.</li>
+</ul>
+
+<h2>Recipes</h2>
+<h3>A trend filter</h3>
+<pre class="py">def prepare(self, d):
+    self.c = d.c
+    self.r = rsi(d.c, 14)
+    self.trend = ema(d.c, 200)
+    self.atr = atr(d.h, d.l, d.c, 14)
+
+def on_bar(self, i, pos, orders):
+    if i &lt; 200 or pos is not None:
+        return
+    if self.r[i - 1] &lt; 30 &lt;= self.r[i] and self.c[i] &gt; self.trend[i]:   # dip in an up-trend
+        orders.buy(stop_dist=2 * self.atr[i], target_r=2, tag="Dip in up-trend")</pre>
+
+<h3>A breakout entry with a stop order</h3>
+<pre class="py">def on_bar(self, i, pos, orders):
+    if pos is None and i &gt; 20:
+        level = self.high20[i]                         # highest high of the last 20 candles
+        orders.buy_stop(level, valid=1, stop=self.low20[i], tag="Breakout")</pre>
+
+<h3>A trailing stop</h3>
+<pre class="py">def on_bar(self, i, pos, orders):
+    if pos is not None and pos.side &gt; 0:
+        trail = self.c[i] - 3 * self.atr[i]
+        if trail &gt; pos.stop:                           # only ever move it up
+            orders.set_stop(trail)</pre>
+
+<h3>Don’t re-enter on the candle a trade closed</h3>
+<pre class="py">if orders.last_exit_i == i:
+    return</pre>
+
+<h2>Making a strategy built-in</h2>
+<p>To give every account a strategy (and keep it with MEDUSA’s code):</p>
+<ol>
+  <li>Put the file in <code>medusa/public/lab/strategies/</code>, for example <code>my_idea.py</code>.</li>
+  <li>Add its file name to <code>medusa/public/lab/strategies/index.json</code>.</li>
+  <li>Optional: write a page for it as <code>medusa/public/lab/docs/&lt;key&gt;.html</code> and add it to the <code>BUILTIN</code> list at the top of <code>medusa/public/lab/learn.js</code>.</li>
+  <li>Deploy: <code>npx wrangler@4 deploy</code> in the <code>medusa</code> folder.</li>
+</ol>
+<p>The engine files themselves are in <code>medusa/public/lab/py/</code> (<code>engine.py</code>, <code>indicators.py</code>, <code>strategy.py</code>, <code>stats.py</code>); a new indicator added to <code>indicators.py</code> is available to every strategy after the next deploy.</p>

@@ -1,0 +1,83 @@
+<h1>MACD crossover</h1>
+<p class="lead">Go long when the MACD line crosses above its signal line, go short when it crosses below, and flip from one to the other on every cross. A momentum strategy that is almost always in the market.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Momentum / trend following, always in the market</td></tr>
+    <tr><td>Trades</td><td>Long and short, reversing on each cross (long only on spot)</td></tr>
+    <tr><td>Entry</td><td>MACD(12, 26) crosses its 9-candle signal line, at the next open</td></tr>
+    <tr><td>Exit</td><td>The opposite cross (which also opens the reverse trade), or a 3 × ATR safety stop</td></tr>
+    <tr><td>On BTC 4h, 2019–2026</td><td>1,166 trades (about 165 a year), 33% winners, held 14 candles (2⅓ days) on average</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea</h2>
+<p>MACD measures <b>momentum</b>: whether the short-term trend is pulling away from the longer-term one, and whether that pull is getting stronger or weaker. When the MACD line crosses above its own average (the signal line), momentum has turned up; the strategy goes long and stays long until momentum turns down, then flips short.</p>
+<p>Because it flips on every cross, it is in a trade most of the time and trades often. That makes it responsive, and expensive: about 165 round trips a year on 4-hour candles.</p>
+
+<h2>The ingredient: MACD</h2>
+<pre>MACD line   = EMA(12) of the close − EMA(26) of the close
+signal line = EMA(9) of the MACD line
+histogram   = MACD line − signal line        (the bars)</pre>
+<p>When the 12-EMA is above the 26-EMA, the MACD line is positive: prices have been rising faster recently. Example: EMA(12) = 64,300 and EMA(26) = 64,000 give a MACD of +300. If the signal line is at +250, the histogram is +50 and MACD is above its signal: momentum is up. The <b>cross</b> happens when the histogram changes sign.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>At each close, compute the MACD line, its signal line and ATR(14).</li>
+  <li><b>Long:</b> the MACD line crosses above the signal line → buy at the next open.</li>
+  <li><b>Short:</b> the MACD line crosses below the signal line → sell short at the next open.</li>
+  <li>If a trade in the other direction is open, it is closed at that same open (the position flips).</li>
+  <li><b>Safety stop:</b> 3 × ATR from the entry (0 = no stop).</li>
+  <li><b>Zero-line filter</b> (optional): only take longs while MACD is below zero (buying a dip in momentum) and shorts while it is above zero.</li>
+</ol>
+
+<h2>A winning trade, step by step</h2>
+<figure data-example="macd_cross" data-part="win"></figure>
+<p>Momentum turned up at the bottom of a dip; the strategy bought and held for 21 candles until MACD crossed back down, closing near the top of the move for +1.60R and flipping short at the same moment.</p>
+
+<h2>A losing trade</h2>
+<figure data-example="macd_cross" data-part="loss"></figure>
+<p>A cross that didn’t last: momentum ticked up, faded within six candles, and the opposite cross closed the trade for −0.45R. Many MACD losses are small like this, because the next cross usually comes before the wide stop; but there are a great many of them.</p>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Fast / slow / signal EMA</td><td>12 / 26 / 9</td><td>The standard values since the 1970s. Doubling all three (24/52/18) gives about half the trades and follows bigger swings.</td></tr>
+    <tr><td>Zero-line filter</td><td>off</td><td>Fewer trades, only “dip” entries. Often better after costs.</td></tr>
+    <tr><td>ATR length, stop (× ATR)</td><td>14, 3.0</td><td>The safety stop for crosses that come too late. 0 removes it (then the report can’t measure trades in R).</td></tr>
+    <tr><td>Trade direction</td><td>both</td><td>Long only: shorts are skipped and the long simply closes on a down cross.</td></tr>
+  </tbody>
+</table>
+
+<h2>When it works, and when it doesn’t</h2>
+<ul>
+  <li><b>Works:</b> markets with smooth swings that last several times longer than the averages.</li>
+  <li><b>Fails:</b> choppy markets (it flips back and forth, paying costs each time) and very fast moves (the cross comes late).</li>
+</ul>
+
+<h2>What our research found</h2>
+<h3>The 7-coin test (Oct 2026)</h3>
+<p>The same test as every other built-in strategy: default settings, 1-hour and 4-hour candles, 7 coins, after costs.</p>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>1-hour</td><td>0 of 7</td><td>29,104</td><td>−0.119% <span class="faint">(t −4.7)</span></td><td>+0.082% <span class="faint">(t +3.2)</span></td><td>−0.182%</td><td><span class="lab-verdict gross">Edge before costs only</span></td></tr><tr><td>4-hour</td><td>4 of 7</td><td>7,286</td><td>+0.033% <span class="faint">(t +0.3)</span></td><td>+0.250% <span class="faint">(t +2.6)</span></td><td>+0.102%</td><td><span class="lab-verdict gross">Edge before costs only</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<h3>Earlier tests</h3>
+<div class="callout warn">
+  <p><b>BTC 4h, Sep 2019 – Oct 2026 (trading starts after the warm-up), default settings, with fees, slippage and real funding:</b> 1,166 trades, 33% winners, <b>−4.9%</b> over seven years, worst drawdown 23.1%. Before costs the same trades made <b>+64.6%</b>.</p>
+  <p>That gap is the whole story: the momentum signal has some value, but at 165 round trips a year, each paying about 0.2% in fees and slippage, the costs ate all of it. Fewer, better trades (zero-line filter, bigger timeframe, long only) are the obvious things to test, with a held-back date.</p>
+</div>
+
+<h2>Ideas to explore</h2>
+<ul>
+  <li>Zero-line filter on, on 4h and on 1d.</li>
+  <li>Long only on 1d: a slow momentum filter for holding BTC.</li>
+  <li>In your own copy: only trade crosses in the direction of a 200-EMA trend.</li>
+</ul>
+
+<h2>Common mistakes</h2>
+<ul>
+  <li>Forgetting the costs of an always-in-the-market strategy; compare “before costs” and “after costs” in the report.</li>
+  <li>Reading the histogram’s size as a forecast: it describes the recent past only.</li>
+</ul>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="macd_cross">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="macd_cross">View the Python code</button></div>

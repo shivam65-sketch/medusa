@@ -1,0 +1,80 @@
+<h1>How MEDUSA Lab works</h1>
+<p class="lead">Where your data lives, where the Python runs, and exactly how the engine turns candles and rules into trades.</p>
+
+<h2>The pieces</h2>
+<svg class="diagram" viewBox="0 0 720 250" role="img" aria-label="How the Lab's parts connect">
+  <rect x="10" y="20" width="200" height="90" rx="10" fill="#212121" stroke="#3c3c3c"/><text x="24" y="44" fill="#f4f4f5">Binance</text><text x="24" y="66">candles and funding rates,</text><text x="24" y="86">straight to your browser</text>
+  <rect x="260" y="20" width="200" height="210" rx="10" fill="#1f2a23" stroke="#27412f"/><text x="274" y="44" fill="#f4f4f5">Your browser</text><text x="274" y="68">downloads and compresses</text><text x="274" y="86">candles; runs Python</text><text x="274" y="104">(Pyodide + numpy) in a</text><text x="274" y="122">background thread; draws</text><text x="274" y="140">the report</text><text x="274" y="176" fill="#86efac">Strategy code runs here,</text><text x="274" y="194" fill="#86efac">with its network switched off</text>
+  <rect x="510" y="20" width="200" height="210" rx="10" fill="#212121" stroke="#3c3c3c"/><text x="524" y="44" fill="#f4f4f5">MEDUSA (Cloudflare)</text><text x="524" y="68">Downloads, Uploads and</text><text x="524" y="86">Results folders (Workers KV)</text><text x="524" y="112">the lists of them and your</text><text x="524" y="130">strategy files (D1)</text><text x="524" y="164">kept until you delete them;</text><text x="524" y="182">only your account sees them</text>
+  <path d="M210 65 H258" stroke="#8b8b91" stroke-width="2"/><path d="M460 110 H508" stroke="#8b8b91" stroke-width="2"/><path d="M508 140 H460" stroke="#8b8b91" stroke-width="2"/>
+</svg>
+<ul>
+  <li><b>Data</b> comes from Binance, straight to your browser. Save it in MEDUSA’s <b>Downloads</b> folder, or as a CSV/ZIP file on your computer that you can upload later (it then goes to the <b>Uploads</b> folder). Files on MEDUSA are compressed in your browser first (about 8–15 bytes per candle, prices kept exactly). See <button class="link" data-lab="doc" data-doc="data">Getting data</button>.</li>
+  <li><b>Results</b> of every backtest are saved in the <b>Results</b> folder, and can be exported as CSV. The Files tab shows all three folders, lets you delete files one by one or a whole folder, and shows how much of Cloudflare’s free storage is left (also in the Lab’s top bar).</li>
+  <li><b>Backtests run in your browser.</b> MEDUSA runs on Cloudflare’s free plan, which allows only a few milliseconds of computing per request, too little for a backtest. Your browser has plenty, so the Python engine runs there. The first start downloads about 16 MB (Python and numpy, kept by the browser after that) and takes a few seconds.</li>
+  <li><b>Strategies are Python files.</b> The built-in ones are in MEDUSA’s <code>public/lab/strategies</code> folder; yours are saved in your account (Strategies tab).</li>
+  <li><b>The Python tab</b> runs any code you write on your data files, with numpy, pandas, matplotlib, scipy and statsmodels, and the same backtest engine. See <button class="link" data-lab="doc" data-doc="python">The Python tab</button>.</li>
+  <li><b>Every report has a “Python code” button</b>: one standalone file with the engine, the strategy and the exact settings. Run it with Python 3 and numpy on any computer and it downloads the same candles from Binance (or reads your file), repeats the test and checks that it gets the same numbers.</li>
+  <li><b>Times are shown in your time zone</b>, including the trade list, the charts and the monthly table (months and days are your local ones). Strategy rules that name a time, such as “the 21:00 UTC candle”, are defined in UTC like the exchange’s candles; the guide shows your local time next to them. Exported results are in your time too, with the zone in the column name (for example “Entry time (UTC+05:30)”); candle data files keep Binance’s UTC times.</li>
+  <li><b>₹ INR</b> (top right) shows money amounts and USDT prices in rupees, at CoinDCX’s current USDT/INR price. Percentages and R multiples don’t change. The backtest itself always runs in USDT, and files you download or export stay in USDT.</li>
+  <li><b>Saving is safe to repeat.</b> Saving the same download, upload, result or strategy again finds the copy already in your folders instead of storing it twice.</li>
+</ul>
+
+<h2>How each candle is processed</h2>
+<p>The engine goes through the candles in order. For candle <i>i</i>:</p>
+<ol class="rules">
+  <li><b>At its open:</b> market orders placed at the previous close are filled at this open (exits first, then entries).</li>
+  <li><b>Inside the candle:</b> waiting stop/limit entries are checked against the high and low, then the open position’s stop and target. A candle doesn’t show the path the price took, so the engine assumes the <b>worse case</b>: if one candle touches both the stop and the target, the stop counts first; a position entered inside a candle can be stopped in that candle but can’t reach its target there; a candle that <b>opens</b> beyond the stop fills at that open (a gap), not at the stop.</li>
+  <li><b>Funding</b> (futures) settled during the candle is paid or received if a position is still open, at the real historical rate.</li>
+  <li><b>Time exits:</b> a position held for its maximum number of candles is closed at this candle’s close.</li>
+  <li><b>At its close:</b> your strategy’s <code>on_bar(i)</code> sees candles 0 to <i>i</i> and may place orders for the next candle.</li>
+</ol>
+<p>With “Market orders fill at: Signal candle’s close” in the settings, step 5’s market orders fill at that close instead of the next open. That is slightly optimistic (you can’t really trade at a close you only see once it’s final), so the default is the next open.</p>
+
+<h2>Warm-up: the history indicators need</h2>
+<p>Indicators need past candles. A 200-candle average has no value until 200 candles exist. Averages that start from the first price (EMA, RSI, ATR) have a value at once, but it still depends on where they started and only settles after a few times their length. Trading on an unsettled indicator would give different trades from someone who had the chart open all along, so MEDUSA loads enough history first.</p>
+<ul>
+  <li><b>How much:</b> each length setting says what it feeds. A plain window (an average, the highest high, a channel) needs 1× its length, an EMA 4×, Wilder’s smoothing (RSI, ATR, ADX) 8×; the strategy needs the largest of these, plus one candle. A 21-candle EMA needs 85 candles, a 14-candle ATR 113, MACD 12/26/9 141. The backtest form shows the warm-up for the settings you typed, in candles and in time, and updates as you change them (a 35-day EMA on 1-hour candles needs 3,361 candles, 140 days).</li>
+  <li><b>With a start date</b>, those candles are taken from before the start date. They are only used for the calculations: trading, the account and every number in the report start at the start date. This is what a trader who had the chart open would have seen that day. If the file doesn’t go back far enough, the test starts later, as soon as the warm-up is complete, and the report says so.</li>
+  <li><b>Without a start date</b>, the first candles of the file are the warm-up, and the test starts right after them. Download a little more history than you want to test if that matters.</li>
+  <li>The report’s settings list shows how many warm-up candles were used. The same settings always give the same warm-up, so a test can be repeated exactly (also with the exported Python code).</li>
+</ul>
+
+<h2>Costs</h2>
+<ul>
+  <li><b>Fee</b> per fill, as a share of the traded value. The default 0.05% is Binance’s futures taker fee; a round trip pays it twice.</li>
+  <li><b>Slippage</b> per fill: every fill price is moved against you by this share (buy higher, sell lower). The default 0.05% is a cautious guess for liquid coins; small coins slip more.</li>
+  <li><b>Funding</b> on futures, from the real history (Binance datasets imported with funding rates). Longs usually pay shorts in bull markets, which adds up for positions held for days or weeks.</li>
+</ul>
+<p>Every report also re-runs the same test <b>without any costs</b> and shows both, so you can see how much of a result the costs eat.</p>
+
+<h2>Position size and leverage</h2>
+<ul>
+  <li><b>Risk a % per trade</b> (default 1%): the position is sized so that hitting the first stop loses that share of the account. A stop twice as far away means a position half as big. Strategies without a stop fall back to the other method.</li>
+  <li><b>A % of the account:</b> the position’s value is a fixed share of the account (100% = 1x, 200% = 2x).</li>
+  <li><b>Max leverage</b> caps either method: the position is never worth more than this many times the account. With tight stops, risk-based sizing often hits this cap.</li>
+  <li><b>Compounding</b> (default on) sizes from the current balance; off sizes from the starting money.</li>
+  <li><b>Liquidation</b> is simulated like Binance’s cross margin: if the account falls to the maintenance margin (0.5% of the position’s value), the position is closed and the rest is lost. Once the account is empty, no new trades open.</li>
+</ul>
+
+<h2>Spot and futures</h2>
+<p>Futures datasets can trade long and short with leverage, and pay funding. <b>Spot</b> datasets only take long trades, never use more than 1x, and pay no funding; the report says so when it changed your settings.</p>
+
+<h2>Safety and privacy</h2>
+<ul>
+  <li>Your data files, results and strategy files belong to your account only.</li>
+  <li>Strategy code (including files you upload) runs inside your browser’s Python engine, in a background thread whose network access is switched off once Python has loaded: it can calculate, but it can’t send anything anywhere or reach your account.</li>
+</ul>
+
+<h2>Limits</h2>
+<table class="lab-table">
+  <thead><tr><th>What</th><th>Limit</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr><td>Candles per backtest / file on MEDUSA</td><td>1,000,000</td><td>Bigger backtests get slow and memory-hungry in a browser (a year of 1-minute candles, about 525,000, takes around 10 seconds).</td></tr>
+    <tr><td>Candles per download to your computer</td><td>2,000,000</td><td>What a browser can comfortably build into one file (about four years of 1-minute candles).</td></tr>
+    <tr><td>Storage per account</td><td>300 MB</td><td>Cloudflare’s free storage is 1 GB for all of MEDUSA. A year of 1-minute candles is about 6 MB; seven years of 4-hour candles about 0.3 MB; a result 50–500 KB.</td></tr>
+    <tr><td>Data files / results / strategy files</td><td>200 / 300 / 60</td><td>Keeps the lists quick.</td></tr>
+    <tr><td>Strategy file size</td><td>100 KB</td><td>Far more than any strategy needs.</td></tr>
+  </tbody>
+</table>
+<p>The engine is the same one this project used for its earlier research; it reproduces those results trade for trade when started on the same candle (for example the Turtle on BTC 4h: 402 trades). Every built-in strategy was also checked against a second, independently written backtester (its own indicators, order simulator and strategy rules): 90 runs on BTC and ETH from 5-minute to daily candles, 127,000 trades, every trade and final balance identical. The browser runs exactly the same Python as that check.</p>

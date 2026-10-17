@@ -1,0 +1,82 @@
+<h1>Bollinger band reversion</h1>
+<p class="lead">When a candle closes back inside a Bollinger band after closing outside it, bet that the price returns to its average. A mean-reversion strategy built on the idea that unusual stretches don’t last.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Mean reversion (counter-trend)</td></tr>
+    <tr><td>Trades</td><td>Long and short (long only on spot)</td></tr>
+    <tr><td>Entry</td><td>A close back inside the 20-candle, 2-standard-deviation band after a close outside it</td></tr>
+    <tr><td>Exit</td><td>The close reaches the middle band (the average), or the 2 × ATR stop; optional time exit</td></tr>
+    <tr><td>On BTC 4h, 2019–2026</td><td>814 trades (about 115 a year), 53% winners, held 8 candles (1⅓ days) on average</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea</h2>
+<p>Bollinger bands draw a channel around the price that widens when the market is wild and narrows when it is calm. A close outside the band is a big move by recent standards. Waiting for the next close to come back <i>inside</i> is the trigger: the stretch has stopped growing, so the strategy bets on a return to the middle.</p>
+<p>The catch: in a strong trend the price can “walk the band”, closing outside it again and again. A reversion strategy keeps stepping in front of that move.</p>
+
+<h2>The ingredient: Bollinger bands</h2>
+<pre>middle band = average of the last 20 closes (SMA 20)
+upper band  = middle + 2 × standard deviation of those 20 closes
+lower band  = middle − 2 × standard deviation</pre>
+<p>The <b>standard deviation</b> measures how spread out the closes are around their average. Example: if the 20-candle average is 64,000 and the closes typically sit 500 away from it (standard deviation 500), the bands are at 63,000 and 65,000. If prices were bell-curve shaped, about 95% of closes would fall inside; crypto has fatter tails, so closes outside happen more often than that.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>At each close, compute the bands (20 candles, 2 standard deviations) and ATR(14).</li>
+  <li><b>Long:</b> the previous candle closed below the lower band and this candle closes back above it → buy at the next open.</li>
+  <li><b>Short:</b> the previous candle closed above the upper band and this one closes back below it → sell short at the next open.</li>
+  <li><b>Exit:</b> a long closes when a candle closes at or above the middle band (a short, at or below it), at the next open.</li>
+  <li><b>Stop:</b> 2 × ATR from the entry. <b>Optional:</b> time exit after n candles.</li>
+</ol>
+
+<h2>A winning trade, step by step</h2>
+<figure data-example="bollinger_reversion" data-part="win"></figure>
+<p>One close below the band, the next back inside: the strategy bought, and the price drifted back to the average within seven candles. The win was small (+0.79R) because the middle band was close; that is typical.</p>
+
+<h2>A losing trade</h2>
+<figure data-example="bollinger_reversion" data-part="loss"></figure>
+<p>The same pattern, but the sell-off was the start of a bigger move: the price fell straight through the stop. A loss here (−1.08R) wipes out more than one typical win, which is why a win rate above 50% still lost money.</p>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Band length</td><td>20</td><td>Longer: a slower average and wider-spaced signals.</td></tr>
+    <tr><td>Band width (standard deviations)</td><td>2.0</td><td>2.5–3: only extreme stretches, far fewer trades.</td></tr>
+    <tr><td>ATR length, stop (× ATR)</td><td>14, 2.0</td><td>The safety stop. Too tight and normal noise stops the trade before it reverts.</td></tr>
+    <tr><td>Time exit after candles</td><td>0 (off)</td><td>Gives up on reversions that don’t happen quickly.</td></tr>
+  </tbody>
+</table>
+
+<h2>When it works, and when it doesn’t</h2>
+<ul>
+  <li><b>Works:</b> range-bound markets with no strong direction, and assets that genuinely mean-revert (some currency pairs, for example).</li>
+  <li><b>Fails:</b> trends and breakouts, where closes outside the band are the start of a move rather than its end. Crypto spends a lot of time trending.</li>
+</ul>
+
+<h2>What our research found</h2>
+<h3>The 7-coin test (Oct 2026)</h3>
+<p>The same test as every other built-in strategy: default settings, 1-hour and 4-hour candles, 7 coins, after costs.</p>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>1-hour</td><td>0 of 7</td><td>20,170</td><td>−0.324% <span class="faint">(t −17.3)</span></td><td>−0.129% <span class="faint">(t −6.8)</span></td><td>−0.235%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>4-hour</td><td>0 of 7</td><td>4,961</td><td>−0.325% <span class="faint">(t −4.3)</span></td><td>−0.152% <span class="faint">(t −2.1)</span></td><td>−0.156%</td><td><span class="lab-verdict none">No edge</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<h3>Earlier tests</h3>
+<div class="callout warn">
+  <p><b>BTC 4h, Sep 2019 – Oct 2026 (trading starts after the warm-up), default settings, with fees, slippage and real funding:</b> 814 trades, 53% winners, <b>−55.0%</b>, worst drawdown 58.5%. Before costs: −23.2%. Average trade −0.09R with t = −3.09.</p>
+  <p>A t-statistic of −3.16 means this is not bad luck: on BTC 4-hour candles, fading band breaks <i>reliably</i> lost money. That is itself a finding: it hints that moves outside the bands tend to continue. The opposite rule (trade <i>with</i> the break) would be a new idea to test properly, with a held-back date, not a sure thing.</p>
+</div>
+
+<h2>Ideas to explore</h2>
+<ul>
+  <li>Wider bands (2.5 or 3) and long only.</li>
+  <li>Daily candles.</li>
+  <li>In your own copy: only trade when the bands are narrow (a quiet, ranging market), or when a 200-EMA says the trend is flat.</li>
+</ul>
+
+<h2>Common mistakes</h2>
+<ul>
+  <li>Treating “outside the band” as “too far, must come back”. Statistically unusual is not the same as unlikely to continue.</li>
+  <li>Widening the stop after losses until the losses get rare and enormous.</li>
+</ul>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="bollinger_reversion">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="bollinger_reversion">View the Python code</button></div>

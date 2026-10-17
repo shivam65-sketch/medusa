@@ -1,0 +1,47 @@
+<h1>Volatility breakout (Larry Williams)</h1>
+<p class="lead">Buy when the price rises more than half of yesterday’s range above today’s open, and sell at tomorrow’s open. Larry Williams’ rule is probably the most copied crypto trading bot of all, especially in Korea.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Short-term breakout, held about a day</td></tr>
+    <tr><td>Candles</td><td>Daily (the previous close stands in for the open), or 5 minutes to 1 hour for exact intraday entries</td></tr>
+    <tr><td>Trades</td><td>Long and short, at most one a day</td></tr>
+    <tr><td>Source</td><td>Larry Williams (futures trader, 1987 World Cup Championship of Futures Trading); <i>Long-Term Secrets to Short-Term Trading</i></td></tr>
+  </tbody>
+</table>
+
+<h2>The idea</h2>
+<p>A day that pushes well beyond its open by a large share of yesterday’s range is showing real demand, and that tends to carry on into the close. Williams used k = 0.5. Korean exchanges reset their day at 09:00 KST, which is exactly 00:00 UTC, so the popular crypto version buys at today’s open + 0.5 × yesterday’s range and sells at the next day’s open.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>Each session (a day from 00:00 UTC): buy level = session open + 0.5 × the previous session’s range (high − low); sell level = open − 0.5 × the range.</li>
+  <li>Whichever level the price reaches first is traded (a stop order, so the fill is at the level, or at the open if the price gaps past it). One trade a session.</li>
+  <li>The position is closed at the next session’s open. No stop by default.</li>
+  <li>On daily candles the previous close is used as the open (crypto trades through midnight, so they are almost equal).</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="volatility_breakout" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="volatility_breakout" data-part="loss"></figure>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>k</td><td>0.5</td><td>Higher: fewer, stronger breakouts.</td></tr>
+    <tr><td>Session start</td><td>0 (UTC)</td><td>Keep 0 with daily candles.</td></tr>
+    <tr><td>Stop</td><td>0 = none</td><td>A stop as a multiple of the previous range (and risk-based sizing).</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>1-hour</td><td>0 of 7</td><td>6,804</td><td>−0.133% <span class="faint">(t −1.8)</span></td><td>+0.076% <span class="faint">(t +1.0)</span></td><td>−0.161%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>daily</td><td>4 of 7</td><td>6,311</td><td>+0.093% <span class="faint">(t +1.6)</span></td><td>+0.327% <span class="faint">(t +5.7)</span></td><td>−0.030%</td><td><span class="lab-verdict gross">Edge before costs only</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout">
+  <p>On daily candles there is a genuine edge before costs (one of the strongest here), and the average trade stayed positive after costs, with 4 of 7 coins in profit. It just isn’t strong enough to count as proven after costs, and it was flat since mid-2024. The 1-hour version, with exact intraday entries, did worse. It is worth watching rather than trading blind.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="volatility_breakout">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="volatility_breakout">View the Python code</button></div>

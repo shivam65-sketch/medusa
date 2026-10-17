@@ -1,0 +1,182 @@
+<h1>The Python tab</h1>
+<p class="lead">A small Python editor for the ideas that don’t fit a form: explore a data file, test a rule you just thought of, compare settings, or chart anything, on your own downloaded files and with the same engine as the Dashboard.</p>
+
+<h2>How it works</h2>
+<ol class="rules">
+  <li><b>Attach data:</b> tick files on the right (your Downloads and Uploads folders), or add a CSV/ZIP from this computer (used for this session only, not stored). Each gets a name such as <code>BTCUSDT-futures-1h</code>. Ticking a file puts the line that loads it at the top of your code, with what’s in the file; unticking it takes that line out again (if you haven’t changed it). <b>Insert</b> does the same for a file, ticking it if needed.</li>
+  <li><b>Write code</b>, or start from an example (the Examples menu). The editor colours the code, marks mistakes as you type and suggests names (see <button class="link" data-lab="doc" data-doc="python#editor">The editor</button> below). Tab indents; Enter keeps the indentation. The code is kept in this browser as you type; <b>Save as .py</b> downloads it and <b>Open</b> loads a .py file.</li>
+  <li><b>Run</b> (or Ctrl+Enter). The output, any error with its line number, and your matplotlib charts appear under the code. <b>Stop</b> ends a run that takes too long.</li>
+</ol>
+<p>Ticking a file adds two lines like these at the top:</p>
+<pre class="py"># ── BTCUSDT-futures-4h: BTCUSDT futures 4h · 10,956 candles · 2021-10-13 → 2026-10-12
+data = load("BTCUSDT-futures-4h")    # .t .o .h .l .c .v numpy arrays, .df() pandas; help(data) lists everything</pre>
+<p>The variable is <code>data</code>, or a name made from the file (<code>ethusdt_1h</code>) when your code already uses <code>data</code>. Tick a second file and its lines go under the first.</p>
+
+<h2 id="editor">The editor</h2>
+<ul>
+  <li><b>Colours:</b> keywords, text in quotes, numbers, comments, Python’s own functions, and MEDUSA’s names (<code>load</code>, <code>backtest</code> …) each have their own colour, so a missing quote or bracket shows at once.</li>
+  <li><b>Mistakes as you type:</b> a red wavy line marks an error (a bracket never closed, a missing <code>:</code>, a wrong indent, a quote that never ends, <code>=</code> where <code>==</code> was meant …) and the message shows at the end of the line; the line number turns red. A yellow line is a warning: a name a data file doesn’t have (<code>data.close</code> instead of <code>data.c</code>), <code>load("name")</code> of a file that isn’t ticked, or <code>load()</code> with several files ticked. The list under the editor shows every problem; click one to jump to it.</li>
+  <li><b>Python’s own check:</b> a quick check runs on every key. Once Python has started (it starts in the background when you begin typing), Python’s compiler checks the code too, a moment after you stop; then the list says <i>checked by Python</i>, and its message is exactly the one Run would give. Nothing runs during the check.</li>
+  <li><b>Suggestions:</b> type <code>data.</code> to see what a data file has, <code>r.</code> after <code>r = backtest(…)</code> for a result, <code>np.</code>, <code>pd.</code> or <code>plt.</code> for the libraries, or the start of any name; Ctrl+Space asks at any point. ↑ ↓ choose, Enter or Tab puts it in, Esc closes. The box under the list says what the selected name is.</li>
+  <li><b>Hints:</b> while you type the brackets of <code>load(</code>, <code>backtest(</code> or an indicator such as <code>ema(</code>, a hint shows what goes in them.</li>
+</ul>
+
+<h2 id="load">load(): your data file in Python</h2>
+<p><code>load()</code> hands your code one of the ticked data files as a <b>Data</b> object: the candles as numpy arrays (one value per candle, oldest first), plus a few facts about the file. When you press Run, MEDUSA reads each ticked file (from its storage, or from this browser for a file added from this computer) and gives Python a fresh copy for that run.</p>
+
+<h3>Calling it</h3>
+<table class="lab-table">
+  <thead><tr><th>You write</th><th>You get</th></tr></thead>
+  <tbody>
+    <tr><td><code>load()</code></td><td>The ticked file, when exactly one is ticked.</td></tr>
+    <tr><td><code>load("BTCUSDT-futures-4h")</code></td><td>That file. The name must be ticked on the right; <code>files()</code> lists the ticked names.</td></tr>
+    <tr><td><code>backtest("turtle", "BTCUSDT-futures-4h")</code></td><td><code>backtest()</code> takes a Data object or a name, and calls <code>load()</code> for you (with no data at all, it loads the one ticked file).</td></tr>
+    <tr><td>Nothing ticked</td><td><code>ValueError: No data file is attached. Tick one under 'Data files for Python' …</code></td></tr>
+    <tr><td>Several ticked, no name</td><td><code>ValueError: Several files are attached; name one: 'BTCUSDT-futures-4h', 'ETHUSDT-futures-4h'</code></td></tr>
+    <tr><td>A name that isn’t ticked</td><td><code>ValueError: No attached file is called '…'. Attached: …</code></td></tr>
+  </tbody>
+</table>
+<p><b>Names</b> are <code>SYMBOL-market-timeframe</code>, e.g. <code>ETHUSDT-spot-1d</code>. Two files with the same name (say two downloads of BTCUSDT 1h over different dates) become <code>BTCUSDT-futures-1h</code> and <code>BTCUSDT-futures-1h-2</code>. A file added from this computer is named from its file name; when that doesn’t say the coin it is <code>FILE-…</code>, and when MEDUSA can’t tell the timeframe from the gaps between candles it ends in <code>-custom</code> (and is treated as 1h in backtests).</p>
+
+<h3>What’s inside</h3>
+<table class="lab-table">
+  <thead><tr><th>Name</th><th>Type</th><th>Example</th><th>What it is</th></tr></thead>
+  <tbody>
+    <tr class="lab-tgroup"><th colspan="4">The candles (numpy arrays, one value per candle)</th></tr>
+    <tr><td><code>data.t</code></td><td>int64</td><td><code>1634083200000</code></td><td>Open time of each candle, in milliseconds since 1970, UTC. The candle closes when the next one opens: at <code>t + one timeframe</code>.</td></tr>
+    <tr><td><code>data.o</code></td><td>float64</td><td><code>data.o[0]</code></td><td>Open price.</td></tr>
+    <tr><td><code>data.h</code></td><td>float64</td><td><code>data.h.max()</code></td><td>Highest price during the candle.</td></tr>
+    <tr><td><code>data.l</code></td><td>float64</td><td><code>data.l.min()</code></td><td>Lowest price during the candle.</td></tr>
+    <tr><td><code>data.c</code></td><td>float64</td><td><code>data.c[-1]</code></td><td>Close price (the last candle’s is <code>data.c[-1]</code>).</td></tr>
+    <tr><td><code>data.v</code></td><td>float64</td><td><code>data.v.sum()</code></td><td>Volume, in the coin (BTC for BTCUSDT).</td></tr>
+    <tr><td><code>data.tbv</code></td><td>float64 or None</td><td><code>data.tbv / data.v</code></td><td>Taker-buy volume: the part of the volume bought by market orders. Binance files have it; <code>None</code> for a file without it.</td></tr>
+    <tr class="lab-tgroup"><th colspan="4">Funding rates (futures files downloaded with funding)</th></tr>
+    <tr><td><code>data.funding_t</code></td><td>int64 or None</td><td><code>data.funding_t[-1]</code></td><td>Funding times in ms, UTC (usually every 8 hours), rounded to the minute. <code>None</code> for spot files and files without funding.</td></tr>
+    <tr><td><code>data.funding_r</code></td><td>float64 or None</td><td><code>0.0001</code></td><td>The rate at each funding time: <code>0.0001</code> is 0.01%. A positive rate means longs pay shorts. Not the same length as the candles.</td></tr>
+    <tr class="lab-tgroup"><th colspan="4">About the file</th></tr>
+    <tr><td><code>data.name</code></td><td>str</td><td><code>"BTCUSDT-futures-4h"</code></td><td>The name <code>load()</code> knows it by.</td></tr>
+    <tr><td><code>data.symbol</code></td><td>str</td><td><code>"BTCUSDT"</code></td><td>The coin pair (<code>""</code> when an uploaded file’s name doesn’t say).</td></tr>
+    <tr><td><code>data.market</code></td><td>str</td><td><code>"futures"</code></td><td><code>"futures"</code> or <code>"spot"</code>.</td></tr>
+    <tr><td><code>data.interval</code></td><td>str</td><td><code>"4h"</code></td><td>The timeframe: <code>1m 3m 5m 15m 30m 1h 2h 4h 6h 8h 12h 1d 3d 1w</code>.</td></tr>
+    <tr><td><code>data.cols</code></td><td>dict</td><td><code>data.cols["c"]</code></td><td>Every column above in one dict: keys <code>t o h l c v</code>, and <code>tbv ft fr</code> when the file has them (here <code>t</code> and <code>ft</code> are float64).</td></tr>
+    <tr class="lab-tgroup"><th colspan="4">What you can do with it</th></tr>
+    <tr><td><code>len(data)</code></td><td>int</td><td><code>10956</code></td><td>The number of candles.</td></tr>
+    <tr><td><code>print(data)</code></td><td></td><td></td><td>One line: <code>&lt;BTCUSDT-futures-4h: BTCUSDT futures 4h, 10,956 candles, 2021-10-13 to 2026-10-12&gt;</code> (days in your time zone).</td></tr>
+    <tr><td><code>data.df()</code></td><td>DataFrame</td><td><code>data.df().tail()</code></td><td>The candles as a pandas table: see below.</td></tr>
+    <tr><td><code>help(data)</code></td><td></td><td></td><td>Prints this list in the output.</td></tr>
+  </tbody>
+</table>
+
+<h3>Rows, times and gaps</h3>
+<ul>
+  <li>Row <code>i</code> is one candle in every array: <code>data.t[i]</code>, <code>data.o[i]</code> … <code>data.c[i]</code>. Rows are sorted by time with duplicates dropped, and a download keeps only finished candles.</li>
+  <li><b>Times are UTC milliseconds.</b> <code>local_time(data.t)</code> turns them into numpy dates in your time zone, for printing, charts and picking dates (see the recipes). To get a Python datetime: <code>from datetime import datetime, timezone</code>, then <code>datetime.fromtimestamp(data.t[i] / 1000, timezone.utc)</code>.</li>
+  <li><b>Missing candles are not filled in.</b> If the exchange was down, the time simply jumps; the recipe below finds such gaps. Prices are as Binance gives them: no adjustments.</li>
+</ul>
+
+<h3>data.df(): the pandas view</h3>
+<p>Columns <code>open high low close volume</code>, plus <code>taker_buy_volume</code> when the file has it; the index is the open time in your time zone, named <code>time</code>. pandas loads by itself when your code calls <code>.df()</code>. Each call makes a new table, so keep it in a variable: <code>df = data.df()</code>. Funding isn’t in the table; add it like this:</p>
+<pre class="py">import pandas as pd
+df = data.df()
+if data.funding_r is not None:
+    f = pd.Series(data.funding_r, index=pd.to_datetime(data.funding_t, unit="ms", utc=True).tz_convert(df.index.tz))
+    df["funding"] = f.reindex(df.index, method="ffill")    # the last rate known at each candle</pre>
+
+<h3>Recipes</h3>
+<pre class="py">data = load()
+
+# the last candle, in your time zone
+print(local_time(data.t[-1]), "close", data.c[-1])
+
+# only 2024 (your time zone): a True/False mask for every candle
+lt = local_time(data.t)
+in_2024 = (lt &gt;= np.datetime64("2024-01-01")) &amp; (lt &lt; np.datetime64("2025-01-01"))
+c = data.c[in_2024]
+print(f"2024: {len(c):,} candles, from {c[0]:,.2f} to {c[-1]:,.2f} ({(c[-1] / c[0] - 1) * 100:+.1f}%)")
+
+# the first candle on or after a date
+i = np.searchsorted(lt, np.datetime64("2024-06-01"))
+print("June 2024 starts at row", i)
+
+# moves from close to close, and the candle's own range
+ret = data.c[1:] / data.c[:-1] - 1
+rng = (data.h - data.l) / data.o
+print(f"average move {ret.mean() * 100:+.4f}%, average range {rng.mean() * 100:.2f}%")
+
+# gaps: places where the time jumps by more than one candle
+step = np.median(np.diff(data.t))
+gaps = np.nonzero(np.diff(data.t) &gt; step)[0]
+print(len(gaps), "gaps")
+for k in gaps[:5]:
+    print("  ", local_time(data.t[k]), "→", local_time(data.t[k + 1]))</pre>
+<pre class="py"># funding: what a long position paid each year (a negative number means it was paid)
+data = load()
+if data.funding_r is not None:
+    years = local_time(data.funding_t).astype("datetime64[Y]")
+    for y in np.unique(years):
+        print(y, f"{data.funding_r[years == y].sum() * 100:+.2f}%")
+
+# daily candles from 1-hour ones (days in your time zone)
+daily = data.df().resample("1D").agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}).dropna()
+print(daily.tail())</pre>
+<pre class="py"># two files side by side, on the candles both have (tick both first)
+btc, eth = load("BTCUSDT-futures-1h"), load("ETHUSDT-futures-1h")
+t, ib, ie = np.intersect1d(btc.t, eth.t, return_indices=True)
+ratio = eth.c[ie] / btc.c[ib]
+print(f"ETH/BTC went from {ratio[0]:.5f} to {ratio[-1]:.5f}")
+
+# every ticked file
+for name in files():
+    d = load(name)
+    print(f"{name}: {len(d):,} candles, last close {d.c[-1]:,.2f}")</pre>
+
+<h3>Good to know</h3>
+<ul>
+  <li><b>Your copy:</b> the arrays belong to this run. Changing them never changes the stored file, and the next run starts from the file again. Within one run, <code>load("x")</code> twice gives the same object, so use <code>data.c.copy()</code> before changing values you still need.</li>
+  <li><b>Size:</b> each column is 8 bytes per candle; a million candles is about 60 MB in Python. Very large files take a few seconds to load before your code starts.</li>
+  <li><b>In a strategy:</b> <code>prepare(self, d)</code> gets a similar object from the engine (<code>d.t d.o d.h d.l d.c d.v</code>, <code>d.interval</code>, <code>d.symbol</code>), not the Data object itself; see <button class="link" data-lab="doc" data-doc="write">Writing your own strategy</button>.</li>
+</ul>
+
+<h2>Everything else your code can use</h2>
+<table class="lab-table">
+  <thead><tr><th>Name</th><th>What it is</th></tr></thead>
+  <tbody>
+    <tr><td><code>files()</code></td><td>The names of the ticked files.</td></tr>
+    <tr><td><code>local_time(ms)</code></td><td>Times in milliseconds (<code>data.t</code>, a result’s <code>equity_t</code>) as numpy dates in your time zone, for charts and printing: <code>plt.plot(local_time(data.t), data.c)</code>.</td></tr>
+    <tr><td><code>backtest(strategy, data, **settings)</code></td><td>Runs a built-in strategy by its key (<code>"turtle"</code>, <code>"ichimoku"</code> …) or a <code>Strategy</code> class you wrote in the same code, on exactly the Dashboard’s engine (same costs, sizing, warm-up). Settings are the Dashboard’s: <code>fee_pct</code>, <code>slippage_pct</code>, <code>funding</code>, <code>capital</code>, <code>sizing</code> (<code>"risk"</code>/<code>"notional"</code>), <code>risk_pct</code>, <code>notional_pct</code>, <code>max_leverage</code>, <code>compounding</code>, <code>fill</code>, <code>start</code>/<code>end</code> (<code>"2024-01-01"</code>, midnight in your time zone), <code>split</code>, plus the strategy’s own settings by their keys (<code>entry_len=55</code>). Lengths here are always in candles: a 35-day EMA on 1-hour candles is <code>35 * 24</code>. The warm-up follows from the settings, as on the Dashboard.</td></tr>
+    <tr><td>a backtest’s result</td><td><code>.report()</code> prints the main numbers; <code>.summary</code>, <code>.gross</code> (dicts, after and before costs); <code>.trades</code> (list of dicts); <code>.equity_t</code>, <code>.equity</code> (account value over time); <code>.df()</code> the trades as a DataFrame; <code>.save()</code> also puts it in your Results folder, where the Dashboard shows the full report.</td></tr>
+    <tr><td><code>Strategy</code>, <code>Param</code></td><td>To write a strategy class, exactly as in <button class="link" data-lab="doc" data-doc="write">Writing your own strategy</button>.</td></tr>
+    <tr><td><code>indicators</code></td><td><code>from indicators import ema, sma, atr, rsi, macd, adx, stoch, ichimoku, psar, session_vwap …</code>: about 60 indicators, all listed in <button class="link" data-lab="doc" data-doc="write">Writing your own strategy</button>. The editor suggests them after <code>from indicators import</code>.</td></tr>
+    <tr><td><code>np</code></td><td>numpy, ready without an import.</td></tr>
+    <tr><td>Libraries</td><td><b>numpy</b> (always), <b>pandas</b>, <b>matplotlib</b>, <b>scipy</b>, <b>statsmodels</b>, and Python’s standard library (math, statistics, itertools, datetime, json, random …).</td></tr>
+  </tbody>
+</table>
+
+<h2>Libraries load only when you use them</h2>
+<p>Python runs in a background thread with only the libraries your code imports. The first time, the browser downloads them from MEDUSA (pandas about 5 MB, matplotlib about 10 MB with its helpers, scipy 14 MB, statsmodels 8 MB) and keeps them, so later starts take a second or two. The thread starts when you begin typing (so the editor can use Python’s check and Run starts at once), and again when your code needs a library it doesn’t have yet. Code that imports nothing extra stays as light as the rest of the Lab. Other libraries (seaborn, scikit-learn, TA-Lib …) are not available; MEDUSA’s <code>indicators</code> covers the common indicators.</p>
+
+<h2>Safety</h2>
+<p>Your code runs in a background thread of this page whose network access is switched off before your code starts: it can read the files you attached and calculate, but it can’t send anything anywhere, or reach your account or other files. Code you paste from elsewhere can’t leak your data.</p>
+
+<h2>Charts</h2>
+<p>Use matplotlib as usual: <code>import matplotlib.pyplot as plt</code>, draw, then <code>plt.show()</code>. Every chart shown, and any still open at the end, appears under the output. Charts are drawn at twice the size they’re shown at: <b>Open in new tab</b> shows one full size in its own browser tab (zoom in there), and <b>Save PNG</b> downloads it. For a bigger chart to begin with, ask for one: <code>plt.figure(figsize=(14, 6))</code>.</p>
+
+<h2>Taking a backtest to another computer</h2>
+<p>Every backtest report (from the Dashboard or from <code>.save()</code> here) has a <b>Python code</b> button. It gives one standalone <code>.py</code> file: MEDUSA’s engine, indicators and statistics, the strategy’s code, and the exact settings of that run, including the warm-up and your time zone. On any computer with Python 3 and numpy:</p>
+<pre>pip install numpy
+python medusa_turtle_BTCUSDT_4h.py              # downloads the same candles (and funding) from Binance
+python medusa_turtle_BTCUSDT_4h.py --csv my.csv # or uses a file (MEDUSA's CSV/ZIP export, or a Binance archive)
+python medusa_turtle_BTCUSDT_4h.py --trades trades.csv --json report.json</pre>
+<p>A test on a file you uploaded needs that file with <code>--csv</code>. The script prints the same report and compares its numbers with the ones MEDUSA got (they match to the cent when the data is the same). Nothing in it talks to MEDUSA, and you can read and change every line.</p>
+
+<h2>Examples</h2>
+<pre class="py">data = load()
+r = backtest("ichimoku", data, notional_pct=25, sizing="notional", start="2023-01-01")
+r.report()
+
+# the same strategy on every attached file
+for name in files():
+    print(name, f"{backtest('turtle', load(name)).summary['return'] * 100:+.1f}%")</pre>
+<div class="callout warn">
+  <p><b>The trap:</b> with a few lines of code you can try hundreds of settings, and the best of them will always look great on past data. Choose settings on one part of the data (the <code>split</code> setting divides the report), then look at the rest once. The “Compare settings” example shows how.</p>
+</div>

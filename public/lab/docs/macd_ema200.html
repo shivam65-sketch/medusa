@@ -1,0 +1,47 @@
+<h1>MACD + 200 EMA</h1>
+<p class="lead">The strategy from one of YouTube’s most watched trading videos: trade MACD crosses only in the direction of the 200 EMA, and only on the “pullback” side of zero, with a target 1.5 × the risk.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Trend-filtered momentum (pullback entries)</td></tr>
+    <tr><td>Candles</td><td>15 and 30 minutes in the video; any</td></tr>
+    <tr><td>Trades</td><td>Long and short, stop and target</td></tr>
+    <tr><td>Source</td><td>Trading Rush, “MACD Trading Strategy tested 100 times” (YouTube): on 15-minute EURUSD charts, a 1.5 reward-to-risk and a 61% win rate over 100 trades, a claim from one manual test</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea</h2>
+<p>The 200 EMA defines the trend. Within an uptrend, a MACD cross upward <i>below</i> the zero line marks the end of a pullback: momentum turning back up while price is still cheap relative to its recent average. The video takes the trade with a stop below the 200 EMA (or the recent swing) and a 1.5R target. The author notes that not every valid signal should be taken, which is discretion a mechanical rule can’t copy.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li><b>Long:</b> close above the 200 EMA and the MACD line (12/26) crosses above its signal line (9) while both are below zero.</li>
+  <li><b>Short:</b> close below the 200 EMA and the MACD line crosses below its signal line while both are above zero.</li>
+  <li>Stop at the 200 EMA (or beyond the 10-candle swing); target 1.5 × the risk. One position at a time.</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="macd_ema200" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="macd_ema200" data-part="loss"></figure>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>MACD 12 / 26 / 9</td><td>standard</td><td>The momentum signal.</td></tr>
+    <tr><td>Trend EMA</td><td>200</td><td>The trend filter and, by default, the stop.</td></tr>
+    <tr><td>Stop</td><td>At the trend EMA</td><td>Or beyond the lowest low / highest high of the last 10 candles.</td></tr>
+    <tr><td>Target</td><td>1.5 × risk</td><td>The video’s reward-to-risk.</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>15-minute</td><td>0 of 7</td><td>15,185</td><td>−0.236% <span class="faint">(t −10.8)</span></td><td>−0.030% <span class="faint">(t −1.4)</span></td><td>−0.213%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>1-hour</td><td>0 of 7</td><td>3,414</td><td>−0.229% <span class="faint">(t −2.4)</span></td><td>−0.005% <span class="faint">(t −0.0)</span></td><td>−0.260%</td><td><span class="lab-verdict none">No edge</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout warn">
+  <p>About zero before costs on both timeframes, losing after them, on every coin. A 61% win rate over 100 hand-picked trades is far too small a sample to tell skill from luck; over thousands of mechanical trades the rule had no edge in crypto.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="macd_ema200">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="macd_ema200">View the Python code</button></div>

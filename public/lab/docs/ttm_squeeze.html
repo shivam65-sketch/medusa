@@ -1,0 +1,47 @@
+<h1>TTM Squeeze (John Carter)</h1>
+<p class="lead">When volatility contracts so far that the Bollinger Bands fit inside the Keltner Channels, the market is coiling. When they expand again, the “squeeze fires”: trade in the direction of momentum.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Volatility breakout</td></tr>
+    <tr><td>Candles</td><td>Any; tested on 4 hours and daily</td></tr>
+    <tr><td>Trades</td><td>Long and short, ATR stop</td></tr>
+    <tr><td>Source</td><td>John Carter, <i>Mastering the Trade</i> (2005); the momentum histogram as in the popular TradingView version by LazyBear</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea</h2>
+<p>Volatility comes in waves: quiet periods are followed by big moves. Bollinger Bands (2 standard deviations) shrink faster than Keltner Channels (1.5 × the average range) when the market goes quiet. When they are inside the Keltner Channels, a big move is building up; when they come back out, it has started. The momentum histogram (a fitted line through price minus its recent midpoint) picks the direction.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>Squeeze on: Bollinger(20, 2) entirely inside Keltner(20, 1.5).</li>
+  <li>The squeeze fires on the first candle it is off again: momentum above zero → buy; below zero → sell short.</li>
+  <li>Exit after two candles in a row of fading momentum, or at the 2 × ATR(20) stop.</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="ttm_squeeze" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="ttm_squeeze" data-part="loss"></figure>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Length</td><td>20</td><td>Both channels’ length.</td></tr>
+    <tr><td>Bollinger / Keltner width</td><td>2.0 / 1.5</td><td>Carter’s settings.</td></tr>
+    <tr><td>Squeeze must last at least</td><td>1 candle</td><td>Longer squeezes are said to give bigger moves.</td></tr>
+    <tr><td>Stop</td><td>2 × ATR</td><td>0 = no stop (then the momentum exit only).</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>4-hour</td><td>4 of 7</td><td>3,084</td><td>−0.027% <span class="faint">(t −0.2)</span></td><td>+0.198% <span class="faint">(t +1.8)</span></td><td>+0.300%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>daily</td><td>5 of 7</td><td>486</td><td>+1.377% <span class="faint">(t +1.2)</span></td><td>+1.850% <span class="faint">(t +1.5)</span></td><td>−1.487%</td><td><span class="lab-verdict none">No edge</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout">
+  <p>Promising but unproven. The daily version made money on 5 of 7 coins with shallow drawdowns, but from only about 500 trades, too few to be sure, and it lost since mid-2024. The 4-hour version was the reverse: weak overall, positive since mid-2024. Mixed signals like this usually mean luck. A forward test would tell.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="ttm_squeeze">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="ttm_squeeze">View the Python code</button></div>

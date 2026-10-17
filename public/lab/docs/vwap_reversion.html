@@ -1,0 +1,51 @@
+<h1>VWAP band reversion</h1>
+<p class="lead">The scalper’s fade: when the price stretches far from the day’s VWAP and starts to come back, trade the snap-back towards the VWAP.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Intraday mean reversion (scalping)</td></tr>
+    <tr><td>Candles</td><td>1 to 15 minutes</td></tr>
+    <tr><td>Trades</td><td>Long and short, a few a day</td></tr>
+    <tr><td>Source</td><td>A staple of intraday trading courses and trading-desk practice; there is no well-known published test of it on crypto, which is why we ran one.</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea</h2>
+<p>The VWAP is where most of the day’s volume changed hands. <b>VWAP bands</b> sit a number of volume-weighted standard deviations above and below it, like Bollinger Bands around a moving average. The belief behind the fade: a price two deviations away from where everyone traded is stretched, and tends to drift back. Waiting for a candle to close back inside the band is a common filter, so you don’t step in front of a move that is still accelerating.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>The VWAP and its spread restart at each session’s start (00:00 UTC by default). Bands: VWAP ± 2 standard deviations.</li>
+  <li>No trades in the session’s first 12 candles (the bands need data) or on its last candle.</li>
+  <li><b>Long:</b> the previous candle closed below the lower band and this one closes back above it. <b>Short:</b> the mirror at the upper band. Fill at the next open.</li>
+  <li><b>Exit:</b> the close reaches the VWAP, or the stop (1.5 × ATR(14)) is hit, or the session ends.</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="vwap_reversion" data-part="win"></figure>
+<p>A stretch below the band that snapped back to the VWAP.</p>
+
+<h2>A losing trade</h2>
+<figure data-example="vwap_reversion" data-part="loss"></figure>
+<p>The stretch kept going: on trending days the bands widen and price walks along them.</p>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Band width</td><td>2.0</td><td>Wider: fewer, more extreme setups.</td></tr>
+    <tr><td>Wait for a close back inside the band</td><td>on</td><td>Off: fade as soon as a candle closes outside (more trades, more knife-catching).</td></tr>
+    <tr><td>No trades in the session’s first</td><td>12 candles</td><td>Early bands are narrow and jumpy.</td></tr>
+    <tr><td>Stop (× ATR)</td><td>1.5</td><td>Wider stops fail less often but lose more when they do.</td></tr>
+    <tr><td>Session start</td><td>0 (UTC)</td><td>When the VWAP and bands reset.</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>5-minute</td><td>0 of 2</td><td>25,427</td><td>−0.224% <span class="faint">(t −41.8)</span></td><td>−0.024% <span class="faint">(t −4.4)</span></td><td>−0.202%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>15-minute</td><td>0 of 7</td><td>40,173</td><td>−0.225% <span class="faint">(t −30.2)</span></td><td>−0.026% <span class="faint">(t −3.5)</span></td><td>−0.211%</td><td><span class="lab-verdict none">No edge</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout warn">
+  <p>It loses even before costs: in crypto, a price that has run two deviations from the VWAP tends to keep going more often than it snaps back. That fits everything else in these tests, where trend rules did better than fades.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="vwap_reversion">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="vwap_reversion">View the Python code</button></div>

@@ -1,0 +1,85 @@
+<h1>RSI reversal</h1>
+<p class="lead">Buy when the RSI climbs back out of “oversold”, sell short when it falls back from “overbought”, and take the profit when it returns to the middle. A bet that sharp moves partly undo themselves.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Mean reversion (counter-trend)</td></tr>
+    <tr><td>Trades</td><td>Long and short (long only on spot)</td></tr>
+    <tr><td>Entry</td><td>RSI(14) crosses back above 30 (long) or below 70 (short), at the next open</td></tr>
+    <tr><td>Exit</td><td>RSI reaches 50, or the 2 × ATR stop; optional time exit and trend filter</td></tr>
+    <tr><td>On BTC 4h, 2019–2026</td><td>386 trades (about 55 a year), 52% winners, held 10 candles (under 2 days) on average</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea</h2>
+<p>After a burst of selling, prices often bounce: sellers run out, short sellers take profit, buyers see a bargain. The RSI measures how one-sided recent moves were. When it is very low, the selling has been relentless; when it turns back up from there, the strategy bets the bounce has started and holds it until the RSI is back to neutral.</p>
+<p>The danger is the opposite of the trend follower’s: in a strong trend, “oversold” can get much more oversold. Mean-reversion strategies win often, in small amounts, and occasionally take a full loss in a market that refuses to turn.</p>
+
+<h2>The ingredient: RSI</h2>
+<p>The relative strength index compares the average size of up-closes with the average size of down-closes over the last 14 candles (Wilder’s smoothing, as on TradingView):</p>
+<pre>RS  = average gain ÷ average loss            (over 14 candles)
+RSI = 100 − 100 ÷ (1 + RS)                   always between 0 and 100</pre>
+<p>Example: if the last 14 candles gained $300 on average on up-candles and lost $700 on average on down-candles, RS = 300 ÷ 700 ≈ 0.43 and RSI = 100 − 100 ÷ 1.43 ≈ <b>30</b>. Losses have been more than twice the gains: “oversold”. Above 70 is the mirror image, “overbought”; 50 means gains and losses balance.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>At each close, compute RSI(14) and ATR(14).</li>
+  <li><b>Long:</b> RSI was at or below 30 on the previous candle and is above 30 now → buy at the next open.</li>
+  <li><b>Short:</b> RSI was at or above 70 and is below 70 now → sell short at the next open.</li>
+  <li><b>Stop:</b> 2 × ATR from the entry.</li>
+  <li><b>Exit:</b> a long closes when RSI reaches 50 or more (a short at 50 or less), at the next open. With “Exit when RSI reaches: the opposite level”, longs wait for 70 and shorts for 30.</li>
+  <li><b>Optional:</b> time exit after n candles; trend filter: longs only when the close is above an EMA of the chosen length, shorts only below it.</li>
+</ol>
+
+<h2>A winning trade, step by step</h2>
+<figure data-example="rsi_reversal" data-part="win"></figure>
+<p>A sharp sell-off pushed RSI below 30; one candle later it was back above 30 and the strategy bought. The bounce carried RSI past 50 within a day, and the trade closed for +1.54R.</p>
+
+<h2>A losing trade</h2>
+<figure data-example="rsi_reversal" data-part="loss"></figure>
+<p>Same signal, different outcome: the bounce was brief, and the price kept falling into the stop. This is how mean reversion loses: the market was not “oversold”, it was in a down-trend.</p>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>RSI length</td><td>14</td><td>Shorter: RSI swings more, more signals. Longer: smoother, rarer extremes.</td></tr>
+    <tr><td>Oversold / overbought levels</td><td>30 / 70</td><td>20 / 80: rarer, more extreme signals.</td></tr>
+    <tr><td>Exit when RSI reaches</td><td>50</td><td>“The opposite level” holds for a full swing: bigger wins, more give-back.</td></tr>
+    <tr><td>ATR length, stop (× ATR)</td><td>14, 2.0</td><td>The safety stop. Mean-reversion trades need room to breathe; too tight a stop cuts many trades that would have bounced.</td></tr>
+    <tr><td>Time exit after candles</td><td>0 (off)</td><td>Closes bounces that never come.</td></tr>
+    <tr><td>Trend filter EMA</td><td>0 (off)</td><td>For example 200: only buy dips in an up-trend and short rallies in a down-trend. Usually the most useful change.</td></tr>
+  </tbody>
+</table>
+
+<h2>When it works, and when it doesn’t</h2>
+<ul>
+  <li><b>Works:</b> sideways markets, and dips within a healthy up-trend (with the trend filter on).</li>
+  <li><b>Fails:</b> strong trends against the trade. Crypto trends hard, especially downwards in crashes and upwards in bull runs, which hurts both sides.</li>
+</ul>
+
+<h2>What our research found</h2>
+<h3>The 7-coin test (Oct 2026)</h3>
+<p>The same test as every other built-in strategy: default settings, 1-hour and 4-hour candles, 7 coins, after costs.</p>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>1-hour</td><td>0 of 7</td><td>8,737</td><td>−0.322% <span class="faint">(t −9.1)</span></td><td>−0.133% <span class="faint">(t −3.8)</span></td><td>−0.269%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>4-hour</td><td>0 of 7</td><td>2,309</td><td>−0.480% <span class="faint">(t −3.7)</span></td><td>−0.327% <span class="faint">(t −2.5)</span></td><td>−0.029%</td><td><span class="lab-verdict none">No edge</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<h3>Earlier tests</h3>
+<div class="callout warn">
+  <p><b>BTC 4h, Sep 2019 – Oct 2026 (trading starts after the warm-up), default settings, with fees, slippage and real funding:</b> 386 trades, 52% winners, <b>−27.8%</b>, worst drawdown 31.8%. Even before costs it lost (−9.8%). Average trade −0.08R (t = −1.61).</p>
+  <p>A win rate above 50% and still losing money is the classic mean-reversion trap: the wins were smaller than the losses. On BTC, betting against moves has not paid; the trend filter and long-only are the first things to test, with a held-back date.</p>
+</div>
+
+<h2>Ideas to explore</h2>
+<ul>
+  <li>Trend filter 200, long only: buy dips in up-trends only.</li>
+  <li>Daily candles, where oversold readings are rarer and bounces bigger.</li>
+  <li>A time exit (for example 12 candles) so failed bounces don’t drift into the stop.</li>
+</ul>
+
+<h2>Common mistakes</h2>
+<ul>
+  <li>Judging it by the win rate. Look at the average trade in R.</li>
+  <li>Removing the stop because “it always comes back”. Sometimes it doesn’t, and one such trade can erase months.</li>
+</ul>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="rsi_reversal">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="rsi_reversal">View the Python code</button></div>

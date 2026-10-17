@@ -1,0 +1,46 @@
+<h1>Fade extreme funding</h1>
+<p class="lead">A signal only crypto has. When perpetual-futures funding is unusually high, longs are crowded and paying shorts, so go short until the next funding. When it’s unusually low, go long.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Positioning / sentiment contrarian</td></tr>
+    <tr><td>Candles</td><td>1 hour or shorter; needs futures data downloaded <b>with funding rates</b></td></tr>
+    <tr><td>Trades</td><td>Long and short, 8 hours each</td></tr>
+    <tr><td>Source</td><td>BitMEX Research, <a href="https://blog.bitmex.com/2025q2-derivatives-report" target="_blank" rel="noopener">funding-rate studies</a> (“XBTUSD Funding Mean Reversion Strategy”, “Funding Mean Reversions 2018”)</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea, and where it comes from</h2>
+<p>Funding is what longs pay shorts (or the reverse) every few hours to keep a perpetual future near the spot price. A very high rate means traders are crowded long. BitMEX’s research found that extreme funding tends to precede a move against the crowd over the next 8 hours, with the best results between 1 and 2 standard deviations from the recent average. At the most extreme readings the trend often keeps going, so those are skipped. The contrarian side also <i>receives</i> the funding.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>Each funding payment is compared with the 90 before it (30 days of 8-hour funding): z = (rate − average) ÷ standard deviation.</li>
+  <li>On the candle when a payment arrives: z between +1 and +2 → sell short; between −2 and −1 → buy. Beyond 2: no trade.</li>
+  <li>Close after 8 hours.</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="funding_fade" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="funding_fade" data-part="loss"></figure>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Compare with the last</td><td>90 payments</td><td>What “normal” funding is.</td></tr>
+    <tr><td>Trade from / skip beyond</td><td>1 / 2 standard deviations</td><td>BitMEX’s most profitable band.</td></tr>
+    <tr><td>Hold</td><td>8 hours</td><td>Until the next funding on most coins.</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>1-hour</td><td>0 of 7</td><td>6,883</td><td>−0.151% <span class="faint">(t −4.3)</span></td><td>+0.039% <span class="faint">(t +1.1)</span></td><td>−0.162%</td><td><span class="lab-verdict none">No edge</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout warn">
+  <p>About zero before costs and losing after, on every coin. BitMEX itself reports that extreme funding has become about 90% rarer since 2016 as arbitrage traders flatten it; our earlier research also found funding fades flipping sign between periods.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="funding_fade">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="funding_fade">View the Python code</button></div>

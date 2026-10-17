@@ -1,0 +1,47 @@
+<h1>Turtle Soup (Raschke &amp; Connors)</h1>
+<p class="lead">The anti-Turtle: when the price breaks to a new 20-day low and immediately comes back above the old low, the breakout failed, so buy. The name mocks the Turtle traders whose breakouts it fades.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Failed-breakout reversal</td></tr>
+    <tr><td>Candles</td><td>Daily (as designed); also tested on 4 hours</td></tr>
+    <tr><td>Trades</td><td>Long and short, held hours to days</td></tr>
+    <tr><td>Source</td><td>Linda Bradford Raschke &amp; Laurence Connors, <i>Street Smarts: High Probability Short-Term Trading Strategies</i> (1995)</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea</h2>
+<p>Breakout traders all buy the same 20-day high and sell the same 20-day low. When a new low doesn’t follow through, those who sold the breakout are trapped and have to buy back, pushing the price up. Raschke’s rules require the previous 20-day low to be at least four days old, so it is a real level, and enter with a buy stop at that old low after the new low is made.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>A candle’s low breaks the lowest low of the previous 20 candles, and that old low was made at least 4 candles earlier.</li>
+  <li>If the candle already closed back above the old low, buy at the next open; otherwise place a buy stop at the old low for the next candle.</li>
+  <li>Stop at the new low; target 2 × the risk; out after 5 candles at the latest.</li>
+  <li>Shorts mirror it at 20-candle highs.</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="turtle_soup" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="turtle_soup" data-part="loss"></figure>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Channel length</td><td>20</td><td>The breakout level being faded.</td></tr>
+    <tr><td>Old extreme at least</td><td>4 candles ago</td><td>Raschke’s rule (3 in her “Plus One” variant).</td></tr>
+    <tr><td>Target / time exit</td><td>2R / 5 candles</td><td>Raschke trailed her stops; these keep it mechanical.</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>daily</td><td>0 of 7</td><td>750</td><td>−0.924% <span class="faint">(t −4.3)</span></td><td>−0.738% <span class="faint">(t −3.4)</span></td><td>−0.771%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>4-hour</td><td>0 of 7</td><td>4,613</td><td>−0.339% <span class="faint">(t −8.5)</span></td><td>−0.142% <span class="faint">(t −3.6)</span></td><td>−0.332%</td><td><span class="lab-verdict none">No edge</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout warn">
+  <p>It lost even before costs, on 13 of the 14 coin-and-timeframe tests. In crypto, breakouts of 20-candle highs and lows tend to keep going, which is exactly why the <button class="link" data-lab="doc" data-doc="turtle">Turtle breakout</button> works here. Fading them fights the strongest pattern these tests found.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="turtle_soup">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="turtle_soup">View the Python code</button></div>

@@ -1,0 +1,43 @@
+<h1>Fade the last candle</h1>
+<p class="lead">After a green 15-minute candle be short for the next one; after a red candle be long. A 2026 study found this tiny reversal in almost every Binance coin. This page shows why a real effect can still lose every cent.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Very short-term mean reversion (scalping)</td></tr>
+    <tr><td>Candles</td><td>1 minute to 1 hour (the study used 15 minutes)</td></tr>
+    <tr><td>Trades</td><td>Long and short, dozens a day</td></tr>
+    <tr><td>Source</td><td>Kitron &amp; Wengrowicz, <a href="https://arxiv.org/abs/2608.21888" target="_blank" rel="noopener">“Short-horizon mean reversion in cryptocurrency markets: a matched cross-market measurement”</a> (2026)</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea, and where it comes from</h2>
+<p>Comparing 183 Binance pairs with 187 US stocks on 15-minute candles, the authors found a significant reversal in 90% of the crypto pairs but in only 2.7% of the stocks, every year since 2021. The direction of the last candle is what matters, not its size. They also measured the catch: about 1.3 basis points (0.013%) a trade before costs, well short of the roughly 5 basis points a round trip costs even for the cheapest traders.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>At each close: a green candle (close above open) → be short; a red candle → be long; unchanged → be flat.</li>
+  <li>While the signal repeats, keep the position; when it changes, close and reverse at the next open.</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="candle_reversal" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="candle_reversal" data-part="loss"></figure>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Only fade candles that moved at least</td><td>0%</td><td>Skip small candles (no position after them).</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>5-minute</td><td>0 of 2</td><td>396,112</td><td>−0.195% <span class="faint">(t −391.7)</span></td><td>+0.005% <span class="faint">(t +11.1)</span></td><td>−0.200%</td><td><span class="lab-verdict gross">Edge before costs only</span></td></tr><tr><td>15-minute</td><td>0 of 7</td><td>559,010</td><td>−0.201% <span class="faint">(t −202.5)</span></td><td>−0.001% <span class="faint">(t −1.2)</span></td><td>−0.195%</td><td><span class="lab-verdict none">No edge</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout warn">
+  <p>We confirmed the study’s effect: on 5-minute candles a tiny but extremely consistent edge before costs, and on 15-minute candles a positive one since mid-2024. But it is about 0.005% a trade against about 0.2% in costs, and the strategy trades hundreds of thousands of times. Every account was wiped out. Some anomalies are real and still untradeable.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="candle_reversal">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="candle_reversal">View the Python code</button></div>

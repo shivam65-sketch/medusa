@@ -1,0 +1,53 @@
+<h1>Opening range breakout</h1>
+<p class="lead">Let the first minutes of the session decide the day’s direction, take one trade that way, and hold it until a big target or the session’s end.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Intraday momentum, one trade a session</td></tr>
+    <tr><td>Candles</td><td>1 to 15 minutes</td></tr>
+    <tr><td>Trades</td><td>Long or short, at most one a day</td></tr>
+    <tr><td>Sources</td><td>Toby Crabel, <i>Day Trading with Short Term Price Patterns and Opening Range Breakout</i> (1990); Zarattini &amp; Aziz, <a href="https://ssrn.com/abstract=4416622" target="_blank" rel="noopener">“Can Day Trading Really Be Profitable?”</a> (2023)</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea, and where it comes from</h2>
+<p>Toby Crabel showed in 1990 that the first minutes of a session carry a lot of information about the rest of it: the earlier a breakout of the opening range happens, the more often it holds until the close. Zarattini and Aziz made it mechanical: take the direction of the first 5-minute candle, enter at the second candle’s open, stop at the other side of the first candle, target 10 × the risk or the session’s close. On QQQ they found a 24% win rate and +0.13R a trade before costs.</p>
+<p>An independent replication on five stock indices in 2026 reproduced that +0.13R before costs, but found it was almost exactly eaten by trading costs (four of five markets negative). Crypto has no opening bell; here the session starts at 00:00 UTC unless you change it.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>The <b>opening range</b> is the high and low of the session’s first 5 minutes (at least one candle; a session missing its first candle is skipped).</li>
+  <li><b>Direction mode</b> (default, Zarattini &amp; Aziz): when the range is complete, if it closed above the session’s open → buy; below → sell. Fill at the next open.</li>
+  <li><b>Breakout mode</b> (Crabel): wait for the price to break the range’s high (buy) or low (sell). The engine holds one waiting order, so it goes on the side the price is nearer to and is renewed every candle; a close already beyond the range enters at the next open.</li>
+  <li>Stop at the other side of the range; target 10 × the risk.</li>
+  <li>One trade per session, none in its last 60 minutes; anything open is closed at the session’s end.</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="orb" data-part="win"></figure>
+<p>The first candle pointed the way and the price kept going: the rare big winner the rule waits for.</p>
+
+<h2>A losing trade</h2>
+<figure data-example="orb" data-part="loss"></figure>
+<p>More typical: the price reversed through the other side of the opening range for a −1R loss.</p>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Entry</td><td>Direction</td><td>Breakout waits for a break of the range: later, fewer entries.</td></tr>
+    <tr><td>Session start</td><td>0 (UTC)</td><td>13.5 (13:30 UTC) uses the US stock open, the closest thing crypto has to an opening bell.</td></tr>
+    <tr><td>Opening range</td><td>5 minutes</td><td>15–60 minutes gives wider ranges and stops (Crabel used several).</td></tr>
+    <tr><td>Target</td><td>10 × risk</td><td>Smaller targets win more often but cap the winners.</td></tr>
+    <tr><td>Skip if the range is smaller than</td><td>0%</td><td>Tiny ranges mean tiny stops, where costs dominate.</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Entry</th><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>direction</td><td>5-minute</td><td>0 of 2</td><td>4,977</td><td>−0.231% <span class="faint">(t −15.2)</span></td><td>−0.031% <span class="faint">(t −2.0)</span></td><td>−0.221%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>direction</td><td>15-minute</td><td>0 of 7</td><td>14,645</td><td>−0.255% <span class="faint">(t −14.7)</span></td><td>−0.054% <span class="faint">(t −3.1)</span></td><td>−0.276%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>breakout</td><td>5-minute</td><td>0 of 2</td><td>4,870</td><td>−0.214% <span class="faint">(t −10.7)</span></td><td>−0.014% <span class="faint">(t −0.7)</span></td><td>−0.231%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>breakout</td><td>15-minute</td><td>0 of 7</td><td>14,091</td><td>−0.251% <span class="faint">(t −11.0)</span></td><td>−0.050% <span class="faint">(t −2.2)</span></td><td>−0.269%</td><td><span class="lab-verdict none">No edge</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout warn">
+  <p>Neither version showed an edge on crypto, even before costs. With a midnight-UTC “open” that nobody trades around, the first minutes say little about the rest of the day. The 13:30 UTC start is the version worth testing next.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="orb">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="orb">View the Python code</button></div>

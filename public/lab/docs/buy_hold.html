@@ -1,0 +1,40 @@
+<h1>Buy and hold</h1>
+<p class="lead">Buy on the first candle and never sell. It isn’t really a trading strategy; it is the yardstick every strategy has to beat.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Baseline (passive)</td></tr>
+    <tr><td>Trades</td><td>One long trade, from the first candle to the last</td></tr>
+    <tr><td>Stop, target</td><td>None</td></tr>
+    <tr><td>BTCUSDT, Sep 2019 – Oct 2026</td><td><b>+720%</b>, with a worst drawdown of about −77%</td></tr>
+  </tbody>
+</table>
+
+<h2>Why it matters</h2>
+<p>A strategy that made +100% sounds good until you see that simply holding the coin made +700% over the same years. Every report already draws buy and hold as the grey line next to your strategy, and its total return and worst drawdown are under the headline tiles. This strategy lets you test holding itself with real costs, leverage and funding.</p>
+<p>A strategy can still be worth trading while making less than buy and hold, if it does so with <b>much smaller drawdowns</b> or less time in the market, because that lets you use more money or sleep better. Compare yearly growth <i>and</i> worst drawdown, not profit alone.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>On the first candle, buy at the next open (so in practice the second candle’s open, plus slippage and a fee).</li>
+  <li>Hold until the last candle; the position is closed there (“End of data”).</li>
+</ol>
+<p>Set the position size under “Costs, money and checks”: <b>A % of the account</b> at 100% and max leverage 1 is a plain, unleveraged purchase. (Risk-based sizing needs a stop, which this strategy doesn’t have, so it uses the % of the account.)</p>
+
+<h2>Holding BTC since 2019</h2>
+<figure data-example="buy_hold" data-part="main"></figure>
+
+<h2>A lesson about futures: funding</h2>
+<div class="callout warn">
+  <p>Holding a <b>futures</b> long is not the same as holding the coin. Longs pay funding to shorts most of the time in a bull market. In this project’s test, a 1x BTC futures long from 2019 with the real funding rates paid roughly 11% of its value per year; by the 2022 crash it had paid so much that the account hit the liquidation level in <b>November 2022</b> and was wiped out, while plain buy and hold went on to +720%.</p>
+  <p>To compare a strategy with simply owning the coin, test buy and hold on a <b>spot</b> dataset (or with funding switched off). To see what holding a futures position really costs, test it on a futures dataset with funding on.</p>
+</div>
+
+<h2>Ideas to explore</h2>
+<ul>
+  <li>Run it on the same dataset and dates as your strategy, and put the two reports side by side (both land in the Results folder: open them one after the other on the Dashboard, or export both as CSV).</li>
+  <li>Try 2x leverage on futures and look at the drawdown and liquidations.</li>
+  <li>Try different start dates: buying at the 2021 top is a very different experience from buying in 2019.</li>
+</ul>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="buy_hold">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="buy_hold">View the Python code</button></div>

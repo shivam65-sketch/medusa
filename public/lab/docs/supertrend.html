@@ -1,0 +1,46 @@
+<h1>Supertrend</h1>
+<p class="lead">An ATR-based line that trails the price and jumps to the other side when a candle closes through it. One of the most used indicators in crypto, often traded as an always-in-the-market system: long when it flips up, short when it flips down.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Trend following (stop and reverse)</td></tr>
+    <tr><td>Candles</td><td>Any; popular from 5 minutes to 4 hours</td></tr>
+    <tr><td>Trades</td><td>Long and short, always in the market</td></tr>
+    <tr><td>Source</td><td>Olivier Seban; computed here exactly as TradingView’s <code>ta.supertrend</code> (checked value for value)</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea</h2>
+<p>Take the middle of each candle, (high + low) ÷ 2, and draw bands 3 × ATR(10) above and below it. In an uptrend the lower band is the line, and it may only rise; in a downtrend the upper band is the line, and it may only fall. A close through the line flips the trend. It is a volatility-adjusted trailing stop that also tells you which way to face.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>Supertrend(10, 3) with Wilder-smoothed ATR, as on TradingView.</li>
+  <li>When it flips up, buy at the next open; when it flips down, sell short. Each flip closes the old position and opens the new one.</li>
+  <li>No stop by default: the opposite flip is the exit. Optionally the line can also act as a stop inside the candle.</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="supertrend" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="supertrend" data-part="loss"></figure>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>ATR length</td><td>10</td><td>How many candles the volatility averages over.</td></tr>
+    <tr><td>Band (× ATR)</td><td>3.0</td><td>Wider (crypto traders often use 4–5): fewer flips and whipsaws, later exits.</td></tr>
+    <tr><td>Also use the line as a stop</td><td>off</td><td>On: exits as soon as the price touches the line, and lets the Lab size trades by risk.</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>15-minute</td><td>0 of 7</td><td>33,141</td><td>−0.211% <span class="faint">(t −10.7)</span></td><td>−0.009% <span class="faint">(t −0.5)</span></td><td>−0.151%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>1-hour</td><td>0 of 7</td><td>8,137</td><td>−0.004% <span class="faint">(t −0.0)</span></td><td>+0.220% <span class="faint">(t +2.1)</span></td><td>−0.016%</td><td><span class="lab-verdict gross">Edge before costs only</span></td></tr><tr><td>4-hour</td><td>2 of 7</td><td>1,495</td><td>+0.935% <span class="faint">(t +1.7)</span></td><td>+1.303% <span class="faint">(t +2.2)</span></td><td>+0.540%</td><td><span class="lab-verdict gross">Edge before costs only</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<div class="callout warn">
+  <p>A trend follower like the Turtle, and it behaves like one: nothing on 15-minute candles, a real but small edge before costs on 1-hour and 4-hour candles, not enough after costs. On 4-hour candles the average trade was positive after costs, but only 2 of 7 coins ended in profit and the statistics fall short, with big drawdowns (always in the market at 100% of the account).</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="supertrend">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="supertrend">View the Python code</button></div>

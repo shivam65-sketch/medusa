@@ -1,0 +1,49 @@
+<h1>Ichimoku cloud</h1>
+<p class="lead">Goichi Hosoda’s “one-glance equilibrium chart”, a crypto chart favourite. Buy when the fast line crosses above the slow line while the price is above the cloud; get out when the price closes back below the slow line.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Trend following</td></tr>
+    <tr><td>Candles</td><td>Any; tested on 4 hours and daily</td></tr>
+    <tr><td>Trades</td><td>Long and short, held days to weeks</td></tr>
+    <tr><td>Source</td><td>Goichi Hosoda, Ichimoku Kinko Hyo (published 1969); standard settings 9 / 26 / 52</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea</h2>
+<p>Every Ichimoku line is a midpoint: the middle of the highest high and lowest low over a period. The <b>conversion line</b> (9 candles) is fast, the <b>base line</b> (26) slow. The <b>cloud</b> is two lines plotted 26 candles ahead: span A (the average of the two lines) and span B (the 52-candle midpoint). A price above the cloud is in an uptrend; a fast-over-slow cross there is a buy in the trend’s direction. Academic tests on stocks and currencies were mixed; it had not been carefully tested on crypto with costs.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li>Conversion = (highest high + lowest low) ÷ 2 over 9 candles; base = the same over 26; cloud = span A and span B, each as computed 26 candles earlier.</li>
+  <li><b>Long:</b> the conversion line crosses above the base line and the close is above the top of the cloud. <b>Short:</b> it crosses below and the close is below the cloud.</li>
+  <li><b>Exit</b> when a candle closes back across the base line. No stop by default. No trade until both cloud lines exist (78 candles).</li>
+</ol>
+
+<h2>A winning trade</h2>
+<figure data-example="ichimoku" data-part="win"></figure>
+
+<h2>A losing trade</h2>
+<figure data-example="ichimoku" data-part="loss"></figure>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Conversion / base / span B</td><td>9 / 26 / 52</td><td>Hosoda’s settings (some crypto traders use 20 / 60 / 120 because crypto trades 7 days a week).</td></tr>
+    <tr><td>Stop</td><td>0 = none</td><td>An ATR stop limits the damage of a fast reversal and lets the Lab size by risk.</td></tr>
+  </tbody>
+</table>
+
+<h2>What our test found</h2>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>4-hour</td><td>6 of 7</td><td>1,786</td><td>+0.805% <span class="faint">(t +2.7)</span></td><td>+1.098% <span class="faint">(t +3.6)</span></td><td>+1.029%</td><td><span class="lab-verdict works">Profitable after costs</span></td></tr><tr><td>daily</td><td>3 of 7</td><td>277</td><td>+1.045% <span class="faint">(t +0.5)</span></td><td>+1.869% <span class="faint">(t +0.9)</span></td><td>−0.578%</td><td><span class="lab-verdict none">No edge</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<p><b>On 28 coins it had never seen</b> (every other coin with data: ADA, AVAX, LINK, NEAR, SUI, TAO … same settings, run once): 16 of 28 in profit, 4,339 trades, average +0.698% after costs (t +4.0), +0.957% before costs. Longs +1.318% (t +4.0), shorts +0.197% (t +1.2).</p>
+<div class="callout good">
+  <p><b>It passed, and then passed again.</b> On 4-hour candles: profitable after costs on 6 of 7 coins, stronger since mid-2024, and on 28 coins it had never seen, profitable again, with even stronger statistics. Every year from 2019 to 2026 had a positive average trade. The longs carry it: on the fresh coins they beat simply holding the coin over the same candles by about +1.2% a trade (t 3.5), so it isn’t just riding the bull market. The shorts roughly broke even. Like the Turtle breakout, it is trend following, the one family that keeps surviving these tests.</p>
+</div>
+<div class="callout warn">
+  <p>The daily version had too few trades to say anything. At the default 100% position size and no stop, drawdowns were deep (around 58% for the median coin): use a much smaller position (the Lab’s position-size setting) or an ATR stop, and expect long flat spells. It is one backtest on past data; forward-test it before risking money.</p>
+</div>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="ichimoku">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="ichimoku">View the Python code</button></div>

@@ -1,0 +1,67 @@
+<h1>Getting data</h1>
+<p class="lead">A data file is one coin on one timeframe over a period of time. Get it from Binance in one of two ways, then backtest it. Every file you keep on MEDUSA can be deleted again in the Files tab.</p>
+
+<h2>Two ways to get data</h2>
+<table class="lab-table">
+  <thead><tr><th></th><th>1 · Download to MEDUSA</th><th>2 · Download to this computer, then upload</th></tr></thead>
+  <tbody>
+    <tr><td>How</td><td><b>Get data</b> → pick the coin, timeframe and period → <b>Download to MEDUSA</b></td><td><b>Get data</b> → same choices → <b>Download to this computer</b>. Later: <b>Upload a file and backtest it</b></td></tr>
+    <tr><td>Where it ends up</td><td>MEDUSA’s <b>Downloads</b> folder</td><td>A CSV or ZIP file in your computer’s Downloads folder; after uploading, a copy in MEDUSA’s <b>Uploads</b> folder</td></tr>
+    <tr><td>Best for</td><td>Testing right away, from any device</td><td>Keeping big files (up to 2,000,000 candles) on your own computer, and uploading only the dates you want to test</td></tr>
+    <tr><td>Backtest</td><td>Dashboard → pick the file → <b>Run backtest</b></td><td>The upload form asks what the file is, which dates and which strategy, then runs it</td></tr>
+  </tbody>
+</table>
+<p>Either way, the files on MEDUSA stay until you delete them (<b>Files</b> tab, one at a time or a whole folder), so you can use them for a single test and remove them straight after. The upload form also has <b>Delete the file from MEDUSA after the backtest</b>, which keeps only the result.</p>
+
+<h2>Choosing the coin</h2>
+<p>Click one of the popular coins, or type any coin Binance trades in USDT (the box suggests them as you type, for example <code>PEPEUSDT</code> or <code>1000PEPEUSDT</code> on futures). The page warns if Binance doesn’t list the name on the market you picked.</p>
+
+<h2>Futures or spot?</h2>
+<p><b>Futures</b> (USD-M perpetuals) can go long and short, with leverage, and pay or receive funding; tick <b>Include funding rates</b> to download the real funding history with the candles. <b>Spot</b> is buying the coin itself: backtests on spot data take long trades only, at 1x, without funding.</p>
+
+<h2>Timeframe and how far back</h2>
+<ul>
+  <li><b>Timeframe</b> is how much time each candle covers, from 1 minute to 1 week. Bigger timeframes are cheaper to trade (fewer trades, each aiming for a bigger move than the costs); 1h and 4h are good places to start.</li>
+  <li><b>How far back:</b> 1, 2, 3 or 5 years, <b>All time</b> (since Binance listed the coin; BTC futures from September 2019, BTC spot from 2017), or custom dates.</li>
+  <li>Before downloading, the page shows how many candles that is and how big the file will be, and it stops you if it’s too many: up to <b>1,000,000 candles</b> for MEDUSA and backtests, up to <b>2,000,000</b> for a file on your computer.</li>
+</ul>
+<table class="lab-table">
+  <thead><tr><th>Timeframe</th><th>Candles per year</th><th>In MEDUSA (about)</th><th>On your computer (about)</th></tr></thead>
+  <tbody>
+    <tr><td>1m</td><td>525,600</td><td>6 MB</td><td>45 MB CSV · 11 MB ZIP</td></tr>
+    <tr><td>15m</td><td>35,040</td><td>0.4 MB</td><td>3 MB CSV · 0.8 MB ZIP</td></tr>
+    <tr><td>1h</td><td>8,760</td><td>160 KB</td><td>730 KB CSV · 260 KB ZIP</td></tr>
+    <tr><td>4h</td><td>2,190</td><td>40 KB</td><td>180 KB CSV · 65 KB ZIP</td></tr>
+    <tr><td>1d</td><td>365</td><td>7 KB</td><td>30 KB CSV · 11 KB ZIP</td></tr>
+  </tbody>
+</table>
+<p>Only finished candles are downloaded; the one still forming is left out. The dates you pick are midnight in your time zone. Files keep the exchange’s UTC times; MEDUSA shows them in your time zone. Downloading the same coin, timeframe and dates again finds the copy already in your Downloads folder instead of storing it twice.</p>
+
+<h2>The file on your computer</h2>
+<p>The name says what’s inside, for example <code>BTCUSDT-futures-1h-2021-10-04-to-2026-10-04.csv</code>, so the upload form can fill in the coin, market and timeframe by itself.</p>
+<ul>
+  <li><b>ZIP</b> (smaller): the candles as a CSV, plus a second CSV with the funding rates if you downloaded them. Upload the ZIP as it is to keep funding in your backtests. Windows and macOS open it with a double-click.</li>
+  <li><b>CSV</b>: the candles only, one line per candle; opens in Excel or Google Sheets.</li>
+</ul>
+<pre>open_time_utc,open_time_ms,open,high,low,close,volume,taker_buy_volume
+2026-01-01 00:00:00,1767225600000,87612.3,87750,87420.1,87655.9,1534.27,780.45
+2026-01-01 01:00:00,1767229200000,87655.9,87901.2,87610,87843.5,1290.88,690.12</pre>
+
+<h2>Uploading a file to backtest it</h2>
+<p>Drop the file on <b>Upload a file and backtest it</b> (or choose it). Besides MEDUSA’s own files, it reads:</p>
+<ul>
+  <li><b>Binance’s archive files</b> (<code>BTCUSDT-1h-2024-01.zip</code> from data.binance.vision), as they are; several monthly files of one coin are joined.</li>
+  <li><b>CSV files with a header line</b> naming a time column (<code>time</code>, <code>timestamp</code>, <code>date</code> or <code>open_time</code>) and <code>open</code>, <code>high</code>, <code>low</code>, <code>close</code>, optionally <code>volume</code>. Times can be Unix seconds, milliseconds or dates like <code>2024-01-31 16:00</code> (read as UTC). TradingView’s “Export chart data” files work.</li>
+  <li><b>CSV files without a header</b> in Binance’s column order: time, open, high, low, close, volume, …</li>
+</ul>
+<p>Then it asks:</p>
+<ol class="rules">
+  <li><b>What is this data?</b> The coin, futures or spot, and the timeframe of each candle. It detects the timeframe from the gaps between candles and warns if your choice doesn’t match.</li>
+  <li><b>Which dates?</b> All of the file, or part of it (a backtest takes up to 1,000,000 candles; only these dates are saved on MEDUSA).</li>
+  <li><b>Which strategy?</b> Any built-in strategy or one of yours, with its settings.</li>
+  <li><b>Costs, money and checks</b> (optional): fees, starting money, risk per trade, leverage, a held-back date.</li>
+</ol>
+<p><b>Upload and backtest</b> saves the file in the Uploads folder, runs the test and shows the result on the Dashboard (saved in the Results folder). You can run more strategies on the same file from the Dashboard afterwards.</p>
+
+<h2>How files are stored on MEDUSA</h2>
+<p>Candles are compressed in your browser before they are saved: each price column is stored as whole numbers with its own number of decimals, as differences from the previous candle. Prices come back exactly as Binance published them (the Lab’s tests compare every value), in about a fifth of the size of a CSV. The Downloads, Uploads and Results folders share Cloudflare’s free storage (1 GB for the whole app); the top bar of the Lab and the Files tab show how much is left.</p>

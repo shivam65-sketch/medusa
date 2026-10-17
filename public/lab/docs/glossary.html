@@ -1,0 +1,50 @@
+<h1>Glossary</h1>
+<p class="lead">The words used in the Lab, in plain language.</p>
+
+<table class="lab-table">
+  <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><b>ATR</b> (average true range)</td><td>The coin’s typical candle size: the average of each candle’s full range (including any gap from the previous close) over the last n candles. Stops placed a multiple of ATR away adapt to how wild the market currently is.</td></tr>
+    <tr><td><b>Backtest</b></td><td>Replaying fixed trading rules on past prices to see how they would have done.</td></tr>
+    <tr><td><b>Bollinger bands</b></td><td>An average with a band two standard deviations above and below it. About 95% of closes fall inside if prices behaved “normally”; a close outside is a stretch.</td></tr>
+    <tr><td><b>Breakout</b></td><td>The price moving beyond a recent high or low, often taken as the start of a trend.</td></tr>
+    <tr><td><b>Buy and hold</b></td><td>Buying once and never selling. The baseline every strategy should be compared with.</td></tr>
+    <tr><td><b>CAGR</b></td><td>Compound annual growth rate: the steady yearly return that turns the starting money into the final balance.</td></tr>
+    <tr><td><b>Candle</b></td><td>One slice of time on a chart (1 minute, 4 hours…) with its open, high, low and close prices and volume.</td></tr>
+    <tr><td><b>Compounding</b></td><td>Sizing each trade from the current balance, so gains (and losses) grow the next trades.</td></tr>
+    <tr><td><b>Crossover</b></td><td>One line moving from below another to above it (or the reverse) between two candles.</td></tr>
+    <tr><td><b>Drawdown</b></td><td>How far the account is below its previous high. The worst drawdown is the deepest such fall.</td></tr>
+    <tr><td><b>EMA</b> (exponential moving average)</td><td>An average that weights recent candles more than old ones, so it reacts faster than a simple average.</td></tr>
+    <tr><td><b>Edge</b></td><td>A real, repeatable advantage: an average trade above zero after costs that isn’t explained by luck.</td></tr>
+    <tr><td><b>Fee</b></td><td>What the exchange charges per fill, as a share of the traded value (taker: you take an existing order; maker: your order waits in the book and is usually cheaper).</td></tr>
+    <tr><td><b>Fill</b></td><td>An order being executed, at a price.</td></tr>
+    <tr><td><b>Funding</b></td><td>Payments between long and short holders of perpetual futures, usually every 8 hours. When most traders are long, longs pay shorts.</td></tr>
+    <tr><td><b>Futures (perpetual)</b></td><td>Contracts that follow a coin’s price, can be shorted and traded with leverage, and never expire; funding keeps them close to the spot price.</td></tr>
+    <tr><td><b>Held-back period</b> (out-of-sample)</td><td>Data kept aside while choosing settings, then used once to see whether the result holds on candles that played no part in choosing.</td></tr>
+    <tr><td><b>Leverage</b></td><td>A position worth more than the account. 3x means a 1% price move changes the account by 3%.</td></tr>
+    <tr><td><b>Limit order</b></td><td>An order to buy at or below (or sell at or above) a set price; it fills only if the price comes to it.</td></tr>
+    <tr><td><b>Liquidation</b></td><td>The exchange closing a leveraged position because the account can no longer cover its losses.</td></tr>
+    <tr><td><b>Long / short</b></td><td>Long: profit when the price rises. Short: profit when it falls (only on futures here).</td></tr>
+    <tr><td><b>Look-ahead bias</b></td><td>A rule accidentally using information that wasn’t available at the time, such as a future price. Makes backtests look far better than reality.</td></tr>
+    <tr><td><b>MACD</b></td><td>The gap between a fast and a slow EMA of the price, plus a “signal line” (an EMA of that gap). Crossings suggest momentum is turning.</td></tr>
+    <tr><td><b>Market order</b></td><td>An order filled immediately at the best available price (here: the next candle’s open, plus slippage).</td></tr>
+    <tr><td><b>Mean reversion</b></td><td>The idea that a price stretched far from its average tends to come back towards it.</td></tr>
+    <tr><td><b>Overfitting</b></td><td>Settings tuned so tightly to past data that they capture its noise rather than a real pattern; they fail on new data.</td></tr>
+    <tr><td><b>Profit factor</b></td><td>Money won on winning trades divided by money lost on losing ones. Above 1 = profitable.</td></tr>
+    <tr><td><b>R (R-multiple)</b></td><td>A trade’s result divided by what its first stop risked. Losing exactly the planned amount is −1R; making three times it is +3R.</td></tr>
+    <tr><td><b>RSI</b> (relative strength index)</td><td>A 0–100 gauge of recent up-moves against down-moves. Below 30 is called oversold, above 70 overbought.</td></tr>
+    <tr><td><b>Sharpe ratio</b></td><td>Average return divided by its volatility, per year. Higher means steadier.</td></tr>
+    <tr><td><b>Slippage</b></td><td>The difference between the price you expected and the price you got, usually against you.</td></tr>
+    <tr><td><b>SMA</b> (simple moving average)</td><td>The plain average of the last n closes.</td></tr>
+    <tr><td><b>Spot</b></td><td>Buying the coin itself: long only, no leverage, no funding.</td></tr>
+    <tr><td><b>Standard deviation</b></td><td>How spread out values are around their average. Used for Bollinger band width and for the t-statistic.</td></tr>
+    <tr><td><b>Stop (stop loss)</b></td><td>The price at which a losing trade is closed to cap the loss.</td></tr>
+    <tr><td><b>Stop order</b></td><td>An order that becomes active only when the price reaches a level; used here to enter on breakouts.</td></tr>
+    <tr><td><b>t-statistic</b></td><td>How many “luck-sized” steps the average trade is from zero. About 2 or more suggests the result isn’t just luck.</td></tr>
+    <tr><td><b>Target (take profit)</b></td><td>The price at which a winning trade is closed.</td></tr>
+    <tr><td><b>Timeframe</b></td><td>How much time one candle covers.</td></tr>
+    <tr><td><b>Trend following</b></td><td>Buying what is rising and shorting what is falling, hoping the move continues. Wins rarely but big.</td></tr>
+    <tr><td><b>Warm-up</b></td><td>The candles loaded before a test’s first trade only so the indicators have settled: 1× a plain average’s length, 4× an EMA’s, 8× an RSI’s or ATR’s. The backtest form shows it for your settings.</td></tr>
+    <tr><td><b>Win rate</b></td><td>The share of trades that made money.</td></tr>
+  </tbody>
+</table>

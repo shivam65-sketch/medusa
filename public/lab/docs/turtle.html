@@ -1,0 +1,89 @@
+<h1>Turtle breakout</h1>
+<p class="lead">Buy when the price closes above its highest high of the last 20 candles, sell short below the lowest low, and stay in until the price breaks back through a 10-candle channel. Lose small and often, win big and rarely: the purest form of trend following.</p>
+
+<table class="lab-table">
+  <tbody>
+    <tr><td>Type</td><td>Trend following (breakout)</td></tr>
+    <tr><td>Trades</td><td>Long and short (long only on spot)</td></tr>
+    <tr><td>Entry</td><td>Close beyond the previous 20 candles’ high or low, at the next open</td></tr>
+    <tr><td>Exit</td><td>Close beyond the previous 10 candles’ opposite extreme, or the 2 × ATR stop. No target.</td></tr>
+    <tr><td>On BTC 4h, 2019–2026</td><td>400 trades (about 57 a year), 30% winners, held 24 candles (4 days) on average</td></tr>
+  </tbody>
+</table>
+
+<h2>The idea, and where it comes from</h2>
+<p>In 1983 the commodity traders Richard Dennis and William Eckhardt argued about whether trading could be taught. Dennis recruited a group of beginners, the “Turtles”, taught them a fixed set of breakout rules in two weeks, and gave them real money. Several made fortunes over the following years. Their core rule was this one: enter when the price breaks out of its recent range, and exit when it breaks back through a shorter range.</p>
+<p>It works when markets <b>trend</b>: a break to a new 20-candle high is often the start of a move that runs much further than anyone expects. Most breakouts fail and are stopped out for a small loss, but the few that turn into long trends make many times what they risked. The win rate is low (about 30%) by design.</p>
+<p>The version here is the Turtles’ “System 1”, simplified: one position at a time, no adding to winners, and no rule to skip the next signal after a winning trade.</p>
+
+<h2>The ingredients</h2>
+<h3>The channel: highest high and lowest low</h3>
+<p>The <b>20-candle channel</b> is the highest high and the lowest low of the 20 candles <i>before</i> the current one. A close above the top line means the price is higher than at any point in that window. The <b>10-candle channel</b> is the same over 10 candles; being shorter, it sits closer to the price and is used for the exit.</p>
+<h3>ATR for the stop</h3>
+<p>ATR(20) is the average candle range over 20 candles (Wilder’s smoothing, as TradingView uses). The stop sits 2 × ATR from the entry, the Turtles’ “2N” stop. It caps the loss when a breakout fails right away.</p>
+
+<h2>The rules, exactly</h2>
+<ol class="rules">
+  <li><b>Long:</b> a candle closes above the highest high of the previous 20 candles → buy at the next open.</li>
+  <li><b>Short:</b> a candle closes below the lowest low of the previous 20 candles → sell short at the next open.</li>
+  <li><b>Stop:</b> 2 × ATR(20) from the entry price.</li>
+  <li><b>Exit a long</b> when a candle closes below the lowest low of the previous 10 candles (a short, when it closes above the highest high of the previous 10), at the next open.</li>
+  <li>No target: a winning trade runs until the exit rule ends it.</li>
+  <li>No new trade on the candle a trade closes; one position at a time.</li>
+</ol>
+
+<h2>A winning trade, step by step</h2>
+<figure data-example="turtle" data-part="win"></figure>
+<p>This is what the strategy lives for: a breakout that kept going. The exit line (grey) trailed below the price as it rose, and the trade only closed when the price finally dipped below it, locking in +2.93R. A target would have cut this short.</p>
+
+<h2>A losing trade</h2>
+<figure data-example="turtle" data-part="loss"></figure>
+<p>A false breakout: the price closed below the 20-candle low, the short filled, and within eight candles the price was back above the stop. Most Turtle trades look like this. The strategy accepts many of these −1R losses in exchange for the occasional +5R, +10R or more.</p>
+
+<h2>Settings</h2>
+<table class="lab-table">
+  <thead><tr><th>Setting</th><th>Default</th><th>What changing it does</th></tr></thead>
+  <tbody>
+    <tr><td>Breakout length</td><td>20</td><td>Longer (the Turtles’ System 2 used 55): fewer, more significant breakouts, bigger trends caught, longer losing streaks. Shorter: more trades and more false breakouts.</td></tr>
+    <tr><td>Exit length</td><td>10</td><td>Longer gives trends more room (bigger wins, bigger give-backs). Shorter locks in profit sooner.</td></tr>
+    <tr><td>ATR length</td><td>20</td><td>How many candles the stop’s “typical range” averages over.</td></tr>
+    <tr><td>Stop (× ATR)</td><td>2.0</td><td>Wider: fewer stop-outs, smaller positions (risk stays 1R).</td></tr>
+    <tr><td>Trade direction</td><td>both</td><td>In the fair basket test (below) longs made +443R and shorts +111R: shorts earned less, but still helped once coins that later collapsed were included. Check the “Long and short” table of your own runs.</td></tr>
+  </tbody>
+</table>
+
+<h2>When it works, and when it doesn’t</h2>
+<ul>
+  <li><b>Works:</b> big, persistent moves in either direction (2020–2021 and 2024 in crypto), and across <b>many</b> markets at once, because some market is usually trending.</li>
+  <li><b>Fails:</b> long sideways ranges, where every breakout reverses (much of 2025 for many coins). Expect long flat or losing stretches; the worst drawdown is usually much longer than you’d guess.</li>
+</ul>
+
+<h2>What our research found</h2>
+<h3>The 7-coin test (Oct 2026)</h3>
+<p>The same test as every other built-in strategy: default settings, 1-hour and 4-hour candles, 7 coins, after costs.</p>
+<div class="lab-scroll"><table class="lab-table lab-results"><thead><tr><th>Candles</th><th>Coins in profit</th><th>Trades</th><th>Average trade after costs</th><th>Before costs</th><th>From Jul 2024, after costs</th><th>Result</th></tr></thead><tbody><tr><td>1-hour</td><td>1 of 7</td><td>10,145</td><td>−0.130% <span class="faint">(t −2.5)</span></td><td>+0.088% <span class="faint">(t +1.7)</span></td><td>−0.070%</td><td><span class="lab-verdict none">No edge</span></td></tr><tr><td>4-hour</td><td>7 of 7</td><td>2,414</td><td>+0.667% <span class="faint">(t +2.1)</span></td><td>+1.004% <span class="faint">(t +3.1)</span></td><td>+0.178%</td><td><span class="lab-verdict works">Profitable after costs</span></td></tr></tbody></table></div>
+<p class="faint small">Settings unchanged from the source. Binance USD-M futures for BTC, ETH, SOL, XRP, BNB, DOGE and PEPE (5-minute tests: BTC and ETH) from 2019, or each coin’s listing, to 2 Oct 2026. Lab default costs: 0.05% fee and 0.05% slippage on every fill, about 0.2% a round trip, plus real funding. The average trade is in % of the position; t above 2 means it is unlikely to be luck. “Profitable after costs” needs a positive average with t ≥ 2 and a profit on most coins; “Edge before costs only” means the rule predicts something, but less than the trading costs.</p>
+<h3>Earlier tests</h3>
+<div class="callout good">
+  <p><b>BTC 4h, Sep 2019 – Oct 2026 (trading starts after the warm-up), default settings, with fees, slippage and real funding:</b> 400 trades, 30% winners, <b>+110.1%</b> (before costs +206%), worst drawdown 20.8%, average trade +0.22R (t = 1.61). Good, but on one coin it isn’t quite conclusive (t below 2). Buy and hold made more over the same candles (+943%) with a far deeper drawdown (−77%).</p>
+  <p><b>The test that mattered:</b> this exact rule set (4h, 20/10, 2 ATR), decided in advance and run once on the 30 highest-volume Binance futures, made <b>+964R</b> over 7,912 trades after fees (t = 4.31), +819R after funding. Re-run on a fair basket chosen quarter by quarter, including coins later delisted, it still made +554R (+0.049R a trade, t = 2.40), with every year positive except 2025. It is the only rule set in this project that passed a held-back test.</p>
+</div>
+<div class="callout warn">
+  <p>The edge is real but modest and bumpy: a fair basket at 0.1% risk per trade grew about +55% over six years with a 26% worst drawdown, and needed many positions open at once. Don’t re-tune its settings on the same data; that would undo the test.</p>
+</div>
+
+<h2>Ideas to explore</h2>
+<ul>
+  <li>Test it on several coins (import ETH, SOL, BNB…) without changing the settings, and add up the results.</li>
+  <li>Try 55/20 (System 2) on 4h or 1d.</li>
+  <li>In your own copy: add the Turtles’ rule to skip a breakout if the previous breakout trade was a winner.</li>
+</ul>
+
+<h2>Common mistakes</h2>
+<ul>
+  <li>Giving up during a losing streak: ten losses in a row is normal for this strategy.</li>
+  <li>Adding a profit target “to lock in gains”: it removes exactly the big winners the strategy depends on.</li>
+  <li>Using short timeframes: on 1-minute candles the same rules lost the whole account to costs.</li>
+</ul>
+
+<div class="row-btns"><button class="btn btn-green" data-lab="try" data-strategy="turtle">Backtest this strategy</button><button class="btn" data-lab="view-builtin" data-id="turtle">View the Python code</button></div>
