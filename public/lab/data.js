@@ -626,7 +626,7 @@ export async function loadDataset(id) {
   const r = await api('GET', `/api/lab/datasets/${id}`, { raw: true });
   const d = await decode(new Uint8Array(await r.arrayBuffer()));
   cache.set(id, d);
-  while (cache.size > 2) cache.delete(cache.keys().next().value);
+  while (cache.size > 4) cache.delete(cache.keys().next().value);
   return d;
 }
 export const forget = (id) => (id ? cache.delete(id) : cache.clear());
@@ -647,6 +647,6 @@ export async function saveDataset(ds, name) {
   };
   const r = await api('POST', '/api/lab/datasets', { body: file, meta });
   cache.set(r.id, await decode(file));
-  while (cache.size > 2) cache.delete(cache.keys().next().value);
+  while (cache.size > 4) cache.delete(cache.keys().next().value);
   return { id: r.id, bytes: file.length, existing: Boolean(r.existing) };
 }

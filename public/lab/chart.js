@@ -1,7 +1,9 @@
 // MEDUSA Lab: the Chart tab. A TradingView-style candle chart of any file in the Downloads or Uploads
 // folder: timeframes, indicators (on the candles and in their own panes), drawing tools, a candle-by-candle
-// replay with practice trades, and backtests drawn on the candles (trades, the strategy's own lines, the
-// account value), which can be run from here too. Loaded the first time the tab is opened (main.js).
+// replay of a portion picked on the chart with practice trades, and backtests drawn on the candles (trades,
+// the strategy's own lines, the account value), which can be run from here too. Up to four charts can be
+// shown side by side: they share one timeframe and one replay, and their crosshair and scrolling can be
+// linked. Loaded the first time the tab is opened (main.js).
 // The chart itself is TradingView's free Lightweight Charts library (Apache 2.0, version 5), kept in
 // vendor/ because the page may only load its own scripts.
 //
@@ -11,6 +13,9 @@
 //
 // Indicators are written as running calculations (one candle at a time), so the same code gives the
 // value of every finished candle and of the candle still forming in a replay.
+//
+// A replay is a moment in time (the "cut"): every chart shows the candles that had closed by then, so
+// charts of different coins (or of files with different candle sizes) stay in step.
 
 import { createChart, CandlestickSeries, BarSeries, LineSeries, HistogramSeries, createSeriesMarkers, CrosshairMode, PriceScaleMode, LineStyle } from './vendor/lightweight-charts.mjs';
 import { $, $$, esc, ymd, plural, INTERVAL_MS, DAY, toast, download, icon } from './util.js';
@@ -24,6 +29,7 @@ const UP_VOL = 'rgba(34,197,94,0.35)', DOWN_VOL = 'rgba(240,75,75,0.35)';
 const TF_NAMES = Object.keys(INTERVAL_MS);
 const SPEEDS = [0.5, 1, 2, 3, 5, 10, 20, 50];
 const PANE_PX = 130;                                           // height added to the chart for each lower pane
+const MAXN = 4;                                                // charts in the biggest layout
 const PLOT_COLORS = ['#fbbf24', '#22d3ee', '#f472b6', '#a3e635', '#fb923c', '#c084fc', '#60a5fa', '#f87171', '#2dd4bf', '#e879f9', '#facc15', '#94a3b8'];
 const TOOLS = [
   ['trend', 'Trend line', '<path d="M4 19 20 5"/><circle cx="4" cy="19" r="1.6"/><circle cx="20" cy="5" r="1.6"/>'],
@@ -43,6 +49,14 @@ const IC = {
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   log: '<path d="M4 20h16M4 4v16"/><path d="M6 17c4 0 6-3 7-6s3-6 7-6"/>',
   flask: '<path d="M9.5 3.5h5M10.5 3.5v5.5l-5 8.6A1.6 1.6 0 0 0 6.9 20h10.2a1.6 1.6 0 0 0 1.4-2.4l-5-8.6V3.5"/><path d="M7.6 14.5h8.8"/>',
+  shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+};
+const LAYOUT_IC = {
+  1: '<rect x="4" y="5" width="16" height="14" rx="1.5"/>',
+  2: '<rect x="4" y="5" width="16" height="14" rx="1.5"/><path d="M12 5v14"/>',
+  3: '<rect x="3.5" y="5" width="17" height="14" rx="1.5"/><path d="M9.2 5v14M14.8 5v14"/>',
+  4: '<rect x="4" y="5" width="16" height="14" rx="1.5"/><path d="M12 5v14M4 12h16"/>',
 };
 const ic = (svg) => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${svg}</svg>`;
 const fin = Number.isFinite;
@@ -388,117 +402,213 @@ function makeRunner(def, p, B) {
 
 /* ======================= state ======================= */
 
-const st = {
-  id: null, row: null, ds: null, base: 0, tf: 0, type: 'candles', ind: defaultInd(), log: false,
-  loading: false, error: null,
-  B: null,             // the chart's candles: {n, T, O, H, L, C, V, first (index of each bar's first file candle)}
-  runners: new Map(),  // indicator results, kept while the candles stay the same
-  feeds: [], groups: [], fills: [],
-  tool: null, draft: null, drawings: [],
-  replay: null,        // {k: file candles revealed, playing, timer, speed, by: 'bar'|'file', pos, trades}
-  picking: false,
-  shownTo: 0, K: 0,    // the last chart candle shown, and the file candles shown
-  strat: null,         // the backtest drawn on the chart (see setStrat)
-  pending: null,       // a result to draw once its data file is open
-  sform: null,         // the Strategy menu's choices
-  menu: null,          // the open toolbar menu ("ind" or "strat")
+/** One chart of the layout. The functions below work on `st`, the chart being drawn or clicked (on()
+    switches it); the toolbar works on the active chart (the one with the green border). */
+function newPane(i) {
+  return {
+    i, el: null, id: null, row: null, ds: null, base: 0, prec: 2, type: 'candles', ind: defaultInd(), log: false,
+    loading: false, error: null,
+    B: null,             // the chart's candles: {n, T, O, H, L, C, V, first (index of each bar's first file candle)}
+    ha: null,
+    runners: new Map(),  // indicator results, kept while the candles stay the same
+    feeds: [], groups: [], fills: [],
+    drawings: [],        // shared with any other chart of the same coin
+    undoAll: null,       // what "Delete all" removed, for Ctrl+Z
+    shownTo: 0, K: 0,    // the last chart candle shown, and the file candles shown
+    strat: null,         // the backtest drawn on the chart (see setStrat)
+    pending: null,       // a result to draw once its data file is open
+    pos: null, ptrades: [],   // practice trades in a replay
+    chart: null, main: null, vol: null, layer: null, markers: null, hlines: [], posLine: null,
+    userAt: 0,           // when the pointer or the wheel last moved this chart (only that scrolling is passed on)
+    placeTimer: 0,
+  };
+}
+const panes = Array.from({ length: MAXN }, (_, i) => newPane(i));
+let st = panes[0];
+const G = {
+  n: 1, active: 0, sync: true,   // charts in the layout, the active one, crosshair and scrolling linked
+  tf: 0, wantTf: 0,              // the timeframe of every chart
+  tool: null, draft: null,       // the drawing tool; draft: {p, type, a, b}
+  replay: null,                  // {cut, start, end (ms or null), playing, timer, speed, by: 'bar'|'file'}
+  picking: null,                 // choosing the replay portion: {a, b (cuts), h (under the pointer), fromStr, toStr}
+  sform: null, sshow: null,      // the Strategy menu's choices, what of a backtest is drawn
+  menu: null,                    // the open toolbar menu ("ind" or "strat")
   running: false,
+  pre: null,                     // a file or result asked for before the tab was first drawn
 };
-let chart = null, main = null, vol = null, layer = null, markersApi = null, hlines = [], posLine = null;
+let restored = false, listening = false, syncing = false;
+const A = () => panes[G.active];
+const live = () => panes.slice(0, G.n);
+const loaded = () => live().filter((p) => p.B);
+/** Runs fn with st set to chart p. */
+function on(p, fn) { const o = st; st = p; try { return fn(); } finally { st = o; } }
+const each = (fn, list = loaded()) => { for (const p of list) on(p, fn); };
 
 const load = (k, d) => ctx.store.get('chart.' + k, d);
 const save = (k, v) => ctx.store.set('chart.' + k, v);
 
 /* ======================= the page ======================= */
 
+function restore() {
+  restored = true;
+  const lay = load('layout', null);
+  const saved = load('panes', null) || [load('view', {})];   // 'view': the one-chart version's settings
+  G.n = lay ? Math.max(1, Math.min(MAXN, lay.n | 0)) : 1;
+  G.sync = lay ? lay.sync !== false : true;
+  G.active = lay ? Math.min(lay.active | 0, G.n - 1) : 0;
+  G.wantTf = G.wantTf || load('tf', 0) || (saved[0] && saved[0].tf) || 0;
+  panes.forEach((p, i) => {
+    const s = saved[i] || {};
+    p.type = s.type || 'candles';
+    p.log = Boolean(s.log);
+    p.ind = mergeInd(s.ind);
+    p.id = s.id || null;
+  });
+  if (G.pre) { A().id = G.pre.id; A().pending = G.pre.pending || null; G.pre = null; }
+  G.sform = Object.assign({ strategy: 'turtle', params: {}, save: false }, load('sform', {}));
+  G.sshow = Object.assign({ trades: true, lines: true, equity: false }, load('sshow', {}));
+}
+
 export function paintChart(el, context) {
   ctx = context;
   if (host !== el || !el.dataset.ready) {
     host = el;
     el.dataset.ready = '1';
-    const saved = load('view', {});
-    st.type = saved.type || 'candles';
-    st.log = Boolean(saved.log);
-    st.ind = mergeInd(saved.ind);
-    st.id = st.id || saved.id || null;                          // show() may have picked a file already
-    st.wantTf = st.wantTf || saved.tf || 0;
-    st.sform = Object.assign({ strategy: 'turtle', params: {}, save: false }, load('sform', {}));
-    st.sshow = Object.assign({ trades: true, lines: true, equity: false }, load('sshow', {}));
+    if (!restored) restore();
     el.innerHTML = `<div class="card lab-ch">
       <div class="lab-ch-bar" id="lab-ch-bar"></div>
       <div class="lab-ch-replay" id="lab-ch-replay" hidden></div>
-      <div class="lab-ch-stage" id="lab-ch-stage">
-        <div class="lab-ch-main" id="lab-ch-main"><div class="lab-ch-legend" id="lab-ch-legend"></div><div id="lab-ch-plegs"></div><div class="lab-ch-hint" id="lab-ch-hint" hidden></div></div>
-        <div class="lab-ch-empty" id="lab-ch-empty"></div>
-      </div>
+      <div class="lab-ch-stage" id="lab-ch-stage">${panes.map((p) => `<div class="lab-ch-main empty" data-pi="${p.i}"><div class="lab-ch-legend"></div><div class="lab-ch-plegs"></div><div class="lab-ch-hint" hidden></div><div class="lab-ch-pempty" hidden></div></div>`).join('')}</div>
       <div class="lab-ch-strat" id="lab-ch-strat" hidden></div>
-      <p class="faint small lab-ch-foot">Scroll to zoom, drag to move, drag a price scale to stretch it (double-click it to reset), drag the line between panes to resize them. Times are in your time zone. Keys: <kbd>Esc</kbd> stops a drawing tool or closes a menu, <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes a drawing; in a replay <kbd>Space</kbd> plays or pauses and <kbd>→</kbd> / <kbd>←</kbd> step. Chart by <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a> Lightweight Charts.</p>
+      <p class="faint small lab-ch-foot">Scroll to zoom, drag to move, drag a price scale to stretch it (double-click it to reset), drag the line between panes to resize them. The buttons on the left show 1 to 4 charts: they share the timeframe and the replay, and <b>Sync</b> links their crosshair and scrolling; the toolbar works on the chart with the green border (click a chart to pick it). Times are in your time zone. Keys: <kbd>Esc</kbd> stops a drawing tool or closes a menu, <kbd>Delete</kbd> removes every drawing and indicator on the chart, <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes; in a replay <kbd>Space</kbd> plays or pauses and <kbd>→</kbd> / <kbd>←</kbd> step. Chart by <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a> Lightweight Charts.</p>
     </div>`;
+    for (const p of panes) {
+      if (p.chart) on(p, destroyChart);                        // a chart left in an older copy of the page
+      p.B = null;
+      p.el = $(`.lab-ch-main[data-pi="${p.i}"]`, el);
+      watchClicks(p);
+      new ResizeObserver(() => placeLegendsSoon(p)).observe(p.el);
+    }
     el.addEventListener('click', onClick);
     el.addEventListener('change', onChange);
     el.addEventListener('input', onInput);
     el.addEventListener('toggle', onToggle, true);
-    watchClicks($('#lab-ch-main', el));
-    document.addEventListener('pointerdown', closeMenusOutside, true);
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('fullscreenchange', () => { const c = $('.lab-ch', host); if (c) c.classList.toggle('full', document.fullscreenElement === c); placeLegendsSoon(); });
-    new ResizeObserver(() => placeLegendsSoon()).observe($('#lab-ch-main', el));
+    if (!listening) {
+      listening = true;
+      document.addEventListener('pointerdown', closeMenusOutside, true);
+      document.addEventListener('keydown', onKey);
+      for (const evName of ['fullscreenchange', 'webkitfullscreenchange']) document.addEventListener(evName, () => { if (!fsElement()) setFull(false); });
+    }
+    paintLayout();
+    each(() => { if (st.ds) build(); }, live());
   }
+  paintLayout();
   paintBar();
-  paintEmpty();
-  if (!st.ds && !st.loading) {
-    const row = ctx.datasets().find((d) => d.id === st.id);
-    if (row) openFile(row.id);
-  }
+  const ids = new Set(ctx.datasets().map((d) => d.id));
+  each(() => { if (!st.ds && !st.loading && st.id && ids.has(st.id)) openFile(st.id); else paintEmpty(); }, live());
 }
 
-/** The Lab's file list changed (main.js): refresh the file picker and the saved results. */
+/** The Lab's file list changed (main.js): refresh the file pickers and the saved results. */
 export function paintFiles() {
   if (!host) return;
+  const ids = new Set(ctx.datasets().map((d) => d.id));
+  each(() => {
+    if (st.ds && !ids.has(st.id)) closeFile();
+    else if (!st.ds && !st.loading && !st.error && st.id && ids.has(st.id)) openFile(st.id);
+    else paintEmpty();
+  }, live());
   paintBar();
-  paintEmpty();
-  if (st.ds && !ctx.datasets().some((d) => d.id === st.id)) closeFile();
-  else if (!st.ds && !st.loading && st.id && ctx.datasets().some((d) => d.id === st.id)) openFile(st.id);
 }
 
-/** Opens a data file from another tab ("Chart" button in Files). */
-export function show(id) { if (host) openFile(id); else st.id = id; }
+/** Opens a data file from another tab ("Chart" button in Files), in the active chart. */
+export function show(id) { if (host) on(A(), () => openFile(id)); else G.pre = { id }; }
 
-/** Draws a backtest result on the chart (the report's "Show on chart"), opening its data file first. */
+/** Draws a backtest result on the active chart (the report's "Show on chart"), opening its data file first. */
 export function showResult(R, id) {
-  st.pending = { R, id };
+  G.wantTf = R.meta.interval_ms || INTERVAL_MS[R.meta.interval] || 0;
+  if (!host) { G.pre = { id: R.meta.dataset, pending: { R, id } }; return; }
+  on(A(), () => showResultHere(R, id));
+}
+function showResultHere(R, id) {
   const ds = R.meta.dataset;
-  st.wantTf = R.meta.interval_ms || INTERVAL_MS[R.meta.interval] || 0;
-  if (!host) { st.id = ds; return; }
-  if (st.id !== ds || !st.ds) { openFile(ds); return; }
-  const pend = st.pending;
-  st.pending = null;
-  if (st.wantTf && st.wantTf !== st.tf && st.wantTf % st.base === 0) { st.tf = st.wantTf; saveView(); }
-  st.wantTf = 0;
-  setStrat(pend.R, pend.id);
+  G.wantTf = R.meta.interval_ms || INTERVAL_MS[R.meta.interval] || 0;
+  if (st.id !== ds || !st.ds) { st.pending = { R, id }; openFile(ds); return; }
+  const tf = pickTf(G.wantTf);
+  G.wantTf = 0;
+  if (tf && tf !== G.tf) setTf(tf, st);
+  setStrat(R, id);
 }
 
 const dsLabel = (d) => `${d.symbol} ${d.interval || ''} · ${d.market} · ${ymd(d.start_ts)} → ${ymd(d.end_ts)}`;
 const tfName = (ms) => TF_NAMES.find((k) => INTERVAL_MS[k] === ms) || `${Math.round(ms / 60000)}m`;
 
-function paintBar() {
-  const bar = $('#lab-ch-bar', host);
-  if (!bar) return;
+function paintLayout() {
+  const stage = host && $('#lab-ch-stage', host);
+  if (!stage) return;
+  stage.dataset.n = String(G.n);
+  for (const p of panes) {
+    p.el.hidden = p.i >= G.n;
+    p.el.classList.toggle('on', G.n > 1 && p.i === G.active);
+  }
+}
+const saveLayout = () => save('layout', { n: G.n, sync: G.sync, active: G.active });
+const savePanes = () => save('panes', panes.map((p) => ({ id: p.id, type: p.type, log: p.log, ind: p.ind })));
+
+/** 1 to 4 charts. Charts taken out of the layout keep their file and settings for when they come back. */
+function setLayout(n) {
+  n = Math.max(1, Math.min(MAXN, n | 0));
+  if (n === G.n) return;
+  for (const p of panes.slice(n)) on(p, () => { destroyChart(); Object.assign(p, { ds: null, B: null, loading: false, error: null, strat: null, pending: null, pos: null, ptrades: [] }); p.runners.clear(); });
+  G.n = n;
+  if (G.active >= n) G.active = 0;
+  if (G.draft && G.draft.p.i >= n) G.draft = null;
+  paintLayout();
+  saveLayout();
+  for (const p of loaded()) p.chart.applyOptions({ rightPriceScale: { minimumWidth: G.n > 2 ? 64 : 86 } });
+  const ids = new Set(ctx.datasets().map((d) => d.id));
+  each(() => {
+    if (!st.ds && !st.loading && st.id && ids.has(st.id)) openFile(st.id);
+    else { paintEmpty(); if (st.chart) { legend(null); placeLegendsSoon(); } }
+  }, live());
+  paintBar();
+  paintReplay();
+  paintStrat(true);
+}
+function setActive(p) {
+  if (p.i === G.active || p.i >= G.n) return;
+  G.active = p.i;
+  if (G.draft && G.draft.p !== p) { G.draft = null; for (const q of loaded()) if (q.layer) q.layer.redraw(); }
+  paintLayout();
+  saveLayout();
+  paintBar();
+  paintReplay();
+  paintStrat(true);
+}
+
+function fileOptions() {
   const rows = ctx.datasets();
   const group = (folder, name) => {
     const r = rows.filter((d) => d.folder === folder);
     return r.length ? `<optgroup label="${name} folder">${r.map((d) => `<option value="${d.id}" ${d.id === st.id ? 'selected' : ''}>${esc(dsLabel(d))}</option>`).join('')}</optgroup>` : '';
   };
-  const tfs = st.base ? TF_NAMES.filter((k) => INTERVAL_MS[k] >= st.base && INTERVAL_MS[k] % st.base === 0) : [];
+  return `<option value="">${rows.length ? 'Pick a data file…' : 'No data files yet'}</option>${group('downloads', 'Downloads')}${group('uploads', 'Uploads')}`;
+}
+
+/** The toolbar, for the active chart. */
+function paintBar() { if (host) on(A(), paintBarNow); }
+function paintBarNow() {
+  const bar = $('#lab-ch-bar', host);
+  if (!bar) return;
+  const withData = live().filter((p) => p.ds);
+  const tfs = withData.length ? TF_NAMES.filter((k) => withData.every((p) => okFor(p, INTERVAL_MS[k]))) : [];
   const typeBtn = (t, label) => `<button class="lab-ch-seg ${st.type === t ? 'on' : ''}" data-ch="type" data-type="${t}" aria-pressed="${st.type === t}">${label}</button>`;
-  const r = st.replay;
+  const any = loaded().length > 0;
   const n = countOn();
   bar.innerHTML = `
-    <select class="input lab-ch-file" data-ch="file" aria-label="Data file">
-      <option value="">${rows.length ? 'Pick a data file…' : 'No data files yet'}</option>${group('downloads', 'Downloads')}${group('uploads', 'Uploads')}
-    </select>
-    <select class="input lab-ch-tf" data-ch="tf" aria-label="Timeframe" ${tfs.length ? '' : 'disabled'} title="Timeframe: the file's own candles, or bigger ones built from them">
-      ${tfs.length ? tfs.map((k) => `<option value="${INTERVAL_MS[k]}" ${INTERVAL_MS[k] === st.tf ? 'selected' : ''}>${k}</option>`).join('') : '<option>–</option>'}
+    <span class="lab-ch-segs" role="group" aria-label="Charts on the screen">${[1, 2, 3, 4].map((k) => `<button class="lab-ch-seg lab-ch-lay ${G.n === k ? 'on' : ''}" data-ch="layout" data-n="${k}" title="${k === 1 ? 'One chart' : `${k} charts side by side (one timeframe, one replay)`}" aria-label="${plural(k, 'chart')}" aria-pressed="${G.n === k}">${ic(LAYOUT_IC[k])}</button>`).join('')}</span>
+    <select class="input lab-ch-file" data-ch="file" aria-label="${G.n > 1 ? `Data file of chart ${st.i + 1}` : 'Data file'}">${fileOptions()}</select>
+    <select class="input lab-ch-tf" data-ch="tf" aria-label="Timeframe" ${tfs.length ? '' : 'disabled'} title="Timeframe${G.n > 1 ? ' of every chart' : ''}: the file's own candles, or bigger ones built from them">
+      ${tfs.length ? tfs.map((k) => `<option value="${INTERVAL_MS[k]}" ${INTERVAL_MS[k] === G.tf ? 'selected' : ''}>${k}</option>`).join('') : '<option>–</option>'}
     </select>
     <span class="lab-ch-segs" role="group" aria-label="Chart type">${typeBtn('candles', 'Candles')}${typeBtn('bars', 'Bars')}${typeBtn('ha', 'Heikin Ashi')}${typeBtn('line', 'Line')}</span>
     <details class="lab-ch-menu" id="lab-ch-ind" data-menu="ind">
@@ -506,7 +616,8 @@ function paintBar() {
       <div class="lab-ch-pop lab-ch-ipop">
         <div class="lab-ch-ihead">On the candles</div>${Object.keys(IND).filter((k) => IND[k].where !== 'pane').map(indRow).join('')}
         <div class="lab-ch-ihead">In a pane of their own</div>${Object.keys(IND).filter((k) => IND[k].where === 'pane').map(indRow).join('')}
-        <p class="faint small">The numbers are each indicator's settings (in candles where it is a length). Click outside this menu to close it.</p>
+        <div class="lab-ch-ifoot"><button class="btn btn-sm" data-ch="indoff" ${n ? '' : 'disabled'}>${icon('trash')}Remove all indicators</button></div>
+        <p class="faint small">The numbers are each indicator's settings (in candles where it is a length). The × next to an indicator on the chart removes it. Click outside this menu to close it.</p>
       </div>
     </details>
     <details class="lab-ch-menu" id="lab-ch-smenu" data-menu="strat">
@@ -514,18 +625,19 @@ function paintBar() {
       <div class="lab-ch-pop lab-ch-spop">${stratMenu()}</div>
     </details>
     <span class="lab-ch-tools" role="group" aria-label="Drawing tools">
-      ${TOOLS.map(([t, label, svg]) => `<button class="btn btn-sm lab-ch-tool ${st.tool === t ? 'on' : ''}" data-ch="tool" data-tool="${t}" title="${label}" aria-label="${label}" aria-pressed="${st.tool === t}">${ic(svg)}</button>`).join('')}
-      <button class="btn btn-sm lab-ch-tool" data-ch="undo" title="Undo the last drawing (Ctrl+Z)" aria-label="Undo the last drawing" ${st.drawings.length ? '' : 'disabled'}>${ic(IC.undo)}</button>
-      <button class="btn btn-sm lab-ch-tool" data-ch="clear" title="Delete all drawings on this coin" aria-label="Delete all drawings" ${st.drawings.length ? '' : 'disabled'}>${icon('trash')}</button>
+      ${TOOLS.map(([t, label, svg]) => `<button class="btn btn-sm lab-ch-tool ${G.tool === t ? 'on' : ''}" data-ch="tool" data-tool="${t}" title="${label}" aria-label="${label}" aria-pressed="${G.tool === t}">${ic(svg)}</button>`).join('')}
+      <button class="btn btn-sm lab-ch-tool" data-ch="undo" title="Undo (Ctrl+Z)" aria-label="Undo" ${st.B && (st.drawings.length || st.undoAll) ? '' : 'disabled'}>${ic(IC.undo)}</button>
+      <button class="btn btn-sm lab-ch-tool" data-ch="clear" title="Delete every drawing and indicator on this chart (Delete key)" aria-label="Delete all drawings and indicators" ${st.B && (st.drawings.length || n) ? '' : 'disabled'}>${icon('trash')}</button>
     </span>
-    <button class="btn btn-sm lab-ch-tool ${st.log ? 'on' : ''}" data-ch="log" title="Logarithmic price scale" aria-pressed="${st.log}">${ic(IC.log)}Log</button>
+    <button class="btn btn-sm lab-ch-tool ${st.log ? 'on' : ''}" data-ch="log" title="Logarithmic price scale" aria-pressed="${st.log}" ${st.B ? '' : 'disabled'}>${ic(IC.log)}Log</button>
+    ${G.n > 1 ? `<button class="btn btn-sm lab-ch-tool ${G.sync ? 'on' : ''}" data-ch="sync" title="Link the charts: the crosshair and scrolling follow the same time on every chart" aria-pressed="${G.sync}">${ic(IC.link)}Sync</button>` : ''}
     <span class="lab-ch-fill"></span>
     <input class="input lab-ch-date" type="date" data-ch="goto" aria-label="Go to a date" title="Go to a date" ${st.B ? '' : 'disabled'}>
     <button class="btn btn-sm" data-ch="fit" title="Show every candle" ${st.B ? '' : 'disabled'}>${ic(IC.fit)}<span class="sr-only">Show all</span></button>
-    <button class="btn btn-sm" data-ch="png" title="Save the chart as a PNG picture" ${st.B ? '' : 'disabled'}>${ic(IC.camera)}<span class="sr-only">Save PNG</span></button>
-    <button class="btn btn-sm" data-ch="full" title="Full screen" ${st.B ? '' : 'disabled'}>${icon('expand')}<span class="sr-only">Full screen</span></button>
-    <button class="btn btn-sm ${r || st.picking ? 'btn-green' : ''}" data-ch="replay" title="Replay the chart candle by candle" ${st.B ? '' : 'disabled'}>${ic(IC.replay)}Replay</button>`;
-  if (st.menu) { const d = $(`details[data-menu="${st.menu}"]`, bar); if (d) { d.open = true; fitPop(d); } }
+    <button class="btn btn-sm" data-ch="png" title="Save the chart${G.n > 1 ? 's' : ''} as a PNG picture" ${any ? '' : 'disabled'}>${ic(IC.camera)}<span class="sr-only">Save PNG</span></button>
+    <button class="btn btn-sm ${isFull() ? 'lab-ch-on' : ''}" data-ch="full" title="${isFull() ? 'Leave full screen (Esc)' : 'Full screen'}" aria-pressed="${isFull()}" ${any ? '' : 'disabled'}>${isFull() ? ic(IC.shrink) : icon('expand')}<span class="sr-only">${isFull() ? 'Leave full screen' : 'Full screen'}</span></button>
+    <button class="btn btn-sm ${G.replay || G.picking ? 'btn-green' : ''}" data-ch="replay" title="Replay a portion of the chart${G.n > 1 ? 's' : ''} candle by candle" ${any ? '' : 'disabled'}>${ic(IC.replay)}Replay</button>`;
+  if (G.menu) { const d = $(`details[data-menu="${G.menu}"]`, bar); if (d) { d.open = true; fitPop(d); } }
 }
 /** Keeps an open menu inside the window (it opens under its button, so near the right edge it moves left). */
 function fitPop(d) {
@@ -540,7 +652,7 @@ function fitPop(d) {
 const countOn = () => Object.values(st.ind).filter((x) => x.on).length;
 function indRow(k) {
   const d = IND[k], s = st.ind[k];
-  const off = d.intraday && st.tf >= DAY;
+  const off = d.intraday && G.tf >= DAY;
   const dots = (d.lines || []).filter(([, c]) => c).slice(0, 3).map(([, c]) => `<i class="lab-ch-dot" style="background:${c}"></i>`).join('');
   return `<div class="lab-ch-irow">
     <label class="check"><input type="checkbox" data-ind="${k}" ${s.on ? 'checked' : ''} ${off ? 'disabled' : ''}><span>${esc(d.label)} ${dots}${d.note ? ` <span class="faint small">(${esc(d.note)})</span>` : ''}${off ? ' <span class="faint small">(timeframes under 1 day)</span>' : ''}</span></label>
@@ -548,72 +660,106 @@ function indRow(k) {
   </div>`;
 }
 
+/** The note shown in a chart without candles (no file, opening, an error). */
 function paintEmpty() {
-  const el = $('#lab-ch-empty', host);
+  const el = st.el && $('.lab-ch-pempty', st.el);
   if (!el) return;
   const rows = ctx.datasets();
+  const pick = G.n > 1 ? `<select class="input lab-ch-file" data-ch="file" aria-label="Data file of chart ${st.i + 1}">${fileOptions()}</select>` : '';
   let html = '';
   if (st.loading) html = '<div class="lab-note"><span class="spin"></span> Opening the file…</div>';
-  else if (st.error) html = `<div class="err">${esc(st.error)}</div>`;
+  else if (st.error) html = `<div class="err">${esc(st.error)}</div>${pick}`;
   else if (!st.ds) html = rows.length
-    ? `<div class="lab-note">Pick a data file above to draw its chart. Files come from the <button class="link" type="button" data-lab="tab" data-tab="files">Downloads and Uploads folders</button>.</div>`
+    ? `<div class="lab-note">Pick a data file ${G.n > 1 ? `for chart ${st.i + 1}` : 'above'} to draw its chart. Files come from the <button class="link" type="button" data-lab="tab" data-tab="files">Downloads and Uploads folders</button>.</div>${pick}`
     : `<div class="lab-note">No data files yet. <button class="link" type="button" data-lab="tab" data-tab="data">Download candles from Binance</button> into MEDUSA, then open them here.</div>`;
   el.innerHTML = html;
   el.hidden = !html;
-  $('#lab-ch-main', host).hidden = !st.B;
+  st.el.classList.toggle('empty', !st.B);
 }
 
 /* ======================= opening a file ======================= */
 
 async function openFile(id) {
+  const p = st;
   const row = ctx.datasets().find((d) => d.id === id);
   if (!row) {
-    if (st.pending && st.pending.R.meta.dataset === id) { st.pending = null; toast('The data file of this result isn’t in MEDUSA any more.', 'error'); }
+    if (p.pending && p.pending.R.meta.dataset === id) { p.pending = null; toast('The data file of this result isn’t in MEDUSA any more.', 'error'); }
     return;
   }
-  stopReplay(true);
-  if (st.strat && st.strat.R.meta.dataset !== id) st.strat = null;
-  Object.assign(st, { id, row, loading: true, error: null });
-  st.runners.clear();
-  saveView();
+  if (p.strat && p.strat.R.meta.dataset !== id) p.strat = null;
+  Object.assign(p, { id, row, loading: true, error: null, pos: null, ptrades: [], undoAll: null });
+  p.runners.clear();
+  savePanes();
   paintBar();
   paintEmpty();
-  try {
-    const ds = await data.loadDataset(id);
-    if (st.id !== id) return;
-    if (ds.n < 2) throw new Error('This file has fewer than 2 candles.');
-    st.ds = ds;
-    st.B = null;
-    st.base = INTERVAL_MS[row.interval] || INTERVAL_MS[ds.meta && ds.meta.interval] || gapOf(ds.cols.t);
-    st.prec = precisionOf(ds.cols.c);
-    const ok = (ms) => ms && ms % st.base === 0 && ms >= st.base;
-    st.tf = ok(st.wantTf) ? st.wantTf : ok(st.tf) ? st.tf : defaultTf(ds.n, st.base);
-    st.wantTf = 0;
-    saveView();
-    st.drawings = load(`draw.${drawKey()}`, []);
-    ctx.log('lab', `Chart: ${row.symbol} ${tfName(st.tf)} (${plural(ds.n, 'candle')} in the file)`, null, 'debug');
-  } catch (e) {
-    if (st.id === id) { st.error = e.message; st.ds = null; st.B = null; }
+  let ds = null, err = null;
+  try { ds = await data.loadDataset(id); } catch (e) { err = e.message; }
+  st = p;
+  if (p.id !== id) return;
+  p.loading = false;
+  if (!err && ds.n < 2) err = 'This file has fewer than 2 candles.';
+  if (!err) {
+    Object.assign(p, { ds, B: null, base: INTERVAL_MS[row.interval] || INTERVAL_MS[ds.meta && ds.meta.interval] || gapOf(ds.cols.t), prec: precisionOf(ds.cols.c) });
+    if (!pickTf(G.wantTf)) err = `This file's ${tfName(p.base)} candles can't share a timeframe with the other charts. Show it on its own (the one-chart layout) or next to files with the same candles.`;
   }
-  st.loading = false;
-  const pend = st.pending && st.pending.R.meta.dataset === id ? st.pending : null;
-  st.pending = null;
-  if (pend && st.ds) setStrat(pend.R, pend.id, false);
+  if (err) {
+    Object.assign(p, { error: err, ds: null, B: null, strat: null, pending: null });
+    destroyChart();
+    paintEmpty();
+    paintBar();
+    paintStrat();
+    return;
+  }
+  const tf = pickTf(G.wantTf);
+  G.wantTf = 0;
+  const changed = G.tf && tf !== G.tf;
+  const twin = live().find((q) => q !== p && q.ds && q.row && drawKeyOf(q) === drawKeyOf(p));
+  p.drawings = twin ? twin.drawings : load(`draw.${drawKey()}`, []);
+  ctx.log('lab', `Chart: ${row.symbol} ${tfName(tf)} (${plural(ds.n, 'candle')} in the file)`, null, 'debug');
+  const pend = p.pending && p.pending.R.meta.dataset === id ? p.pending : null;
+  p.pending = null;
+  if (pend) setStrat(pend.R, pend.id, false);
+  if (changed) setTf(tf, p);
+  else { G.tf = tf; save('tf', tf); }
   build();
-  if (!pend && !st.strat && st.ds) restoreStrat(id);
+  if (changed) toast(`Every chart now shows ${tfName(tf)} candles: the charts share one timeframe.`);
+  if (!pend && !p.strat) restoreStrat(id);
 }
 
 function closeFile() {
-  stopReplay(true);
-  Object.assign(st, { id: null, row: null, ds: null, B: null, strat: null });
+  Object.assign(st, { id: null, row: null, ds: null, B: null, strat: null, pos: null, ptrades: [], error: null });
   destroyChart();
+  savePanes();
   paintBar();
   paintEmpty();
   paintStrat();
 }
 
-const drawKey = () => `${st.row.symbol}-${st.row.market}`;
-const saveView = () => save('view', { id: st.id, tf: st.tf, type: st.type, log: st.log, ind: st.ind });
+const drawKeyOf = (p) => `${p.row.symbol}-${p.row.market}`;
+const drawKey = () => drawKeyOf(st);
+
+/* ---------- one timeframe for every chart ---------- */
+
+const okFor = (p, ms) => ms > 0 && ms >= p.base && ms % p.base === 0;
+/** The timeframe every chart with a file can show: `prefer` if it can, else the current one, else the
+    nearest bigger one (or a quick one for a first file). 0 when there is none. */
+function pickTf(prefer) {
+  const ps = live().filter((p) => p.ds);
+  const ok = (ms) => ms > 0 && ps.every((p) => okFor(p, ms));
+  if (ok(prefer)) return prefer;
+  if (ok(G.tf)) return G.tf;
+  const all = TF_NAMES.map((k) => INTERVAL_MS[k]).filter(ok);
+  if (!all.length) return ps.length === 1 && ok(ps[0].base) ? ps[0].base : 0;
+  const want = G.tf || defaultTf(st.ds.n, st.base);
+  return all.find((ms) => ms >= want) || all[all.length - 1];
+}
+/** Changes the timeframe and redraws every chart except `skip` (the caller draws that one). */
+function setTf(tf, skip = null) {
+  G.tf = tf;
+  save('tf', tf);
+  for (const p of loaded()) if (p !== skip) on(p, build);
+  paintBar();
+}
 
 /** The most common gap between candles (for uploaded files without a known timeframe). */
 function gapOf(t) {
@@ -640,11 +786,14 @@ function defaultTf(n, base) {
 
 /* ======================= candles for the chosen timeframe ======================= */
 
+const anchorOf = (tf) => (tf === INTERVAL_MS['1w'] ? 4 * DAY : 0);   // 1 Jan 1970 was a Thursday; weeks start Monday
+const bucketStart = (ms) => Math.floor((ms - anchorOf(G.tf)) / G.tf) * G.tf + anchorOf(G.tf);
+
 /** Groups the file's candles into the timeframe's candles (UTC boundaries; weeks start Monday). */
 function aggregate(ds, tf) {
   const { t, o, h, l, c } = ds.cols;
   const v = ds.cols.v || new Float64Array(ds.n);
-  const anchor = tf === INTERVAL_MS['1w'] ? 4 * DAY : 0;   // 1 Jan 1970 was a Thursday
+  const anchor = anchorOf(tf);
   const n0 = ds.n;
   const T = [], O = [], H = [], L = [], C = [], V = [], first = [];
   let cur = -Infinity;
@@ -699,14 +848,9 @@ function haOf(B) {
 /* ======================= the chart ======================= */
 
 function destroyChart() {
-  if (chart) chart.remove();
-  chart = main = vol = layer = markersApi = posLine = null;
-  hlines = [];
-  st.feeds = [];
-  st.groups = [];
-  st.fills = [];
-  const pl = host && $('#lab-ch-plegs', host);
-  if (pl) pl.innerHTML = '';
+  if (st.chart) st.chart.remove();
+  Object.assign(st, { chart: null, main: null, vol: null, layer: null, markers: null, posLine: null, hlines: [], feeds: [], groups: [], fills: [] });
+  if (st.el) { $('.lab-ch-plegs', st.el).innerHTML = ''; $('.lab-ch-legend', st.el).innerHTML = ''; }
 }
 
 const fmt = (p) => (fin(p) ? (Math.abs(p) >= 1e6 ? p.toLocaleString('en-US', { maximumFractionDigits: 0 }) : p.toFixed(Math.min(st.prec ?? 2, Math.abs(p) >= 1000 ? 2 : 10))) : '–');
@@ -720,8 +864,8 @@ const baseOptions = () => ({
   },
   grid: { vertLines: { color: 'rgba(255,255,255,0.045)' }, horzLines: { color: 'rgba(255,255,255,0.045)' } },
   crosshair: { mode: CrosshairMode.Normal, vertLine: { color: 'rgba(255,255,255,0.35)', labelBackgroundColor: '#3a3f4b' }, horzLine: { color: 'rgba(255,255,255,0.35)', labelBackgroundColor: '#3a3f4b' } },
-  rightPriceScale: { borderColor: '#303030', minimumWidth: 86 },
-  timeScale: { borderColor: '#303030', timeVisible: st.tf < DAY, secondsVisible: false, rightOffset: 12, barSpacing: 7, minBarSpacing: 0.02 },
+  rightPriceScale: { borderColor: '#303030', minimumWidth: G.n > 2 ? 64 : 86 },
+  timeScale: { borderColor: '#303030', timeVisible: G.tf < DAY, secondsVisible: false, rightOffset: 12, barSpacing: 7, minBarSpacing: 0.02 },
   handleScale: { axisPressedMouseMove: { time: true, price: true } },
 });
 const lineOpts = (color, style, pf) => ({
@@ -736,37 +880,37 @@ function runnerFor(k) {
   return st.runners.get(key);
 }
 
-/** (Re)builds the candles, indicators, strategy and chart for the current file, timeframe and settings. */
+/** (Re)builds the candles, indicators, strategy and chart of this chart's file, timeframe and settings. */
 function build() {
   paintBar();
   if (!st.ds) { destroyChart(); paintEmpty(); paintStrat(); return; }
-  const tfKey = `${st.id}:${st.tf}`;
+  const tfKey = `${st.id}:${G.tf}`;
   const same = st.B && st.B.tfKey === tfKey;
-  const keepRange = chart && same ? chart.timeScale().getVisibleLogicalRange() : null;
+  const keepRange = st.chart && same ? st.chart.timeScale().getVisibleLogicalRange() : null;
   if (!same) {
-    st.B = aggregate(st.ds, st.tf);
+    st.B = aggregate(st.ds, G.tf);
     st.B.tfKey = tfKey;
     st.runners.clear();
     if (st.B.n > 400_000) toast(`${st.B.n.toLocaleString('en-US')} candles: the chart may be slow. A bigger timeframe keeps it quick.`);
   }
   st.ha = st.type === 'ha' ? haOf(st.B) : null;
-  paintEmpty();
   destroyChart();
-  const el = $('#lab-ch-main', host);
-  chart = createChart(el, baseOptions());
+  paintEmpty();
+  const el = st.el;
+  const chart = (st.chart = createChart(el, baseOptions()));
   const pf = pricePf();
-  main = st.type === 'line' ? chart.addSeries(LineSeries, { color: '#e5e7eb', lineWidth: 2, priceFormat: pf })
+  const main = (st.main = st.type === 'line' ? chart.addSeries(LineSeries, { color: '#e5e7eb', lineWidth: 2, priceFormat: pf })
     : st.type === 'bars' ? chart.addSeries(BarSeries, { upColor: UP, downColor: DOWN, thinBars: false, priceFormat: pf })
-      : chart.addSeries(CandlestickSeries, { upColor: UP, downColor: DOWN, borderUpColor: UP, borderDownColor: DOWN, wickUpColor: UP, wickDownColor: DOWN, priceFormat: pf });
+      : chart.addSeries(CandlestickSeries, { upColor: UP, downColor: DOWN, borderUpColor: UP, borderDownColor: DOWN, wickUpColor: UP, wickDownColor: DOWN, priceFormat: pf }));
   chart.priceScale('right').applyOptions({ mode: st.log ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal, scaleMargins: { top: 0.08, bottom: st.ind.vol.on ? 0.22 : 0.08 } });
   if (st.ind.vol.on) {
-    vol = chart.addSeries(HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
+    st.vol = chart.addSeries(HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
     chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
   }
   let pane = 1;
   for (const k of Object.keys(IND)) {
     const d = IND[k];
-    if (d.where === 'vol' || !st.ind[k].on || (d.intraday && st.tf >= DAY)) continue;
+    if (d.where === 'vol' || !st.ind[k].on || (d.intraday && G.tf >= DAY)) continue;
     const runner = runnerFor(k);
     const where = d.where === 'pane' ? pane++ : 0;
     const spf = d.price ? pf : d.volume ? { type: 'volume' } : { type: 'price', precision: 2, minMove: 0.01 };
@@ -788,24 +932,26 @@ function build() {
     st.feeds.push(...g.feeds);
   }
   if (st.strat) addStrategySeries(() => pane++);
-  const panes = chart.panes();
-  el.style.setProperty('--panes', String(panes.length - 1));
-  if (panes.length > 1) {
-    const H = el.clientHeight || 420 + PANE_PX * (panes.length - 1);
-    panes[0].setStretchFactor(Math.max(1.5, (H - PANE_PX * (panes.length - 1)) / PANE_PX));
-    for (let i = 1; i < panes.length; i++) panes[i].setStretchFactor(1);
+  const panesOf = chart.panes();
+  el.style.setProperty('--panes', String(panesOf.length - 1));
+  if (panesOf.length > 1) {
+    const H = el.clientHeight || 420 + PANE_PX * (panesOf.length - 1);
+    panesOf[0].setStretchFactor(Math.max(1.5, (H - PANE_PX * (panesOf.length - 1)) / PANE_PX));
+    for (let i = 1; i < panesOf.length; i++) panesOf[i].setStretchFactor(1);
   }
-  layer = new Layer();
-  main.attachPrimitive(layer);
-  markersApi = createSeriesMarkers(main, []);
-  chart.subscribeCrosshairMove(onMove);
-  setAll(st.replay ? st.replay.k : st.ds.n);
+  st.layer = new Layer(st);
+  main.attachPrimitive(st.layer);
+  st.markers = createSeriesMarkers(main, []);
+  const p = st;
+  chart.subscribeCrosshairMove((param) => on(p, () => onMove(param)));
+  chart.timeScale().subscribeVisibleLogicalRangeChange((r) => on(p, () => onRange(r)));
+  setAll(G.replay ? kAt(st, G.replay.cut) : st.ds.n);
   paintHlines();
   paintMarkers();
-  if (st.replay) focusReplay();
-  else if (keepRange) chart.timeScale().setVisibleLogicalRange(keepRange);
+  if (G.replay) focusReplay();
+  else if (keepRange) setRange(keepRange, false);
   else if (st.strat && st.strat.sel >= 0) focusTrade(st.strat.sel);
-  else showRecent();
+  else if (!followOthers()) showRecent();
   paintPaneLegends();
   legend(null);
   paintReplay();
@@ -813,9 +959,25 @@ function build() {
   placeLegendsSoon();
 }
 
+/** Sets the visible candles. share: linked charts show the same times (else they are left as they are). */
+function setRange(range, share = true) {
+  st.chart.timeScale().setVisibleLogicalRange(range);
+  if (share && G.sync && G.n > 1) shareRange(range);
+}
 /** Shows the last ~160 candles, the way TradingView opens a chart. */
 function showRecent(end = st.B.n - 1) {
-  chart.timeScale().setVisibleLogicalRange({ from: end - 160, to: end + 12 });
+  setRange({ from: end - 160, to: end + 12 }, false);
+}
+/** With Sync on, a chart that opens shows the same times as the others (when it has candles then). */
+function followOthers() {
+  if (!G.sync || G.n < 2) return false;
+  const q = loaded().find((x) => x !== st && x.chart);
+  const r = q && q.chart.timeScale().getVisibleLogicalRange();
+  if (!r) return false;
+  const a = on(q, () => logicalToMs(r.from)), b = on(q, () => logicalToMs(r.to));
+  if (b < st.B.T[0] || a > st.B.T[st.B.n - 1]) return false;
+  setRange({ from: msToLogical(a), to: msToLogical(b) }, false);
+  return true;
 }
 
 /* Points for the chart, up to file candle K (everything when K = file length). */
@@ -878,10 +1040,18 @@ function valueAt(f, j) {
   return f.get(j, K, partial(j, K), false);
 }
 
-/** Sets every series to the candles revealed so far (file candles 0..K-1). */
+/** Sets every series to the candles revealed so far (file candles 0..K-1; none in a replay before the file starts). */
 function setAll(K) {
+  if (K < 1) {
+    st.main.setData([]);
+    if (st.vol) st.vol.setData([]);
+    for (const f of st.feeds) { f.series.setData([]); Object.assign(f, { last: NaN, lastOk: false, lastJ: -1 }); }
+    st.shownTo = -1;
+    st.K = 0;
+    return;
+  }
   const J = lastBar(K);
-  const M = new Array(J + 1), Vv = vol ? new Array(J + 1) : null, vals = st.feeds.map(() => new Float64Array(J + 1));
+  const M = new Array(J + 1), Vv = st.vol ? new Array(J + 1) : null, vals = st.feeds.map(() => new Float64Array(J + 1));
   for (let j = 0; j <= J; j++) {
     const fb = j < J ? null : barFor(j, K);
     const bar = fb ? fb.bar : fullBar(j), done = fb ? fb.done : true;
@@ -889,8 +1059,8 @@ function setAll(K) {
     if (Vv) Vv[j] = volPoint(j, bar);
     for (let q = 0; q < st.feeds.length; q++) vals[q][j] = st.feeds[q].get(j, K, bar, done);
   }
-  main.setData(M);
-  if (vol) vol.setData(Vv);
+  st.main.setData(M);
+  if (st.vol) st.vol.setData(Vv);
   st.feeds.forEach((f, q) => f.series.setData(feedPoints(f, vals[q], J)));
   st.shownTo = J;
   st.K = K;
@@ -901,35 +1071,42 @@ function advance(k0, k1) {
   const j0 = lastBar(k0), j1 = lastBar(k1);
   for (let j = j0; j <= j1; j++) {
     const { bar, done } = barFor(j, k1);
-    main.update(mainPoint(j, bar, done));
-    if (vol) vol.update(volPoint(j, bar));
+    st.main.update(mainPoint(j, bar, done));
+    if (st.vol) st.vol.update(volPoint(j, bar));
     for (const f of st.feeds) feedUpdate(f, j, k1, bar, done);
   }
   st.shownTo = j1;
   st.K = k1;
 }
+/** Shows file candles 0..k-1 (a replay step), the quick way when it only moves forward. */
+function moveTo(k) {
+  if (k === st.K) return;
+  if (k > st.K && st.K >= 1) advance(st.K, k);
+  else setAll(k);
+}
 
 /* ======================= the backtest on the chart ======================= */
 
-/** Draws backtest result R (saved as `id`, or null) on the chart. */
+/** Draws backtest result R (saved as `id`, or null) on this chart. */
 function setStrat(R, id, rebuild = true) {
   const trades = (R.trades || []).map((x, n) => ({ ...x, n: n + 1 })).sort((a, b) => a.et - b.et);
+  const p = st;
   const s = { R, id: id || null, trades, sel: -1, plots: null, plotsErr: null, plotsLoading: true };
-  st.strat = s;
+  p.strat = s;
   save(`strat.${R.meta.dataset}`, s.id);
   const key = R.config && R.config.strategy;
   if (key && (ctx.strategies() || []).some((x) => x.key === key)) {
-    st.sform.strategy = key;
-    st.sform.params[key] = { ...(R.meta.params || {}) };
-    save('sform', st.sform);
+    G.sform.strategy = key;
+    G.sform.params[key] = { ...(R.meta.params || {}) };
+    save('sform', G.sform);
   }
-  ctx.plots(R).then((out) => {
-    if (st.strat !== s) return;
+  ctx.plots(R).then((out) => on(p, () => {
+    if (p.strat !== s) return;
     s.plotsLoading = false;
     if (out.error) { s.plotsErr = out.error; paintStrat(); return; }
     s.plots = prepPlots(out);
     if (s.plots.length) build(); else paintStrat();
-  }).catch((e) => { if (st.strat === s) { s.plotsLoading = false; s.plotsErr = e.message; paintStrat(); } });
+  })).catch((e) => { if (p.strat === s) { s.plotsLoading = false; s.plotsErr = e.message; paintStrat(); } });
   if (rebuild) build();
 }
 
@@ -944,7 +1121,8 @@ function removeStrat() {
 function restoreStrat(dataset) {
   const id = load(`strat.${dataset}`, null);
   if (!id || !(ctx.runs() || []).some((r) => r.id === id)) return;
-  ctx.fetchResult(id).then((R) => { if (st.id === dataset && !st.strat && R.meta.dataset === dataset) setStrat(R, id); }).catch(() => {});
+  const p = st;
+  ctx.fetchResult(id).then((R) => on(p, () => { if (p.id === dataset && p.ds && !p.strat && R.meta.dataset === dataset) setStrat(R, id); })).catch(() => {});
 }
 
 /** The strategy's lines from Python, lined up with the file's candles. */
@@ -956,13 +1134,14 @@ function prepPlots(out) {
   return out.plots.map((p, i) => ({ name: p.name, kind: p.kind, values: p.values, p0, on: p.kind === 'price', color: PLOT_COLORS[i % PLOT_COLORS.length] }));
 }
 
-const nowT = () => (st.replay ? st.ds.cols.t[st.replay.k - 1] : Infinity);
+/** The open time of the last file candle shown (in a replay; everything is shown otherwise). */
+const nowT = () => (G.replay ? (st.K ? st.ds.cols.t[st.K - 1] : -Infinity) : Infinity);
 
 /** The strategy's lines, its account value and buy & hold, as feeds like the indicators'. */
 function addStrategySeries(nextPane) {
-  const s = st.strat, B = st.B, t = st.ds.cols.t, pf = pricePf();
+  const s = st.strat, B = st.B, t = st.ds.cols.t, pf = pricePf(), chart = st.chart;
   const lastFile = (j) => B.first[j + 1] - 1;
-  if (st.sshow.lines && s.plots) {
+  if (G.sshow.lines && s.plots) {
     const priceFeeds = [];
     for (const p of s.plots) {
       if (!p.on) continue;
@@ -978,7 +1157,7 @@ function addStrategySeries(nextPane) {
     }
     if (priceFeeds.length) st.groups.push({ key: 'splots', label: 'Strategy', pane: 0, feeds: priceFeeds });
   }
-  if (st.sshow.equity && s.R.equity && s.R.equity.t && s.R.equity.t.length) {
+  if (G.sshow.equity && s.R.equity && s.R.equity.t && s.R.equity.t.length) {
     const E = s.R.equity, to = s.R.meta.to;
     const eqAt = (ms, arr) => {
       if (ms < E.t[0] || ms > to) return NaN;
@@ -1008,12 +1187,12 @@ const tradeResult = (x) => (x.r != null && fin(x.r) ? `${x.r >= 0 ? '+' : ''}${x
 const openResult = (x) => { const p = st.ds.cols.c[st.K - 1]; return { p, ret: ((p - x.ep) / x.ep) * x.side }; };
 
 function paintMarkers() {
-  if (!markersApi || !st.B) return;
+  if (!st.markers || !st.B) return;
   const m = [];
   const now = nowT();
   const at = (ms) => sec(st.B.T[indexOfTime(ms)]);
   const s = st.strat;
-  if (s && st.sshow.trades) {
+  if (s && G.sshow.trades) {
     for (const x of s.trades) {
       if (x.et > now) break;
       const sel = s.sel === x.n - 1, long = x.side > 0;
@@ -1021,18 +1200,17 @@ function paintMarkers() {
       if (x.xt <= now) m.push({ time: at(x.xt), position: long ? 'aboveBar' : 'belowBar', color: x.pnl >= 0 ? '#86efac' : '#fca5a5', shape: 'circle', text: tradeResult(x), size: sel ? 1.4 : 0.7, id: `x${x.n}` });
     }
   }
-  const r = st.replay;
-  if (r) {
-    for (const x of r.trades) {
+  if (G.replay) {
+    for (const x of st.ptrades) {
       if (x.t <= now) m.push({ time: at(x.t), position: x.side === 'long' ? 'belowBar' : 'aboveBar', color: '#facc15', shape: x.side === 'long' ? 'arrowUp' : 'arrowDown', text: x.side === 'long' ? 'Buy' : 'Sell' });
       if (x.xt <= now) m.push({ time: at(x.xt), position: x.side === 'long' ? 'aboveBar' : 'belowBar', color: '#facc15', shape: 'circle', text: `${x.ret >= 0 ? '+' : ''}${x.ret.toFixed(2)}%` });
     }
-    if (r.pos) m.push({ time: at(r.pos.t), position: r.pos.side === 'long' ? 'belowBar' : 'aboveBar', color: '#facc15', shape: r.pos.side === 'long' ? 'arrowUp' : 'arrowDown', text: r.pos.side === 'long' ? 'Buy' : 'Sell' });
+    if (st.pos) m.push({ time: at(st.pos.t), position: st.pos.side === 'long' ? 'belowBar' : 'aboveBar', color: '#facc15', shape: st.pos.side === 'long' ? 'arrowUp' : 'arrowDown', text: st.pos.side === 'long' ? 'Buy' : 'Sell' });
   }
   m.sort((a, b) => a.time - b.time);
-  markersApi.setMarkers(m);
-  if (posLine) { main.removePriceLine(posLine); posLine = null; }
-  if (r && r.pos) posLine = main.createPriceLine({ price: r.pos.entry, color: '#facc15', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: r.pos.side === 'long' ? 'Long' : 'Short' });
+  st.markers.setMarkers(m);
+  if (st.posLine) { st.main.removePriceLine(st.posLine); st.posLine = null; }
+  if (G.replay && st.pos) st.posLine = st.main.createPriceLine({ price: st.pos.entry, color: '#facc15', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: st.pos.side === 'long' ? 'Long' : 'Short' });
 }
 
 /** Centres trade i on the chart and marks it. */
@@ -1044,21 +1222,21 @@ function focusTrade(i) {
   s.sel = i;
   const eb = indexOfTime(x.et), xb = x.xt <= nowT() ? indexOfTime(x.xt) : st.shownTo;
   const pad = Math.max(25, (xb - eb) * 0.7);
-  chart.timeScale().setVisibleLogicalRange({ from: eb - pad, to: xb + pad });
+  setRange({ from: eb - pad, to: xb + pad });
   paintMarkers();
-  if (layer) layer.redraw();
+  if (st.layer) st.layer.redraw();
   paintStrat(true);
 }
 function stepTrade(dir) {
   const s = st.strat;
   if (!s) return;
   const list = shownTrades();
-  if (!list.length) { toast(st.replay ? 'No trades yet at this point of the replay.' : 'This test made no trades.'); return; }
+  if (!list.length) { toast(G.replay ? 'No trades yet at this point of the replay.' : 'This test made no trades.'); return; }
   let pos;
   const cur = list.findIndex((x) => x.n - 1 === s.sel);
   if (cur >= 0) pos = cur + dir;
   else {
-    const r = chart.timeScale().getVisibleLogicalRange();
+    const r = st.chart.timeScale().getVisibleLogicalRange();
     const mid = r ? (r.from + r.to) / 2 : st.shownTo;
     if (dir > 0) { pos = list.findIndex((x) => indexOfTime(x.et) > mid); if (pos < 0) pos = list.length - 1; }
     else { pos = -1; list.forEach((x, q) => { if (indexOfTime(x.et) < mid) pos = q; }); if (pos < 0) pos = 0; }
@@ -1067,17 +1245,18 @@ function stepTrade(dir) {
   focusTrade(list[pos].n - 1);
 }
 
-/** The panel under the chart: the test's numbers and its list of trades (click one to see it). */
+/** The panel under the charts: the active chart's test, its numbers and its list of trades (click one to see it). */
 let stratSig = '';
-function paintStrat(force = false) {
-  const el = host && $('#lab-ch-strat', host);
+function paintStrat(force = false) { if (host) on(A(), () => paintStratNow(force)); }
+function paintStratNow(force) {
+  const el = $('#lab-ch-strat', host);
   if (!el) return;
   const s = st.strat;
   if (!s || !st.ds || !st.B) { el.hidden = true; el.innerHTML = ''; stratSig = ''; return; }
   const list = shownTrades();
   const now = nowT();
   const open = list.length && list[list.length - 1].xt > now ? list[list.length - 1] : null;
-  const sig = `${s.R.meta.made}|${s.id}|${list.length}|${open ? open.n : 0}|${s.sel}|${st.sshow.trades}|${st.sshow.lines}|${st.sshow.equity}|${s.plotsLoading}|${s.plotsErr}|${s.plots ? s.plots.map((p) => +p.on).join('') : ''}|${Boolean(st.replay)}`;
+  const sig = `${st.i}|${s.R.meta.made}|${s.id}|${list.length}|${open ? open.n : 0}|${s.sel}|${G.sshow.trades}|${G.sshow.lines}|${G.sshow.equity}|${s.plotsLoading}|${s.plotsErr}|${s.plots ? s.plots.map((p) => +p.on).join('') : ''}|${Boolean(G.replay)}`;
   if (!force && sig === stratSig && !el.hidden) { paintStratLive(); return; }
   stratSig = sig;
   el.hidden = false;
@@ -1086,7 +1265,7 @@ function paintStrat(force = false) {
   const pct = (v, dp = 1) => (fin(v) ? `${v >= 0 ? '+' : ''}${(v * 100).toFixed(dp)}%` : '–');
   const tone = (v) => (v > 0 ? 'pos' : v < 0 ? 'neg' : '');
   let chips;
-  if (st.replay) {
+  if (G.replay) {
     const wins = closed.filter((x) => x.pnl > 0).length;
     const rs = closed.filter((x) => x.r != null && fin(x.r));
     const sumR = rs.reduce((a, x) => a + x.r, 0), sumRet = closed.reduce((a, x) => a + x.ret, 0);
@@ -1117,12 +1296,12 @@ function paintStrat(force = false) {
   }).join('');
   el.innerHTML = `
     <div class="lab-ch-shead">
-      <div class="lab-ch-sname"><b>${esc(R.meta.strategy_label)}</b><span class="faint small">${esc(R.meta.settings_text || '')}</span>${s.id ? '' : '<span class="lab-ch-tag" title="Not in the Results folder: it is gone when you reload. Open the report to save it.">not saved</span>'}</div>
+      <div class="lab-ch-sname"><b>${G.n > 1 ? `${esc(st.row.symbol)} · ` : ''}${esc(R.meta.strategy_label)}</b><span class="faint small">${esc(R.meta.settings_text || '')}</span>${s.id ? '' : '<span class="lab-ch-tag" title="Not in the Results folder: it is gone when you reload. Open the report to save it.">not saved</span>'}</div>
       <div class="lab-ch-schips">${chips.map(([k, v, t]) => `<span class="lab-ch-chip"><span class="faint">${k}</span><b class="${t}">${v}</b></span>`).join('')}</div>
       <div class="lab-ch-sbtns">
-        <label class="check small"><input type="checkbox" data-sshow="trades" ${st.sshow.trades ? 'checked' : ''}><span>Trades</span></label>
-        <label class="check small"><input type="checkbox" data-sshow="lines" ${st.sshow.lines ? 'checked' : ''}><span>Lines</span></label>
-        <label class="check small"><input type="checkbox" data-sshow="equity" ${st.sshow.equity ? 'checked' : ''}><span>Account value</span></label>
+        <label class="check small"><input type="checkbox" data-sshow="trades" ${G.sshow.trades ? 'checked' : ''}><span>Trades</span></label>
+        <label class="check small"><input type="checkbox" data-sshow="lines" ${G.sshow.lines ? 'checked' : ''}><span>Lines</span></label>
+        <label class="check small"><input type="checkbox" data-sshow="equity" ${G.sshow.equity ? 'checked' : ''}><span>Account value</span></label>
         <button class="btn btn-sm" data-ch="sprev" title="Previous trade">${ic(IC.prev)}<span class="sr-only">Previous trade</span></button>
         <button class="btn btn-sm" data-ch="snext" title="Next trade">${ic(IC.next)}<span class="sr-only">Next trade</span></button>
         <button class="btn btn-sm" data-ch="sedit" title="Change the settings and run it again">${icon('edit')}Settings</button>
@@ -1130,19 +1309,19 @@ function paintStrat(force = false) {
         <button class="btn btn-sm" data-ch="sremove" title="Take the strategy off the chart">${ic(IC.close)}<span class="sr-only">Remove</span></button>
       </div>
     </div>
-    ${st.sshow.lines ? `<div class="lab-ch-sline">${plotsNote}</div>` : ''}
+    ${G.sshow.lines ? `<div class="lab-ch-sline">${plotsNote}</div>` : ''}
     ${list.length ? `<div class="lab-ch-tscroll" id="lab-ch-tscroll"><table class="lab-table lab-ch-trades"><thead><tr><th>#</th><th>Side</th><th>Entry</th><th>Exit</th><th>Result</th><th class="l">Exit reason</th></tr></thead><tbody>${rows}</tbody></table></div>`
-      : `<p class="dim small">${st.replay ? 'No trades yet at this point of the replay.' : 'This test made no trades.'}</p>`}`;
+      : `<p class="dim small">${G.replay ? 'No trades yet at this point of the replay.' : 'This test made no trades.'}</p>`}`;
   const box = $('#lab-ch-tscroll', el);
   if (box) {
-    const on = $('tr.on', box);
-    if (on) box.scrollTop = on.offsetTop - box.clientHeight / 2;
-    else if (st.replay) box.scrollTop = box.scrollHeight;
+    const sel = $('tr.on', box);
+    if (sel) box.scrollTop = sel.offsetTop - box.clientHeight / 2;
+    else if (G.replay) box.scrollTop = box.scrollHeight;
   }
 }
 /** In a replay: the open trade's result follows the price. */
 function paintStratLive() {
-  const cell = host && $('#lab-ch-strat [data-live]', host);
+  const cell = $('#lab-ch-strat [data-live]', host);
   if (!cell || !st.strat) return;
   const list = shownTrades();
   const x = list[list.length - 1];
@@ -1161,7 +1340,7 @@ function stratMenu() {
     ? `<div class="lab-ch-runs">${runs.map((r) => { const b = r.brief || {}; return `<button class="lab-ch-run ${st.strat && st.strat.id === r.id ? 'on' : ''}" data-ch="sload" data-id="${r.id}"><span class="lab-ch-rname">${esc(b.strategy || r.title)}</span><span class="${b.return > 0 ? 'pos' : b.return < 0 ? 'neg' : ''}">${fin(b.return) ? `${b.return >= 0 ? '+' : ''}${(b.return * 100).toFixed(1)}%` : ''}</span><span class="faint small lab-ch-rset">${b.trades ?? 0} trades · ${esc((b.settings || '').slice(0, 80))}</span></button>`; }).join('')}</div>`
     : `<p class="faint small">${st.id ? 'No saved results for this file yet.' : 'Pick a data file first.'}</p>`;
   if (!list.length) return `<div class="lab-ch-shead2">Run a strategy on this chart</div><p class="dim small"><span class="spin"></span> The Python engine is starting…</p><div class="lab-ch-shead2">Saved results for this file</div>${saved}`;
-  const f = st.sform;
+  const f = G.sform;
   const cur = list.find((x) => x.key === f.strategy) || list[0];
   f.strategy = cur.key;
   const vals = f.params[cur.key] || {};
@@ -1179,17 +1358,17 @@ function stratMenu() {
     return `<label class="lab-ch-sp" title="${esc(p.help || '')}">${lab}<input class="input" type="number" data-sp="${esc(p.key)}" data-kind="${p.kind}" value="${esc(v)}" ${p.min != null ? `min="${p.min}"` : ''} ${p.max != null ? `max="${p.max}"` : ''} step="${p.step ?? (p.kind === 'int' ? 1 : 'any')}"></label>`;
   };
   const c = ctx.costs();
-  return `<div class="lab-ch-shead2">Run a strategy on this chart</div>
+  return `<div class="lab-ch-shead2">Run a strategy on ${G.n > 1 && st.row ? esc(st.row.symbol) : 'this chart'}</div>
     <select class="input" data-ch="sname" aria-label="Strategy">${[...groups].map(([g, items]) => `<optgroup label="${esc(g)}">${items.map((s) => `<option value="${esc(s.key)}" ${s.key === cur.key ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}</optgroup>`).join('')}</select>
     <div class="lab-ch-sparams">${cur.params.map(field).join('')}</div>
     <p class="faint small">Lengths are in candles of the file (${esc(st.row ? st.row.interval || tfName(st.base) : '')}). The test uses the whole file, and the Dashboard’s costs and money: fee ${c.fee_pct}% + slippage ${c.slippage_pct}%, ${c.sizing === 'risk' ? `risk ${c.risk_pct}% a trade` : `${c.notional_pct}% of the account a trade`}, start ${c.capital} (<button class="link small" type="button" data-lab="tab" data-tab="dashboard">change them there</button>).</p>
     <label class="check small"><input type="checkbox" data-ch="ssave" ${f.save ? 'checked' : ''}><span>Save the result in the Results folder</span></label>
-    <div class="lab-ch-srun"><button class="btn btn-sm btn-green" data-ch="srun" ${st.running || !st.ds ? 'disabled' : ''}>${st.running ? '<span class="spin"></span>Running…' : `${icon('play')}Run backtest`}</button><button class="btn btn-sm" data-ch="sdefaults" title="Back to the strategy's own settings">Defaults</button><span class="faint small" id="lab-ch-sprog"></span></div>
+    <div class="lab-ch-srun"><button class="btn btn-sm btn-green" data-ch="srun" ${G.running || !st.ds ? 'disabled' : ''}>${G.running ? '<span class="spin"></span>Running…' : `${icon('play')}Run backtest`}</button><button class="btn btn-sm" data-ch="sdefaults" title="Back to the strategy's own settings">Defaults</button><span class="faint small" id="lab-ch-sprog"></span></div>
     <div class="lab-ch-shead2">Saved results for this file</div>${saved}`;
 }
 
 function readSparam(el) {
-  const f = st.sform;
+  const f = G.sform;
   const k = el.dataset.sp;
   const p = (f.params[f.strategy] = f.params[f.strategy] || {});
   if (el.type === 'checkbox') p[k] = el.checked;
@@ -1199,21 +1378,22 @@ function readSparam(el) {
 }
 
 async function runStrategy() {
-  if (st.running || !st.ds) return;
-  const f = st.sform;
+  if (G.running || !st.ds) return;
+  const p = st, f = G.sform;
   for (const el of $$('[data-sp]', host)) readSparam(el);
-  st.running = true;
+  G.running = true;
   paintBar();
   const say = (x, text) => { const el = $('#lab-ch-sprog', host); if (el) el.textContent = `${Math.round(x * 100)}% · ${text}`; };
   try {
-    const { R, id } = await ctx.runBacktest({ dataset: st.id, strategy: f.strategy, params: { ...(f.params[f.strategy] || {}) }, save: f.save }, say);
-    st.running = false;
-    st.menu = null;
-    setStrat(R, id);
+    const { R, id } = await ctx.runBacktest({ dataset: p.id, strategy: f.strategy, params: { ...(f.params[f.strategy] || {}) }, save: f.save }, say);
+    G.running = false;
+    G.menu = null;
+    st = p;
+    if (p.ds && p.id === R.meta.dataset) setStrat(R, id); else paintBar();
     const n = (R.summary.trades || {}).n || 0;
     toast(`${R.meta.strategy_label}: ${plural(n, 'trade')}, ${(R.summary.return * 100).toFixed(1)}%${id ? ' · saved in Results' : ''}`);
   } catch (e) {
-    st.running = false;
+    G.running = false;
     paintBar();
     const el = $('#lab-ch-sprog', host);
     if (el) { el.textContent = e.message; el.classList.add('err'); }
@@ -1223,9 +1403,21 @@ async function runStrategy() {
 
 /* ---------- the legends ---------- */
 
+/** The × that takes an indicator (or a strategy line) off the chart. */
+const xBtn = (key, label) => `<button class="lab-ch-x" type="button" data-ch="indx" data-k="${esc(key)}" title="Remove ${esc(label)}" aria-label="Remove ${esc(label)}">${ic(IC.close)}</button>`;
+const removable = (g) => IND[g.key] || g.key === 'splots' || g.key === 'equity' || g.key.startsWith('splot:');
+
 function legend(j) {
-  const el = host && $('#lab-ch-legend', host);
+  const el = st.el && $('.lab-ch-legend', st.el);
   if (!el || !st.B) return;
+  const r = st.row;
+  const head = `<div class="lab-ch-sym"><b>${esc(r.symbol)}</b> <span class="faint">· ${tfName(G.tf)} · ${esc(r.market === 'spot' ? 'Binance spot' : r.market === 'futures' ? 'Binance futures' : r.market)}</span>${G.replay ? ' <span class="lab-ch-rtag">REPLAY</span>' : ''}</div>`;
+  const pl = $('.lab-ch-plegs', st.el);
+  if (!st.K) {
+    el.innerHTML = `${head}<div class="lab-ch-time faint">This file has no candles yet at this point of the replay.</div>`;
+    if (pl) for (const box of pl.children) box.innerHTML = '';
+    return;
+  }
   const K = st.K;
   const last = st.shownTo;
   if (j == null || j > last || j < 0) j = last;
@@ -1234,11 +1426,11 @@ function legend(j) {
   const prev = j > 0 ? st.B.C[j - 1] : bar.o;
   const ch = bar.c - prev, chp = prev ? (ch / prev) * 100 : 0;
   const tone = bar.c >= bar.o ? 'pos' : 'neg';
-  const r = st.row;
   const vals = (g) => g.feeds.map((f) => `<b style="color:${f.color}">${f.fmt(done ? f.get(j, K, null, true) : f.get(j, K, bar, false))}</b>`).join(' ');
-  const inds = st.groups.filter((g) => g.pane === 0).map((g) => `<span><span class="faint">${esc(g.key === 'splots' ? g.feeds.map((f) => f.name).join(' · ') : g.label)}</span> ${vals(g)}</span>`).join('');
+  const name = (g) => (g.key === 'splots' ? g.feeds.map((f) => f.name).join(' · ') : g.label);
+  const inds = st.groups.filter((g) => g.pane === 0).map((g) => `<span><span class="faint">${esc(name(g))}</span> ${vals(g)}${removable(g) ? xBtn(g.key, name(g)) : ''}</span>`).join('');
   let trade = '';
-  if (st.strat && st.sshow.trades) {
+  if (st.strat && G.sshow.trades) {
     const now = nowT();
     const here = st.strat.trades.filter((x) => x.et <= now && (indexOfTime(x.et) === j || (x.xt <= now && indexOfTime(x.xt) === j)));
     trade = here.slice(0, 3).map((x) => {
@@ -1246,51 +1438,51 @@ function legend(j) {
       return `<span class="lab-ch-ltrade">#${x.n} ${x.side > 0 ? 'Long' : 'Short'}${ins ? ` in ${fmt(x.ep)}` : ''}${outs ? ` out ${fmt(x.xp)} <b class="${x.pnl >= 0 ? 'pos' : 'neg'}">${tradeResult(x)}</b> ${esc(x.why || '')}` : ''}</span>`;
     }).join('');
   }
-  el.innerHTML = `<div class="lab-ch-sym"><b>${esc(r.symbol)}</b> <span class="faint">· ${tfName(st.tf)} · ${esc(r.market === 'spot' ? 'Binance spot' : r.market === 'futures' ? 'Binance futures' : r.market)}</span>${st.replay ? ' <span class="lab-ch-rtag">REPLAY</span>' : ''}</div>
+  el.innerHTML = `${head}
     <div class="lab-ch-ohlc ${tone}"><span><span class="faint">O</span>${fmt(shown.o)}</span><span><span class="faint">H</span>${fmt(shown.h)}</span><span><span class="faint">L</span>${fmt(shown.l)}</span><span><span class="faint">C</span>${fmt(shown.c)}</span>
-      <span>${ch >= 0 ? '+' : ''}${fmt(ch)} (${chp >= 0 ? '+' : ''}${chp.toFixed(2)}%)</span>${st.ind.vol.on ? `<span><span class="faint">Vol</span>${shortNum(bar.v)}</span>` : ''}${done ? '' : ' <span class="faint">forming</span>'}</div>
+      <span>${ch >= 0 ? '+' : ''}${fmt(ch)} (${chp >= 0 ? '+' : ''}${chp.toFixed(2)}%)</span>${st.ind.vol.on ? `<span><span class="faint">Vol</span>${shortNum(bar.v)}${xBtn('vol', 'Volume')}</span>` : ''}${done ? '' : ' <span class="faint">forming</span>'}</div>
     <div class="lab-ch-time faint">${esc(when(st.B.T[j]))}</div>
     ${inds ? `<div class="lab-ch-inds">${inds}</div>` : ''}${trade ? `<div class="lab-ch-inds">${trade}</div>` : ''}`;
-  const pl = $('#lab-ch-plegs', host);
   if (pl) {
     for (const box of pl.children) {
       const p = Number(box.dataset.pane);
-      box.innerHTML = st.groups.filter((g) => g.pane === p).map((g) => `<span class="faint">${esc(g.label)}</span> ${vals(g)}`).join(' &nbsp; ');
+      box.innerHTML = st.groups.filter((g) => g.pane === p).map((g) => `<span class="faint">${esc(g.label)}</span> ${vals(g)}${removable(g) ? xBtn(g.key, g.label) : ''}`).join(' &nbsp; ');
     }
   }
 }
 function paintPaneLegends() {
-  const pl = host && $('#lab-ch-plegs', host);
+  const pl = st.el && $('.lab-ch-plegs', st.el);
   if (!pl) return;
-  const panes = [...new Set(st.groups.filter((g) => g.pane > 0).map((g) => g.pane))];
-  pl.innerHTML = panes.map((p) => `<div class="lab-ch-legend lab-ch-plegend" data-pane="${p}"></div>`).join('');
+  const ps = [...new Set(st.groups.filter((g) => g.pane > 0).map((g) => g.pane))];
+  pl.innerHTML = ps.map((p) => `<div class="lab-ch-legend lab-ch-plegend" data-pane="${p}"></div>`).join('');
 }
 /** Where pane i sits in the chart box: {top, height} in pixels (null before the chart has laid it out). */
 function paneBox(i) {
-  const p = chart && chart.panes()[i];
+  const p = st.chart && st.chart.panes()[i];
   const pe = p && p.getHTMLElement();
   if (!pe) return null;
-  const r = pe.getBoundingClientRect(), top0 = $('#lab-ch-main', host).getBoundingClientRect().top;
+  const r = pe.getBoundingClientRect(), top0 = st.el.getBoundingClientRect().top;
   return { top: r.top - top0, height: r.height };
 }
 /** Puts each pane's legend at the top of its pane (panes can be resized, so this runs again when they are). */
-function placeLegends(tries = 0) {
-  const pl = host && $('#lab-ch-plegs', host);
-  if (!pl || !chart) return;
-  let missing = false;
-  for (const box of pl.children) {
-    const b = paneBox(Number(box.dataset.pane));
-    if (b) box.style.top = `${Math.round(b.top + 4)}px`;
-    else missing = true;
-  }
-  if (missing && tries < 20) placeTimer = setTimeout(() => placeLegends(tries + 1), 100);   // new panes appear after the chart's next paint
+function placeLegends(p, tries = 0) {
+  on(p, () => {
+    const pl = st.el && $('.lab-ch-plegs', st.el);
+    if (!pl || !st.chart) return;
+    let missing = false;
+    for (const box of pl.children) {
+      const b = paneBox(Number(box.dataset.pane));
+      if (b) box.style.top = `${Math.round(b.top + 4)}px`;
+      else missing = true;
+    }
+    if (missing && tries < 20) p.placeTimer = setTimeout(() => placeLegends(p, tries + 1), 100);   // new panes appear after the chart's next paint
+  });
 }
-let placeTimer = 0;
-const placeLegendsSoon = () => { clearTimeout(placeTimer); placeTimer = setTimeout(placeLegends, 30); };
+function placeLegendsSoon(p = st) { clearTimeout(p.placeTimer); p.placeTimer = setTimeout(() => placeLegends(p), 30); }
 function when(ms, short = false) {
   const d = new Date(ms);
   if (short) return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: '2-digit', ...(st.base < DAY ? { hour: '2-digit', minute: '2-digit', hour12: false } : {}) });
-  return d.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', ...(st.tf < DAY ? { hour: '2-digit', minute: '2-digit', hour12: false } : {}) });
+  return d.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', ...(G.tf < DAY ? { hour: '2-digit', minute: '2-digit', hour12: false } : {}) });
 }
 
 function indexOfTime(ms) {
@@ -1306,25 +1498,30 @@ function indexOfTime(ms) {
 /** Logical position (candle index, may be fractional or past the end) <-> time in ms. */
 function logicalToMs(x) {
   const n = st.B.n, T = st.B.T;
-  if (x <= 0) return T[0] + x * st.tf;
-  if (x >= n - 1) return T[n - 1] + (x - (n - 1)) * st.tf;
+  if (x <= 0) return T[0] + x * G.tf;
+  if (x >= n - 1) return T[n - 1] + (x - (n - 1)) * G.tf;
   const i = Math.floor(x);
   return T[i] + (x - i) * (T[i + 1] - T[i]);
 }
 function msToLogical(ms) {
   const n = st.B.n, T = st.B.T;
-  if (ms <= T[0]) return (ms - T[0]) / st.tf;
-  if (ms >= T[n - 1]) return n - 1 + (ms - T[n - 1]) / st.tf;
+  if (ms <= T[0]) return (ms - T[0]) / G.tf;
+  if (ms >= T[n - 1]) return n - 1 + (ms - T[n - 1]) / G.tf;
   const i = indexOfTime(ms);
   return i + (ms - T[i]) / Math.max(1, T[i + 1] - T[i]);
 }
+/** The x of a replay cut: the line just after the last candle it shows. */
+function cutX(ms) {
+  const x = st.chart.timeScale().logicalToCoordinate(msToLogical(ms) - 0.5);
+  return x == null ? null : Math.max(-10, Math.min(10000, x));
+}
 
-/** Band fills (under the candles), and the trades and drawings (over them). */
+/** The replay portion and band fills (under the candles), and the trades and drawings (over them). */
 class Layer {
-  constructor() {
+  constructor(p) {
     this.views = [
-      { zOrder: () => 'bottom', renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace(({ context: g }) => paintFills(g)) }) },
-      { zOrder: () => 'top', renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace(({ context: g, mediaSize }) => { paintTrades(g); paintDrawings(g, mediaSize); }) }) },
+      { zOrder: () => 'bottom', renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace(({ context: g, mediaSize }) => on(p, () => { paintPortion(g, mediaSize); paintFills(g); })) }) },
+      { zOrder: () => 'top', renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace(({ context: g, mediaSize }) => on(p, () => { paintEnd(g, mediaSize); paintTrades(g); paintDrawings(g, mediaSize); })) }) },
     ];
   }
   attached({ requestUpdate }) { this.update = requestUpdate; }
@@ -1333,10 +1530,52 @@ class Layer {
   paneViews() { return this.views; }
   redraw() { if (this.update) this.update(); }
 }
+const redrawAll = () => { for (const p of loaded()) if (p.layer) p.layer.redraw(); };
+
+/** While the replay portion is picked: the part the replay hides (before the first click), then the portion. */
+function paintPortion(g, size) {
+  const P = G.picking;
+  if (!P || !st.chart || !st.B) return;
+  const xa = P.a != null ? cutX(P.a) : null;
+  const ob = P.b != null ? P.b : P.h;
+  const xb = ob != null ? cutX(ob) : null;
+  const line = (x) => { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, size.height); g.stroke(); };
+  g.save();
+  g.strokeStyle = 'rgba(74,222,128,0.85)';
+  g.lineWidth = 1;
+  g.setLineDash([5, 4]);
+  if (xa == null) {
+    if (xb != null) { g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(xb, 0, size.width - xb, size.height); line(xb); }
+  } else {
+    const l = xb == null ? xa : Math.min(xa, xb), r = xb == null ? size.width : Math.max(xa, xb);
+    g.fillStyle = 'rgba(34,197,94,0.13)';
+    g.fillRect(l, 0, r - l, size.height);
+    line(xa);
+    if (xb != null) line(xb);
+  }
+  g.restore();
+}
+/** In a replay of a portion: where the portion ends. */
+function paintEnd(g, size) {
+  const r = G.replay;
+  if (!r || r.end == null || !st.chart || !st.B) return;
+  const x = cutX(r.end);
+  if (x == null || x < 0 || x > size.width) return;
+  g.save();
+  g.strokeStyle = 'rgba(250,204,21,0.8)';
+  g.lineWidth = 1;
+  g.setLineDash([4, 4]);
+  g.beginPath(); g.moveTo(x, 0); g.lineTo(x, size.height); g.stroke();
+  g.setLineDash([]);
+  g.font = '11px ' + getComputedStyle(document.body).fontFamily;
+  g.fillStyle = 'rgba(250,204,21,0.95)';
+  g.fillText('End', x + 4, size.height - 8);
+  g.restore();
+}
 
 function paintFills(g) {
-  if (!st.fills.length || !chart) return;
-  const ts = chart.timeScale(), r = ts.getVisibleLogicalRange();
+  if (!st.fills.length || !st.chart) return;
+  const ts = st.chart.timeScale(), r = ts.getVisibleLogicalRange();
   if (!r) return;
   const a = Math.max(0, Math.floor(r.from) - 1), b = Math.min(st.shownTo, Math.ceil(r.to) + 1);
   for (const fl of st.fills) {
@@ -1354,7 +1593,7 @@ function paintFills(g) {
     };
     for (let j = a; j <= b; j++) {
       const va = valueAt(fl.a, j), vb = valueAt(fl.b, j);
-      const x = ts.logicalToCoordinate(j), ya = fin(va) ? main.priceToCoordinate(va) : null, yb = fin(vb) ? main.priceToCoordinate(vb) : null;
+      const x = ts.logicalToCoordinate(j), ya = fin(va) ? st.main.priceToCoordinate(va) : null, yb = fin(vb) ? st.main.priceToCoordinate(vb) : null;
       if (x == null || ya == null || yb == null) { flush(); col = null; continue; }
       const c = typeof fl.color === 'function' ? fl.color(va, vb) : fl.color;
       if (col !== null && c !== col) { const lastPt = run[run.length - 1]; flush(); if (lastPt) run.push(lastPt); }
@@ -1367,10 +1606,10 @@ function paintFills(g) {
 
 function paintTrades(g) {
   const s = st.strat;
-  if (!s || !st.sshow.trades || !chart) return;
-  const ts = chart.timeScale(), r = ts.getVisibleLogicalRange();
+  if (!s || !G.sshow.trades || !st.chart) return;
+  const ts = st.chart.timeScale(), r = ts.getVisibleLogicalRange();
   if (!r) return;
-  const now = nowT();
+  const now = nowT(), main = st.main;
   g.save();
   for (const x of s.trades) {
     if (x.et > now) break;
@@ -1415,25 +1654,26 @@ function paintTrades(g) {
 }
 
 function xy(pt) {
-  const x = chart.timeScale().logicalToCoordinate(msToLogical(pt.t));
-  const y = main.priceToCoordinate(pt.p);
+  const x = st.chart.timeScale().logicalToCoordinate(msToLogical(pt.t));
+  const y = st.main.priceToCoordinate(pt.p);
   return x == null || y == null ? null : [x, y];
 }
 function paintDrawings(g, size) {
-  const items = st.drawings.filter((d) => d.type !== 'hline').concat(st.draft && st.draft.b ? [st.draft] : []);
+  const d0 = G.draft;
+  const items = st.drawings.filter((d) => d.type !== 'hline').concat(d0 && d0.p === st && d0.b ? [d0] : []);
   g.save();
   g.font = '12px ' + getComputedStyle(document.body).fontFamily;
   for (const d of items) {
-    const A = xy(d.a), Bp = xy(d.b);
-    if (!A || !Bp) continue;
-    const [x1, y1] = A, [x2, y2] = Bp;
+    const A1 = xy(d.a), Bp = xy(d.b);
+    if (!A1 || !Bp) continue;
+    const [x1, y1] = A1, [x2, y2] = Bp;
     const color = d.color || '#4ea1ff';
     g.strokeStyle = color;
     g.fillStyle = color;
     g.lineWidth = 1.6;
     if (d.type === 'trend') {
       g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
-      for (const [x, y] of [A, Bp]) { g.beginPath(); g.arc(x, y, 3, 0, Math.PI * 2); g.fill(); }
+      for (const [x, y] of [A1, Bp]) { g.beginPath(); g.arc(x, y, 3, 0, Math.PI * 2); g.fill(); }
     } else if (d.type === 'rect') {
       g.globalAlpha = 0.14; g.fillRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
       g.globalAlpha = 1; g.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
@@ -1442,7 +1682,7 @@ function paintDrawings(g, size) {
       const left = Math.min(x1, x2), right = Math.max(x1, x2) + 60;
       for (const [f, c] of lv) {
         const p = d.b.p + (d.a.p - d.b.p) * f;
-        const y = main.priceToCoordinate(p);
+        const y = st.main.priceToCoordinate(p);
         if (y == null) continue;
         g.strokeStyle = c; g.fillStyle = c;
         g.beginPath(); g.moveTo(left, y); g.lineTo(right, y); g.stroke();
@@ -1477,28 +1717,75 @@ function span(ms) {
   return [d && `${d}d`, h && `${h}h`, mm && !d && `${mm}m`].filter(Boolean).join(' ') || '0m';
 }
 function paintHlines() {
-  for (const pl of hlines) main.removePriceLine(pl);
-  hlines = st.drawings.filter((d) => d.type === 'hline').map((d) => main.createPriceLine({ price: d.a.p, color: '#4ea1ff', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: '' }));
+  if (!st.main) return;
+  for (const pl of st.hlines) st.main.removePriceLine(pl);
+  st.hlines = st.drawings.filter((d) => d.type === 'hline').map((d) => st.main.createPriceLine({ price: d.a.p, color: '#4ea1ff', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: '' }));
 }
+/** Saves this coin's drawings and redraws every chart that shows the coin. */
 function saveDrawings() {
-  save(`draw.${drawKey()}`, st.drawings);
-  paintHlines();
-  if (layer) layer.redraw();
+  const key = drawKey(), list = st.drawings;
+  save(`draw.${key}`, list);
+  for (const q of loaded()) if (drawKeyOf(q) === key) on(q, () => { st.drawings = list; paintHlines(); if (st.layer) st.layer.redraw(); });
   paintBar();
+}
+
+/* ---------- removing indicators and drawings ---------- */
+
+/** The × in a legend: one indicator, or one of the strategy's lines, off this chart. */
+function removeGroup(key) {
+  if (IND[key]) { st.ind[key].on = false; st.undoAll = null; savePanes(); build(); return; }
+  if (key === 'equity') { G.sshow.equity = false; save('sshow', G.sshow); }
+  else if (key === 'splots') { if (st.strat && st.strat.plots) for (const p of st.strat.plots) if (p.kind === 'price') p.on = false; }
+  else if (key.startsWith('splot:') && st.strat && st.strat.plots) { const p = st.strat.plots.find((x) => `splot:${x.name}` === key); if (p) p.on = false; }
+  build();
+}
+function removeIndicators() {
+  for (const x of Object.values(st.ind)) x.on = false;
+  st.undoAll = null;
+  savePanes();
+  build();
+}
+/** The trash button and the Delete key: every drawing and indicator off this chart (Ctrl+Z brings them back). */
+function clearAll() {
+  const nd = st.drawings.length, ni = countOn();
+  if (!nd && !ni) { toast('This chart has no drawings or indicators.'); return; }
+  st.undoAll = { drawings: st.drawings.slice(), ind: JSON.parse(JSON.stringify(st.ind)) };
+  if (G.draft && G.draft.p === st) G.draft = null;
+  st.drawings = [];
+  for (const x of Object.values(st.ind)) x.on = false;
+  savePanes();
+  saveDrawings();
+  build();
+  toast(`Deleted ${[nd && plural(nd, 'drawing'), ni && plural(ni, 'indicator')].filter(Boolean).join(' and ')} on ${st.row.symbol}. Ctrl+Z brings them back.`);
+}
+function undo() {
+  if (st.undoAll) {
+    const u = st.undoAll;
+    st.undoAll = null;
+    st.drawings = u.drawings;
+    st.ind = mergeInd(u.ind);
+    savePanes();
+    saveDrawings();
+    build();
+    return;
+  }
+  if (!st.drawings.length) return;
+  st.drawings.pop();
+  saveDrawings();
 }
 
 /** The price under the pointer, pulled to a candle's open/high/low/close when it is within 10 pixels (a magnet). */
 function pointAt(param) {
   if (!param.point || param.logical == null) return null;
-  let p = main.coordinateToPrice(param.point.y);
+  let p = st.main.coordinateToPrice(param.point.y);
   if (p == null) return null;
   const j = Math.round(param.logical);
   if (j >= 0 && j <= st.shownTo) {
-    const d = main.dataByIndex(j);
+    const d = st.main.dataByIndex(j);
     if (d && d.open != null) {
       let best = null;
       for (const v of [d.open, d.high, d.low, d.close]) {
-        const y = main.priceToCoordinate(v);
+        const y = st.main.priceToCoordinate(v);
         if (y != null && Math.abs(y - param.point.y) < 10 && (!best || Math.abs(y - param.point.y) < best[0])) best = [Math.abs(y - param.point.y), v];
       }
       if (best) p = best[1];
@@ -1510,147 +1797,265 @@ function pointAt(param) {
 
 /* Clicks on the chart are read here, not with the library's click event: that one swallows a second
    click that comes quickly after the first (it waits to see if it is a double-click). */
-function watchClicks(el) {
+function watchClicks(p) {
+  const el = p.el;
   let down = null;
   // Capture phase: the library stops these events inside the chart.
-  el.addEventListener('pointerdown', (e) => { down = e.button === 0 ? [e.clientX, e.clientY] : null; }, true);
+  const touched = () => { p.userAt = performance.now(); };
+  el.addEventListener('pointerdown', (e) => {
+    down = e.button === 0 ? [e.clientX, e.clientY] : null;
+    touched();
+    if (p.i !== G.active) setActive(p);
+  }, true);
+  el.addEventListener('pointermove', (e) => { if (e.buttons) touched(); }, true);
+  el.addEventListener('wheel', touched, { capture: true, passive: true });
   el.addEventListener('pointerup', (e) => {
-    if (!down || !chart) return;
+    if (!down || !p.chart) return;
     const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]);
     down = null;
-    placeLegendsSoon();                                      // the line between two panes may have been dragged
-    if (moved > 5) return;                                   // a drag moves the chart
-    const r = el.getBoundingClientRect();
-    const x = e.clientX - r.left, y = e.clientY - r.top;
-    const ts = chart.timeScale();
-    if (x > r.width - chart.priceScale('right').width() || y > r.height - ts.height()) return;   // on a scale
-    const p0 = paneBox(0);
-    onChartClick({ point: { x, y }, logical: ts.coordinateToLogical(x), inMain: !p0 || y <= p0.top + p0.height });
+    if (e.target.closest && e.target.closest('button, select, input, a')) return;   // a legend's ×, the file picker
+    on(p, () => {
+      placeLegendsSoon();                                    // the line between two panes may have been dragged
+      if (moved > 5) return;                                 // a drag moves the chart
+      const r = el.getBoundingClientRect();
+      const x = e.clientX - r.left, y = e.clientY - r.top;
+      const ts = st.chart.timeScale();
+      if (x > r.width - st.chart.priceScale('right').width() || y > r.height - ts.height()) return;   // on a scale
+      const p0 = paneBox(0);
+      onChartClick({ point: { x, y }, logical: ts.coordinateToLogical(x), inMain: !p0 || y <= p0.top + p0.height });
+    });
   }, true);
 }
 
 function onChartClick(param) {
-  if (st.picking) {
+  if (G.picking) {
     if (param.logical == null) return;
     const j = Math.max(1, Math.min(st.B.n - 2, Math.round(param.logical)));
-    startReplay(st.B.first[j + 1]);                 // the clicked candle is the last one shown
+    const cut = st.B.T[j] + G.tf;                            // the clicked candle is the last one shown
+    const P = G.picking;
+    if (P.a == null) { P.a = cut; P.fromStr = ''; hint('Now click the last candle of the portion, or press Start.'); redrawAll(); paintReplay(); }
+    else { P.b = cut; beginPortion(); }
     return;
   }
   if (!param.inMain) return;
-  if (!st.tool) {
+  if (!G.tool) {
     // A click on a trade's entry or exit candle selects that trade.
     const s = st.strat;
-    if (!s || !st.sshow.trades || param.logical == null) return;
+    if (!s || !G.sshow.trades || param.logical == null) return;
     const j = Math.round(param.logical), now = nowT();
     const hit = s.trades.find((x) => x.et <= now && (indexOfTime(x.et) === j || (x.xt <= now && indexOfTime(x.xt) === j)));
-    if (hit) { s.sel = hit.n - 1; paintMarkers(); if (layer) layer.redraw(); paintStrat(true); }
+    if (hit) { s.sel = hit.n - 1; paintMarkers(); if (st.layer) st.layer.redraw(); paintStrat(true); }
     return;
   }
   const pt = pointAt(param);
   if (!pt) return;
-  if (st.tool === 'hline') {
+  st.undoAll = null;
+  if (G.tool === 'hline') {
     st.drawings.push({ type: 'hline', a: pt });
     saveDrawings();
     return;
   }
-  if (!st.draft) { st.draft = { type: st.tool, a: pt, b: null }; hint('Click the second point. Esc cancels.'); return; }
-  st.draft.b = pt;
-  if (st.tool === 'measure') st.drawings = st.drawings.filter((d) => d.type !== 'measure');
-  st.drawings.push(st.draft);
-  st.draft = null;
+  if (!G.draft || G.draft.p !== st) { G.draft = { p: st, type: G.tool, a: pt, b: null }; hint('Click the second point. Esc cancels.'); return; }
+  const d = G.draft;
+  G.draft = null;
+  if (d.type === 'measure') st.drawings = st.drawings.filter((x) => x.type !== 'measure');
+  st.drawings.push({ type: d.type, a: d.a, b: pt });
   hint(toolHint());
   saveDrawings();
 }
 
 function onMove(param) {
-  if (st.draft && param.point && (param.paneIndex == null || param.paneIndex === 0)) {
+  if (G.draft && G.draft.p === st && param.point && (param.paneIndex == null || param.paneIndex === 0)) {
     const pt = pointAt(param);
-    if (pt) { st.draft.b = pt; layer.redraw(); }
+    if (pt) { G.draft.b = pt; st.layer.redraw(); }
+  }
+  if (G.picking && param.point && param.logical != null && param.sourceEvent) {
+    const j = Math.max(1, Math.min(st.B.n - 2, Math.round(param.logical)));
+    G.picking.h = st.B.T[j] + G.tf;
+    redrawAll();
   }
   const j = param.time != null ? indexOfTime(unsec(param.time)) : param.logical != null && param.point ? Math.round(param.logical) : null;
   legend(param.point ? j : null);
+  if (!syncing && G.sync && G.n > 1 && (param.sourceEvent || !param.point)) shareCrosshair(param);
+}
+/** With Sync on: the other charts show the crosshair at the same time. */
+function shareCrosshair(param) {
+  const ms = !param.point ? null : param.time != null ? unsec(param.time) : param.logical != null ? logicalToMs(param.logical) : null;
+  const src = st;
+  syncing = true;
+  try {
+    for (const q of loaded()) {
+      if (q === src || !q.chart) continue;
+      on(q, () => {
+        const j = ms == null || !st.K || ms < st.B.T[0] ? -1 : indexOfTime(ms);
+        if (j < 0 || j > st.shownTo) { st.chart.clearCrosshairPosition(); legend(null); return; }
+        const d = st.main.dataByIndex(j);
+        st.chart.setCrosshairPosition(d ? (d.close ?? d.value) : st.B.C[j], sec(st.B.T[j]), st.main);
+        legend(j);
+      });
+    }
+  } finally { syncing = false; }
+}
+/** With Sync on: scrolling or zooming one chart shows the same times on the others. Only the user's
+    scrolling counts (a chart that changes size or is set by MEDUSA moves alone). */
+function onRange(range) {
+  if (syncing || !G.sync || G.n < 2 || !range || !st.B || performance.now() - st.userAt > 1200) return;
+  shareRange(range);
+}
+function shareRange(range) {
+  const a = logicalToMs(range.from), b = logicalToMs(range.to), src = st;
+  syncing = true;
+  try {
+    for (const q of loaded()) {
+      if (q === src || !q.chart) continue;
+      on(q, () => {
+        const want = { from: msToLogical(a), to: msToLogical(b) }, cur = st.chart.timeScale().getVisibleLogicalRange();
+        if (!cur || Math.abs(cur.from - want.from) > 0.01 || Math.abs(cur.to - want.to) > 0.01) setRange(want, false);   // no echo back and forth
+      });
+    }
+  } finally { syncing = false; }
 }
 
-const toolHint = () => (st.tool ? `${TOOLS.find(([t]) => t === st.tool)[1]}: ${st.tool === 'hline' ? 'click a price.' : 'click the first point.'} Esc stops.` : '');
+const toolHint = () => (G.tool ? `${TOOLS.find(([t]) => t === G.tool)[1]}: ${G.tool === 'hline' ? 'click a price.' : 'click the first point.'} Esc stops.` : '');
 function hint(text) {
-  const el = $('#lab-ch-hint', host);
-  if (!el) return;
-  el.textContent = text;
-  el.hidden = !text;
+  for (const p of live()) {
+    const el = p.el && $('.lab-ch-hint', p.el);
+    if (!el) continue;
+    el.textContent = text;
+    el.hidden = !text || !p.B;
+  }
 }
 function setTool(t) {
-  st.tool = st.tool === t ? null : t;
-  st.draft = null;
-  if (st.tool) st.picking = false;
+  G.tool = G.tool === t ? null : t;
+  G.draft = null;
+  if (G.tool && G.picking && !G.replay) { G.picking = null; paintReplay(); }
   hint(toolHint());
-  if (layer) layer.redraw();
+  redrawAll();
   paintBar();
 }
 
 /* ======================= replay ======================= */
 
-function startReplay(k) {
-  st.picking = false;
-  const old = st.replay;
-  st.replay = { k: Math.max(2, Math.min(k, st.ds.n)), playing: false, timer: null, speed: old ? old.speed : load('speed', 2), by: old ? old.by : load('by', 'bar'), pos: null, trades: old ? old.trades : [] };
-  if (st.strat) st.strat.sel = -1;
+/** File candles of chart p that had closed by time `cut`. */
+function kAt(p, cut) {
+  const t = p.ds.cols.t, lim = cut - p.base;
+  let a = 0, b = p.ds.n;
+  while (a < b) { const m = (a + b) >> 1; if (t[m] <= lim) a = m + 1; else b = m; }
+  return a;
+}
+function startPicking() {
+  G.picking = { a: null, b: null, h: null, fromStr: '', toStr: '' };
+  G.tool = null;
+  G.draft = null;
+  hint('Click the candle where the replay should start.');
+  redrawAll();
+  paintBar();
+  paintReplay();
+}
+/** Starts the replay of the picked portion (the clicks or dates; the order doesn't matter). */
+function beginPortion() {
+  const P = G.picking;
+  if (!P || P.a == null) { toast('Click the candle where the replay should start, or pick a From date.'); return; }
+  let a = P.a, b = P.b;
+  if (b != null && b < a) [a, b] = [b, a];
+  if (b === a) b = null;
+  startReplay(a, b);
+}
+/** Shows every chart as it was at time `cut` (the candles that had closed by then); the replay stops at `end`. */
+function startReplay(cut, end = null) {
+  const ps = loaded();
+  if (!ps.length) return;
+  const ks = ps.map((p) => kAt(p, cut));
+  if (ks.every((k, q) => k >= ps[q].ds.n)) { toast('That is after the last candle. Pick an earlier start.'); return; }
+  if (ks.every((k) => k < 1)) { toast('That is before the first candle. Pick a later start.'); return; }
+  const old = G.replay;
+  if (old) clearInterval(old.timer);
+  G.picking = null;
+  G.replay = { cut, start: cut, end, playing: false, timer: null, speed: old ? old.speed : load('speed', 2), by: old ? old.by : load('by', 'bar') };
   hint('');
-  setAll(st.replay.k);
-  paintMarkers();
-  focusReplay();
-  legend(null);
+  each(() => {
+    st.pos = null;
+    st.ptrades = [];
+    if (st.strat) st.strat.sel = -1;
+    setAll(kAt(st, cut));
+    paintMarkers();
+    focusReplay();
+    legend(null);
+    if (st.layer) st.layer.redraw();
+  }, ps);
   paintBar();
   paintReplay();
   paintStrat(true);
 }
 function focusReplay() {
-  const j = lastBar(st.replay.k);
-  chart.timeScale().setVisibleLogicalRange({ from: j - 140, to: j + 40 });
+  const j = st.K ? lastBar(st.K) : Math.round(msToLogical(G.replay.cut));
+  setRange({ from: j - 140, to: j + 40 }, false);
 }
-function stopReplay(quiet) {
-  const r = st.replay;
-  st.picking = false;
-  if (!r) { hint(st.tool ? toolHint() : ''); return; }
-  clearInterval(r.timer);
-  st.replay = null;
-  if (quiet || !main) return;
-  setAll(st.ds.n);
-  paintMarkers();
-  hint(st.tool ? toolHint() : '');
-  legend(null);
+function stopReplay() {
+  const r = G.replay;
+  G.picking = null;
+  if (r) {
+    clearInterval(r.timer);
+    G.replay = null;
+    each(() => {
+      st.pos = null;
+      setAll(st.ds.n);
+      paintMarkers();
+      legend(null);
+      st.chart.timeScale().scrollToRealTime();
+    });
+  }
+  hint(G.tool ? toolHint() : '');
+  redrawAll();
   paintBar();
   paintReplay();
   paintStrat(true);
-  chart.timeScale().scrollToRealTime();
 }
-/** One step: the next chart candle, or (with "file candles") the next candle of the file. */
+/** The next moment a chart has something new: its forming or next candle done (or its next file candle). */
+function nextCut() {
+  const k = st.K;
+  if (k >= st.ds.n) return Infinity;
+  if (G.replay.by === 'file' || G.tf === st.base) return st.ds.cols.t[k] + st.base;
+  const j = k ? lastBar(k) : -1;
+  return st.B.T[k && k < st.B.first[j + 1] ? j : j + 1] + G.tf;
+}
+/** Back: without the chart's last candle (finished or forming), or its last file candle. */
+function prevCut() {
+  const k = st.K;
+  if (k < 2) return -Infinity;
+  if (G.replay.by === 'file' || G.tf === st.base) return st.ds.cols.t[k - 2] + st.base;
+  return st.B.T[lastBar(k)];
+}
+/** One step of every chart: forward to the soonest next candle of any of them, or back by one. */
 function step(dir = 1) {
-  const r = st.replay;
+  const r = G.replay;
   if (!r) return;
-  const k = r.k;
+  const ps = loaded();
+  if (!ps.length) return;
+  let cut;
   if (dir > 0) {
-    if (k >= st.ds.n) { pause(); toast('The replay reached the end of the file.'); return; }
-    const j = lastBar(k);
-    const nk = r.by === 'file' || st.tf === st.base ? k + 1 : (k < st.B.first[j + 1] ? st.B.first[j + 1] : st.B.first[Math.min(j + 2, st.B.n)]);
-    r.k = Math.min(nk, st.ds.n);
-    advance(k, r.k);
+    if (r.end != null && r.cut >= r.end) { pause(); toast('The replay reached the end of the portion you picked.'); return; }
+    cut = Math.min(...ps.map((p) => on(p, nextCut)));
+    if (!fin(cut)) { pause(); toast('The replay reached the end of the data.'); return; }
+    if (r.end != null) cut = Math.min(cut, r.end);
   } else {
-    // Back a whole chart candle drops the last one shown (finished or forming); "file candles" drops one file candle.
-    const nk = r.by === 'file' || st.tf === st.base ? k - 1 : st.B.first[lastBar(k)];
-    if (nk < 2) return;
-    r.k = nk;
-    setAll(r.k);
+    cut = Math.max(...ps.map((p) => on(p, prevCut)));
+    if (!fin(cut) || ps.every((p) => kAt(p, cut) < 2)) return;
   }
-  paintMarkers();
-  if (layer) layer.redraw();
-  legend(null);
+  r.cut = cut;
+  each(() => {
+    moveTo(kAt(st, cut));
+    paintMarkers();
+    if (st.layer) st.layer.redraw();
+    legend(null);
+  }, ps);
   paintReplayInfo();
   paintStrat();
 }
 function play() {
-  const r = st.replay;
+  const r = G.replay;
   if (!r || r.playing) return;
-  if (r.k >= st.ds.n) { toast('The replay is at the end of the file. Pick an earlier start.'); return; }
+  if ((r.end != null && r.cut >= r.end) || loaded().every((p) => p.K >= p.ds.n)) { toast('The replay is at the end. Pick an earlier start.'); return; }
   r.playing = true;
   r.timer = setInterval(() => {
     if (!host || host.closest('[hidden]') || document.hidden) { pause(); return; }
@@ -1659,141 +2064,187 @@ function play() {
   paintReplay();
 }
 function pause() {
-  const r = st.replay;
+  const r = G.replay;
   if (!r) return;
   r.playing = false;
   clearInterval(r.timer);
   paintReplay();
 }
-const nowPrice = () => st.ds.cols.c[st.replay.k - 1];
-const nowMs = () => st.ds.cols.t[st.replay.k - 1];
-/** Practice trades in a replay: buy or sell at the last price shown, then close. Prices only, no fees. */
+const nowPrice = () => st.ds.cols.c[st.K - 1];
+const nowMs = () => st.ds.cols.t[st.K - 1];
+/** Practice trades in a replay, on the active chart: buy or sell at the last price shown, then close. Prices only, no fees. */
 function trade(side) {
-  const r = st.replay;
-  if (!r) return;
-  if (r.pos && r.pos.side !== side) closePos();
-  else if (r.pos) return;
-  r.pos = { side, entry: nowPrice(), t: nowMs() };
+  if (!G.replay || !st.B) return;
+  if (!st.K) { toast('This chart has no candles yet at this point of the replay.'); return; }
+  if (st.pos && st.pos.side !== side) closePos();
+  else if (st.pos) return;
+  st.pos = { side, entry: nowPrice(), t: nowMs() };
   paintMarkers();
   paintReplay();
 }
 function closePos() {
-  const r = st.replay;
-  if (!r || !r.pos) return;
+  if (!G.replay || !st.pos) return;
   const p = nowPrice();
-  r.trades.push({ ...r.pos, exit: p, xt: nowMs(), ret: ((p - r.pos.entry) / r.pos.entry) * (r.pos.side === 'long' ? 1 : -1) * 100 });
-  r.pos = null;
+  st.ptrades.push({ ...st.pos, exit: p, xt: nowMs(), ret: ((p - st.pos.entry) / st.pos.entry) * (st.pos.side === 'long' ? 1 : -1) * 100 });
+  st.pos = null;
   paintMarkers();
   paintReplay();
 }
 
-function paintReplay() {
+/** The replay bar: picking the portion, or the replay's controls (practice trades are on the active chart). */
+function paintReplay() { if (host) on(A(), paintReplayNow); }
+function paintReplayNow() {
   const el = $('#lab-ch-replay', host);
   if (!el) return;
-  const r = st.replay;
-  el.hidden = !r && !st.picking;
-  if (st.picking && !r) {
-    el.innerHTML = `<span class="dim small">Click a candle on the chart where the replay should start, or pick a date:</span>
-      <input class="input lab-ch-date" type="date" data-ch="rdate" aria-label="Replay start date">
+  const r = G.replay, P = G.picking;
+  el.hidden = !r && !P;
+  if (P && !r) {
+    el.innerHTML = `<span class="dim small lab-ch-rtext">${P.a == null ? '<b>Pick the replay portion:</b> click the candle where it starts, then the one where it ends (or use the dates).' : `<b>Starts after ${esc(when(P.a - G.tf))}.</b> Click the last candle of the portion, or press Start to replay to the end.`}</span>
+      <label class="lab-ch-rdate"><span class="faint small">From</span><input class="input lab-ch-date" type="date" data-ch="rfrom" value="${esc(P.fromStr)}" aria-label="Replay from"></label>
+      <label class="lab-ch-rdate"><span class="faint small">To</span><input class="input lab-ch-date" type="date" data-ch="rto" value="${esc(P.toStr)}" aria-label="Replay to (optional)"></label>
+      <button class="btn btn-sm btn-green" data-ch="rgo" title="Start the replay (Enter)" ${P.a == null ? 'disabled' : ''}>${icon('play')}Start</button>
       <button class="btn btn-sm" data-ch="rexit">${ic(IC.close)}Cancel</button>`;
     return;
   }
   if (!r) { el.innerHTML = ''; return; }
-  const sub = st.tf > st.base;
+  const ps = loaded();
+  const minBase = ps.length ? Math.min(...ps.map((p) => p.base)) : G.tf;
+  const sub = ps.some((p) => G.tf > p.base);
   el.innerHTML = `
     <span class="lab-ch-rgroup">
       <button class="btn btn-sm" data-ch="rback" title="Step back (←)" aria-label="Step back">${ic(IC.prev)}</button>
       <button class="btn btn-sm btn-green" data-ch="rplay" title="${r.playing ? 'Pause' : 'Play'} (Space)" aria-label="${r.playing ? 'Pause' : 'Play'}">${r.playing ? ic(IC.pause) : icon('play')}</button>
       <button class="btn btn-sm" data-ch="rstep" title="Step forward (→)" aria-label="Step forward">${ic(IC.next)}</button>
       <select class="input lab-ch-speed" data-ch="speed" aria-label="Speed" title="Candles per second">${SPEEDS.map((s) => `<option value="${s}" ${s === r.speed ? 'selected' : ''}>${s}×/s</option>`).join('')}</select>
-      ${sub ? `<select class="input lab-ch-by" data-ch="by" aria-label="Step size" title="Step a whole chart candle, or build each candle from the file's own ${tfName(st.base)} candles"><option value="bar" ${r.by === 'bar' ? 'selected' : ''}>Step: ${tfName(st.tf)} candle</option><option value="file" ${r.by === 'file' ? 'selected' : ''}>Step: ${tfName(st.base)} (build candles)</option></select>` : ''}
-      <button class="btn btn-sm" data-ch="rpick" title="Pick a new start">${ic(IC.replay)}New start</button>
+      ${sub ? `<select class="input lab-ch-by" data-ch="by" aria-label="Step size" title="Step a whole chart candle, or build each candle from the file's own ${tfName(minBase)} candles"><option value="bar" ${r.by === 'bar' ? 'selected' : ''}>Step: ${tfName(G.tf)} candle</option><option value="file" ${r.by === 'file' ? 'selected' : ''}>Step: ${tfName(minBase)} (build candles)</option></select>` : ''}
+      <button class="btn btn-sm" data-ch="rpick" title="Pick a new portion to replay">${ic(IC.replay)}New portion</button>
     </span>
     <span class="lab-ch-rgroup lab-ch-trade">
-      <button class="btn btn-sm lab-ch-buy" data-ch="buy" ${r.pos && r.pos.side === 'long' ? 'disabled' : ''}>Buy</button>
-      <button class="btn btn-sm lab-ch-sell" data-ch="sell" ${r.pos && r.pos.side === 'short' ? 'disabled' : ''}>Sell</button>
-      <button class="btn btn-sm" data-ch="flat" ${r.pos ? '' : 'disabled'}>Close</button>
+      <button class="btn btn-sm lab-ch-buy" data-ch="buy" ${st.pos && st.pos.side === 'long' ? 'disabled' : ''}>Buy</button>
+      <button class="btn btn-sm lab-ch-sell" data-ch="sell" ${st.pos && st.pos.side === 'short' ? 'disabled' : ''}>Sell</button>
+      <button class="btn btn-sm" data-ch="flat" ${st.pos ? '' : 'disabled'}>Close</button>
       <span class="small" id="lab-ch-rinfo"></span>
     </span>
     <button class="btn btn-sm" data-ch="rexit" title="Leave the replay and show every candle">${ic(IC.close)}Exit replay</button>`;
   paintReplayInfo();
 }
 function paintReplayInfo() {
-  const el = $('#lab-ch-rinfo', host);
-  const r = st.replay;
-  if (!el || !r) return;
-  const p = nowPrice();
-  const open = r.pos ? ((p - r.pos.entry) / r.pos.entry) * (r.pos.side === 'long' ? 1 : -1) * 100 : null;
-  const total = r.trades.reduce((s, x) => s + x.ret, 0);
-  const wins = r.trades.filter((x) => x.ret > 0).length;
-  const sign = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
-  el.innerHTML = `${r.pos ? `<b class="${open >= 0 ? 'pos' : 'neg'}">${r.pos.side === 'long' ? 'Long' : 'Short'} ${sign(open)}</b> · ` : ''}${r.trades.length ? `${plural(r.trades.length, 'trade')}, ${wins} won, <b class="${total >= 0 ? 'pos' : 'neg'}">${sign(total)}</b> <span class="faint">(no fees)</span> · ` : ''}<span class="faint">${esc(when(nowMs()))}</span>`;
+  on(A(), () => {
+    const el = $('#lab-ch-rinfo', host);
+    const r = G.replay;
+    if (!el || !r) return;
+    const sign = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+    let pos = '';
+    if (st.pos && st.K) {
+      const p = nowPrice();
+      const open = ((p - st.pos.entry) / st.pos.entry) * (st.pos.side === 'long' ? 1 : -1) * 100;
+      pos = `<b class="${open >= 0 ? 'pos' : 'neg'}">${st.pos.side === 'long' ? 'Long' : 'Short'} ${sign(open)}</b> · `;
+    }
+    const total = st.ptrades.reduce((s, x) => s + x.ret, 0);
+    const wins = st.ptrades.filter((x) => x.ret > 0).length;
+    const done = st.ptrades.length ? `${plural(st.ptrades.length, 'trade')}, ${wins} won, <b class="${total >= 0 ? 'pos' : 'neg'}">${sign(total)}</b> <span class="faint">(no fees)</span> · ` : '';
+    const prog = r.end != null ? ` <span class="faint">· ${Math.round(Math.max(0, Math.min(1, (r.cut - r.start) / Math.max(1, r.end - r.start))) * 100)}% of the portion, to ${esc(when(r.end - G.tf))}</span>` : '';
+    el.innerHTML = `${G.n > 1 && st.row ? `<span class="faint">${esc(st.row.symbol)}:</span> ` : ''}${pos}${done}<span class="faint">${esc(when(st.B && st.K ? nowMs() : r.cut))}</span>${prog}`;
+  });
 }
 
 /* ======================= events ======================= */
 
+/** The chart an event is about: the one it happened in, else the active one (the toolbar, the panels). */
+const paneOf = (target) => { const pe = target.closest && target.closest('.lab-ch-main'); return pe ? panes[Number(pe.dataset.pi)] : A(); };
+
 function onClick(ev) {
   const el = ev.target.closest('[data-ch]');
   if (!el || el.tagName === 'SELECT' || el.tagName === 'INPUT' || el.disabled) return;
+  on(paneOf(el), () => click(el));
+}
+function click(el) {
   const a = el.dataset.ch;
-  if (a === 'type') { st.type = el.dataset.type; saveView(); build(); return; }
-  if (a === 'srun') { runStrategy(); return; }
-  if (a === 'sdefaults') { delete st.sform.params[st.sform.strategy]; save('sform', st.sform); paintBar(); return; }
-  if (a === 'sload') { el.disabled = true; ctx.fetchResult(el.dataset.id).then((R) => { st.menu = null; showResult(R, el.dataset.id); }).catch((e) => { el.disabled = false; toast(e.message, 'error'); }); return; }
+  switch (a) {
+    case 'layout': setLayout(Number(el.dataset.n)); return;
+    case 'sync': {
+      G.sync = !G.sync;
+      saveLayout();
+      paintBar();
+      const r = G.sync && st.chart && st.chart.timeScale().getVisibleLogicalRange();
+      if (r) shareRange(r);
+      return;
+    }
+    case 'type': st.type = el.dataset.type; savePanes(); build(); return;
+    case 'srun': runStrategy(); return;
+    case 'sdefaults': delete G.sform.params[G.sform.strategy]; save('sform', G.sform); paintBar(); return;
+    case 'sload': {
+      const p = st, id = el.dataset.id;
+      el.disabled = true;
+      ctx.fetchResult(id).then((R) => { G.menu = null; on(p, () => showResultHere(R, id)); }).catch((e) => { el.disabled = false; toast(e.message, 'error'); });
+      return;
+    }
+    case 'png': savePng(); return;
+    case 'full': setFull(!isFull()); return;
+    case 'replay': if (G.replay || G.picking) stopReplay(); else if (loaded().length) startPicking(); return;
+    case 'rpick': stopReplay(); startPicking(); return;
+    case 'rgo': beginPortion(); return;
+    case 'rexit': stopReplay(); return;
+    case 'rplay': if (G.replay.playing) pause(); else play(); return;
+    case 'rstep': pause(); step(1); return;
+    case 'rback': pause(); step(-1); return;
+    default: break;
+  }
   if (!st.B) return;
   switch (a) {
     case 'tool': setTool(el.dataset.tool); break;
-    case 'undo': st.drawings.pop(); saveDrawings(); break;
-    case 'clear': if (confirm(`Delete all ${plural(st.drawings.length, 'drawing')} on ${st.row.symbol}?`)) { st.drawings = []; saveDrawings(); } break;
-    case 'log': st.log = !st.log; saveView(); chart.priceScale('right').applyOptions({ mode: st.log ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal }); paintBar(); break;
-    case 'fit': chart.timeScale().fitContent(); break;
-    case 'png': savePng(); break;
-    case 'full': { const c = $('.lab-ch', host); if (document.fullscreenElement) document.exitFullscreen(); else if (c.requestFullscreen) c.requestFullscreen().catch(() => toast('Full screen isn’t allowed here.')); break; }
-    case 'replay': if (st.replay) stopReplay(); else { st.picking = !st.picking; st.tool = null; st.draft = null; hint(st.picking ? 'Click the candle where the replay should start.' : ''); paintBar(); paintReplay(); } break;
-    case 'rpick': stopReplay(); st.picking = true; hint('Click the candle where the replay should start.'); paintBar(); paintReplay(); break;
-    case 'rexit': stopReplay(); break;
-    case 'rplay': if (st.replay.playing) pause(); else play(); break;
-    case 'rstep': pause(); step(1); break;
-    case 'rback': pause(); step(-1); break;
+    case 'undo': undo(); break;
+    case 'clear': clearAll(); break;
+    case 'indx': removeGroup(el.dataset.k); break;
+    case 'indoff': removeIndicators(); break;
+    case 'log': st.log = !st.log; savePanes(); st.chart.priceScale('right').applyOptions({ mode: st.log ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal }); paintBar(); break;
+    case 'fit': setRange({ from: -2, to: Math.max(st.shownTo, 0) + 12 }); break;
     case 'buy': trade('long'); break;
     case 'sell': trade('short'); break;
     case 'flat': closePos(); break;
-    case 'strade': { const i = Number(el.dataset.n); if (st.strat && st.strat.sel === i) { st.strat.sel = -1; paintMarkers(); if (layer) layer.redraw(); paintStrat(true); } else focusTrade(i); break; }
+    case 'strade': { const i = Number(el.dataset.n); if (st.strat && st.strat.sel === i) { st.strat.sel = -1; paintMarkers(); if (st.layer) st.layer.redraw(); paintStrat(true); } else focusTrade(i); break; }
     case 'sprev': stepTrade(-1); break;
     case 'snext': stepTrade(1); break;
     case 'sreport': if (st.strat) ctx.openReport(st.strat.R, st.strat.id); break;
     case 'sremove': removeStrat(); break;
-    case 'sedit': st.menu = 'strat'; paintBar(); $('#lab-ch-smenu', host).scrollIntoView({ block: 'nearest' }); break;
+    case 'sedit': G.menu = 'strat'; paintBar(); $('#lab-ch-smenu', host).scrollIntoView({ block: 'nearest' }); break;
     default: break;
   }
 }
 
-function onChange(ev) {
-  const t = ev.target;
+function onChange(ev) { on(paneOf(ev.target), () => change(ev.target)); }
+function change(t) {
+  const P = G.picking;
   if (t.dataset.ch === 'file') { if (t.value) openFile(t.value); else closeFile(); return; }
-  if (t.dataset.ch === 'sname') { st.sform.strategy = t.value; save('sform', st.sform); paintBar(); return; }
-  if (t.dataset.ch === 'ssave') { st.sform.save = t.checked; save('sform', st.sform); return; }
+  if (t.dataset.ch === 'sname') { G.sform.strategy = t.value; save('sform', G.sform); paintBar(); return; }
+  if (t.dataset.ch === 'ssave') { G.sform.save = t.checked; save('sform', G.sform); return; }
   if (t.dataset.sp) { readSparam(t); return; }
-  if (t.dataset.sshow) { st.sshow[t.dataset.sshow] = t.checked; save('sshow', st.sshow); build(); return; }
+  if (t.dataset.sshow) { G.sshow[t.dataset.sshow] = t.checked; save('sshow', G.sshow); build(); return; }
   if (t.dataset.splot && st.strat && st.strat.plots) { st.strat.plots[Number(t.dataset.splot)].on = t.checked; build(); return; }
-  if (t.dataset.ch === 'tf') { st.tf = Number(t.value); saveView(); build(); return; }
+  if (t.dataset.ch === 'tf') { setTf(Number(t.value)); return; }
   if (t.dataset.ch === 'goto' && t.value && st.B) {
     const j = indexOfTime(new Date(`${t.value}T00:00:00`).getTime());
-    chart.timeScale().setVisibleLogicalRange({ from: j - 80, to: j + 80 });
+    setRange({ from: j - 80, to: j + 80 });
     return;
   }
-  if (t.dataset.ch === 'rdate' && t.value) {
-    const ms = new Date(`${t.value}T00:00:00`).getTime();
-    const T = st.ds.cols.t;
-    let k = 0;
-    while (k < st.ds.n && T[k] < ms) k++;
-    if (k >= st.ds.n - 1) { toast('That date is after the last candle in the file.'); return; }
-    startReplay(st.B.first[Math.max(1, bucketOf(k))]);   // the candles before that date are shown
+  if (t.dataset.ch === 'rfrom' && P) {
+    P.fromStr = t.value;
+    P.a = t.value ? bucketStart(new Date(`${t.value}T00:00:00`).getTime()) : null;   // the candles before that date are shown
+    hint(P.a == null ? 'Click the candle where the replay should start.' : 'Now click the last candle of the portion, or press Start.');
+    redrawAll();
+    paintReplay();
     return;
   }
-  if (t.dataset.ch === 'speed') { st.replay.speed = Number(t.value); save('speed', st.replay.speed); if (st.replay.playing) { pause(); play(); } return; }
-  if (t.dataset.ch === 'by') { st.replay.by = t.value; save('by', t.value); return; }
-  if (t.dataset.ind) { st.ind[t.dataset.ind].on = t.checked; saveView(); build(); return; }
+  if (t.dataset.ch === 'rto' && P) {
+    P.toStr = t.value;
+    P.b = t.value ? bucketStart(new Date(`${t.value}T00:00:00`).getTime() + DAY - 1) + G.tf : null;   // to the end of that day
+    redrawAll();
+    paintReplay();
+    return;
+  }
+  if (t.dataset.ch === 'speed' && G.replay) { G.replay.speed = Number(t.value); save('speed', G.replay.speed); if (G.replay.playing) { pause(); play(); } return; }
+  if (t.dataset.ch === 'by' && G.replay) { G.replay.by = t.value; save('by', t.value); return; }
+  if (t.dataset.ind) { st.ind[t.dataset.ind].on = t.checked; st.undoAll = null; savePanes(); build(); return; }
   if (t.dataset.indP) {
     const k = t.dataset.indP, pk = t.dataset.p;
     const spec = IND[k].params.find(([x]) => x === pk);
@@ -1801,7 +2252,8 @@ function onChange(ev) {
     if (!fin(v) || v < spec[3] || v > spec[4] || (spec[5] >= 1 && !Number.isInteger(v))) { t.value = st.ind[k][pk]; toast(`${spec[1]}: ${spec[3]} to ${spec[4]}.`); return; }
     st.ind[k][pk] = v;
     st.ind[k].on = true;
-    saveView();
+    st.undoAll = null;
+    savePanes();
     build();
   }
 }
@@ -1812,16 +2264,16 @@ function onToggle(ev) {
   const d = ev.target;
   if (!d.matches || !d.matches('details.lab-ch-menu')) return;
   if (d.open) {
-    st.menu = d.dataset.menu;
+    G.menu = d.dataset.menu;
     fitPop(d);
     for (const o of $$('details.lab-ch-menu[open]', host)) if (o !== d) o.open = false;
-  } else if (st.menu === d.dataset.menu) st.menu = null;
+  } else if (G.menu === d.dataset.menu) G.menu = null;
 }
 /** A click anywhere outside an open menu closes it (pointerdown, captured: the chart stops clicks). */
 function closeMenusOutside(ev) {
   if (!host) return;
   for (const d of $$('details.lab-ch-menu[open]', host)) {
-    if (!d.contains(ev.target)) { d.open = false; if (st.menu === d.dataset.menu) st.menu = null; }
+    if (!d.contains(ev.target)) { d.open = false; if (G.menu === d.dataset.menu) G.menu = null; }
   }
 }
 
@@ -1829,25 +2281,67 @@ function onKey(ev) {
   if (!host || host.closest('[hidden]')) return;
   if (ev.key === 'Escape') {
     const open = $$('details.lab-ch-menu[open]', host);
-    if (open.length) { for (const d of open) d.open = false; st.menu = null; return; }
+    if (open.length) { for (const d of open) d.open = false; G.menu = null; return; }
   }
-  if (!st.B) return;
+  if (!loaded().length) return;
   const t = ev.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+  on(A(), () => key(ev));
+}
+function key(ev) {
   if (ev.key === 'Escape') {
-    if (st.draft || st.tool) { st.draft = null; st.tool = null; hint(''); if (layer) layer.redraw(); paintBar(); }
-    else if (st.picking) { st.picking = false; hint(''); paintBar(); paintReplay(); }
+    if (isFull() && !fsElement() && !G.draft && !G.tool && !G.picking) { setFull(false); return; }
+    if (G.draft || G.tool) { G.draft = null; G.tool = null; hint(''); redrawAll(); paintBar(); }
+    else if (G.picking && !G.replay) stopReplay();
     return;
   }
-  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z' && st.drawings.length) { ev.preventDefault(); st.drawings.pop(); saveDrawings(); return; }
-  if (!st.replay) return;
-  if (ev.key === ' ') { ev.preventDefault(); if (st.replay.playing) pause(); else play(); }
+  if (ev.key === 'Enter' && G.picking && G.picking.a != null) { ev.preventDefault(); beginPortion(); return; }
+  if (ev.key === 'Delete' && st.B) { ev.preventDefault(); clearAll(); return; }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z' && st.B && (st.undoAll || st.drawings.length)) { ev.preventDefault(); undo(); return; }
+  if (!G.replay) return;
+  if (ev.key === ' ') { ev.preventDefault(); if (G.replay.playing) pause(); else play(); }
   else if (ev.key === 'ArrowRight') { ev.preventDefault(); pause(); step(1); }
   else if (ev.key === 'ArrowLeft') { ev.preventDefault(); pause(); step(-1); }
 }
 
-/** The chart (every pane) as a PNG picture. */
+/* ---------- full screen ---------- */
+
+const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+const isFull = () => Boolean(host && $('.lab-ch.full', host));
+/** Full screen: the browser's own where it has one (computers, Android, iPad); on an iPhone, which has
+    none for a page, the charts fill the window instead. Either way Esc or the button leaves it. */
+function setFull(on) {
+  const c = host && $('.lab-ch', host);
+  if (!c || on === c.classList.contains('full')) return;
+  c.classList.toggle('full', on);
+  document.documentElement.classList.toggle('lab-ch-locked', on);   // the page under it doesn't scroll
+  if (on) {
+    const req = c.requestFullscreen || c.webkitRequestFullscreen;
+    if (req) { try { Promise.resolve(req.call(c, { navigationUI: 'hide' })).catch(() => {}); } catch { /* the window-filling view stays */ } }
+  } else if (fsElement()) {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exit) Promise.resolve(exit.call(document)).catch(() => {});
+  }
+  paintBar();
+  for (const p of loaded()) placeLegendsSoon(p);
+}
+
+/** The chart (every pane) as a PNG picture; with several charts, all of them as laid out on the screen. */
 function savePng() {
-  const c = chart.takeScreenshot();
-  c.toBlob((blob) => { if (blob) download(`${st.row.symbol}-${tfName(st.tf)}-${ymd(Date.now())}.png`, blob); }, 'image/png');
+  const ps = loaded();
+  if (!ps.length) return;
+  const name = `${ps.map((p) => p.row.symbol).join('-')}-${tfName(G.tf)}-${ymd(Date.now())}.png`;
+  const done = (c) => c.toBlob((blob) => { if (blob) download(name, blob); }, 'image/png');
+  if (ps.length === 1) { done(ps[0].chart.takeScreenshot()); return; }
+  const box = $('#lab-ch-stage', host).getBoundingClientRect();
+  const shots = ps.map((p) => ({ c: p.chart.takeScreenshot(), r: p.el.getBoundingClientRect() }));
+  const s = Math.max(...shots.map((x) => x.c.width / Math.max(1, x.r.width)));
+  const out = document.createElement('canvas');
+  out.width = Math.round(box.width * s);
+  out.height = Math.round(box.height * s);
+  const g = out.getContext('2d');
+  g.fillStyle = '#111';
+  g.fillRect(0, 0, out.width, out.height);
+  for (const x of shots) g.drawImage(x.c, (x.r.left - box.left) * s, (x.r.top - box.top) * s, x.r.width * s, x.r.height * s);
+  done(out);
 }

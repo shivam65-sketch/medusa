@@ -1775,7 +1775,7 @@
     if (labLoad) { labLoad.then((m) => { if (m) m.goTab(tab); }); return; }
     const css = document.createElement('link');
     css.rel = 'stylesheet';
-    css.href = '/lab/lab.css?v=7';
+    css.href = '/lab/lab.css?v=8';
     document.head.appendChild(css);
     $('#lab').innerHTML = '<div class="loading">Opening the Lab…</div>';
     labLoad = import('/lab/main.js?v=5')
@@ -1970,7 +1970,20 @@
     },
   };
 
+  /** The release version, kept in one place (/version.json), shown in the menu and on the sign-in card. */
+  function paintVersion() {
+    fetch('/version.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).then((v) => {
+      if (!v || !v.version) return;
+      for (const el of document.querySelectorAll('[data-version]')) {
+        el.textContent = `v${v.version}`;
+        el.title = `MEDUSA ${v.version}${v.date ? `, released ${v.date}` : ''}`;
+        el.hidden = false;
+      }
+    }).catch(() => {});
+  }
+
   async function start() {
+    paintVersion();
     state.period = store.get('period', 'all');
     state.range = store.get('range', null);
     if (state.period === 'custom' ? !validRange(state.range) : !PRESETS.some((p) => p.id === state.period)) state.period = 'all';

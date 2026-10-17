@@ -1,0 +1,10 @@
+{
+  "version": "1.1.0",
+  "date": "2026-10-18",
+  "changes": [
+    "Chart: replay a portion picked on the chart (first and last candle, or From/To dates)",
+    "Chart: 1, 2, 3 or 4 charts side by side with one timeframe, one replay and Sync",
+    "Chart: remove one indicator with its ×; Delete removes every drawing and indicator (Ctrl+Z undoes)",
+    "Chart: full screen on phones too"
+  ]
+}

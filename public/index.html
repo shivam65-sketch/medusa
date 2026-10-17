@@ -79,6 +79,10 @@ h1, h2, h3, p { margin: 0; }
 .side-group { font-size: 11px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; padding: 14px 12px 4px; }
 .side-sep { height: 1px; margin: 8px 6px; background: var(--border); }
 .side-fill { flex: 1; }
+.side-ver { display: block; padding: 6px 12px 2px; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.side-ver[hidden], .login-ver[hidden] { display: none; }
+.sidenav.collapsed .side-ver { padding: 6px 0 2px; text-align: center; font-size: 10px; }
+.login-ver { margin-top: 14px; font-size: 11.5px; color: var(--text-3); text-align: center; }
 .side-toggle .ic { transition: transform 0.15s; }
 .sidenav.collapsed .side-toggle .ic { transform: rotate(180deg); }
 .sidenav.collapsed .side-label { display: none; }
@@ -93,6 +97,7 @@ h1, h2, h3, p { margin: 0; }
   .sidenav .side-item, .sidenav.collapsed .side-item { flex-direction: column; justify-content: center; gap: 3px; height: auto; min-height: 50px; padding: 6px 2px; }
   .sidenav .side-label, .sidenav.collapsed .side-label { display: block; font-size: 10.5px; line-height: 1.15; white-space: normal; text-align: center; }
   .sidenav .side-toggle { display: none; }
+  .sidenav .side-ver, .sidenav.collapsed .side-ver { padding: 6px 0 4px; text-align: center; font-size: 10px; }
   .sidenav .side-group, .sidenav.collapsed .side-group { height: 1px; padding: 0; margin: 6px 6px; background: var(--border); font-size: 0; }
   .side-item::after { display: none; }
 }
@@ -432,6 +437,7 @@ textarea.input { min-height: 110px; resize: vertical; line-height: 1.5; }
     <div class="brand"><img class="logo" src="/medusa.svg" alt="" width="56" height="56"><div class="brand-name">MEDUSA</div></div>
     <div class="dim"><span id="login-greet">Welcome back</span>. <span id="login-sub">Sign in to your trading journal.</span></div>
     <div id="auth"></div>
+    <div class="login-ver" data-version hidden></div>
   </div>
 </div>
 
@@ -449,6 +455,7 @@ textarea.input { min-height: 110px; resize: vertical; line-height: 1.5; }
     <div class="side-sep" aria-hidden="true"></div>
     <button class="side-item" data-action="nav" data-nav="logs" data-tip="Logs" aria-label="Logs" aria-current="false"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.5" cy="6.5" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="17.5" r="1"/></svg><span class="side-label">Logs</span></button>
     <span class="side-fill"></span>
+    <span class="side-ver" data-version hidden></span>
     <button class="side-item side-toggle" id="side-toggle" data-action="side" data-tip="Collapse the menu" aria-label="Collapse or expand the menu" aria-expanded="true"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/></svg><span class="side-label">Collapse</span></button>
   </nav>
   <div class="wrap main">
@@ -554,6 +561,6 @@ textarea.input { min-height: 110px; resize: vertical; line-height: 1.5; }
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="/stats.js?v=20"></script>
-<script src="/app.js?v=23"></script>
+<script src="/app.js?v=24"></script>
 </body>
 </html>
