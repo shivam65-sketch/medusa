@@ -14,8 +14,6 @@ preview_urls = false
 [assets]
 directory = "./public"
 binding = "ASSETS"
-# /docs/ (the Architecture guide PDF) goes through the Worker first, so only signed-in people get it.
-run_worker_first = ["/docs/*"]
 
 # The SQLite database. Replace the zeros with the database_id that
 # `npx wrangler@4 d1 create medusa` prints (step 4 in the README).

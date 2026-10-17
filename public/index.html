@@ -72,7 +72,6 @@ h1, h2, h3, p { margin: 0; }
 .main { width: 100%; }
 .sidenav { position: sticky; top: 0; height: 100vh; height: 100dvh; width: 200px; display: flex; flex-direction: column; gap: 2px; padding: 14px 8px; background: #181818; border-right: 1px solid var(--border); z-index: 40; overflow-y: auto; scrollbar-width: none; }
 .sidenav.collapsed { width: 58px; }
-a.side-item { text-decoration: none; }
 .side-item { position: relative; display: flex; align-items: center; gap: 11px; width: 100%; height: 38px; padding: 0 12px; border: 0; border-radius: 8px; background: none; color: var(--text-2); font-weight: 600; font-size: 14px; white-space: nowrap; text-align: left; }
 .side-item .ic { width: 18px; height: 18px; }
 .side-item:hover { background: #262626; color: var(--text); }
@@ -449,7 +448,6 @@ textarea.input { min-height: 110px; resize: vertical; line-height: 1.5; }
     <button class="side-item" data-action="nav" data-nav="lab:guide" data-tip="Strategy guide" aria-label="Strategy guide" aria-current="false"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5.5h6a3 3 0 0 1 3 3V20a2.5 2.5 0 0 0-2.5-2.5H3zM21 5.5h-6a3 3 0 0 0-3 3V20a2.5 2.5 0 0 1 2.5-2.5H21z"/></svg><span class="side-label">Strategy guide</span></button>
     <div class="side-sep" aria-hidden="true"></div>
     <button class="side-item" data-action="nav" data-nav="logs" data-tip="Logs" aria-label="Logs" aria-current="false"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.5" cy="6.5" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="17.5" r="1"/></svg><span class="side-label">Logs</span></button>
-    <a class="side-item" href="/docs/MEDUSA_Architecture_Guide.pdf" download="MEDUSA_Architecture_Guide.pdf" data-tip="Architecture guide (PDF)" aria-label="Download the MEDUSA Architecture Guide (PDF)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3.5V8h4.5M12 11v6M9.5 14.5 12 17l2.5-2.5"/></svg><span class="side-label">Architecture guide</span></a>
     <span class="side-fill"></span>
     <button class="side-item side-toggle" id="side-toggle" data-action="side" data-tip="Collapse the menu" aria-label="Collapse or expand the menu" aria-expanded="true"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/></svg><span class="side-label">Collapse</span></button>
   </nav>

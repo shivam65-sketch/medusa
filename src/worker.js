@@ -257,15 +257,6 @@ async function route(req, env, url) {
   const uid = user.id;
 
   if (path.startsWith('/logo/') && method === 'GET') return logoResponse(env, decodeURIComponent(path.slice(6)));
-  // Files only for signed-in people (wrangler.toml sends /docs/* here first): the Architecture guide PDF.
-  if (path.startsWith('/docs/') && (method === 'GET' || method === 'HEAD')) {
-    const r = await env.ASSETS.fetch(req);
-    if (!r.ok) return r;
-    const out = new Response(r.body, r);
-    out.headers.set('Cache-Control', 'private, no-store');
-    out.headers.set('Content-Disposition', `attachment; filename="${path.split('/').pop()}"`);
-    return out;
-  }
   if (path === '/api/journal' && method === 'GET') return journal(env, user);
   if (path === '/api/import' && method === 'POST') return runImport(env, uid);
   if (path === '/api/import/reset' && method === 'POST') {
@@ -302,7 +293,7 @@ async function route(req, env, url) {
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
-    if (!url.pathname.startsWith('/api/') && !url.pathname.startsWith('/logo/') && !url.pathname.startsWith('/docs/')) return env.ASSETS.fetch(req);
+    if (!url.pathname.startsWith('/api/') && !url.pathname.startsWith('/logo/')) return env.ASSETS.fetch(req);
     try {
       return await route(req, env, url);
     } catch (e) {

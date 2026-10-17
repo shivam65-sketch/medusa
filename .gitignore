@@ -10,5 +10,6 @@ backups/
 # A new install copies wrangler.example.toml to wrangler.toml (README, step 4).
 wrangler.toml
 
-# The Architecture guide PDF names the live app's address, so it isn't published either.
+# PDFs such as the Architecture guide (it names the live app's address) stay on this computer.
+*.pdf
 public/docs/
