@@ -56,7 +56,8 @@ flowchart LR
 | [11. Coin dimension](docs/steps/11-dim-coin.md) | `dim_coin` with full history (SCD Type 2) from a dbt snapshot | Done |
 | [12. Hourly candles](docs/steps/12-silver-hourly-candles.md) | `fct_candle_1h` rolled up from the 1-minute candles | Done |
 | [13. Gold: coin_daily](docs/steps/13-gold-coin-daily.md) | One row per coin per day: returns, volatility, volume, taker share, open interest | Done |
-| 14. Gold: market_daily and data_health | The whole market per day, and how complete each day's data is | Next |
+| [14. Gold: market_daily and data_health](docs/steps/14-gold-market-and-health.md) | The whole market per day, and how complete each day's data is | Done |
+| 15. Backfill | Load 30 past days through the whole pipeline (GitHub Actions matrix + reusable workflow) | Next |
 
 ## Folder layout
 

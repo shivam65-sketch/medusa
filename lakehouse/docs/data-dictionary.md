@@ -201,6 +201,36 @@ One row per coin per UTC day ([model](../dbt/models/gold/coin_daily.sql)); clust
 **What the data looks like:** 872 coins a day (744 with open interest). On 2026-10-19: 431 up, 306
 down, 135 unchanged; median realised volatility 3.7%.
 
+## Gold: `market.gold.market_daily`
+
+The whole market, one row per UTC day, rebuilt from `coin_daily` on every run
+([model](../dbt/models/gold/market_daily.sql)). Key `trade_date`.
+
+| Column | Meaning |
+|---|---|
+| `coins`, `coins_up`, `coins_down`, `coins_flat` | Coins with candles; how many closed above, below or at the previous close |
+| `breadth` | coins_up / (coins_up + coins_down) |
+| `coins_moved_20pct` | Coins that rose or fell 20% or more |
+| `median_return_1d`, `volume_weighted_return_1d` | The middle coin's return; returns weighted by USDT volume |
+| `median_realized_volatility_1d` | The middle coin's realised volatility |
+| `quote_volume`, `btc_volume_share` | USDT traded across all coins; Bitcoin's share of it |
+| `taker_buy_share` | Volume-weighted share of aggressive buying |
+| `open_interest_usdt` | Total open interest at the day's last snapshot (coins with metrics) |
+| `btc_return_1d`, `eth_return_1d` | Bitcoin's and Ethereum's returns |
+
+## Gold: `market.gold.data_health`
+
+Is each day's data complete? One row per UTC day, rebuilt from `coin_daily` on every run
+([model](../dbt/models/gold/data_health.sql)). Key `trade_date`.
+
+| Column | Meaning |
+|---|---|
+| `coins`, `coins_complete_candles`, `coins_incomplete_candles`, `missing_minutes` | Candle completeness (1,440 minutes per coin) |
+| `coins_with_metrics`, `coins_complete_metrics`, `coins_incomplete_metrics`, `missing_metric_snapshots` | Metric completeness (288 snapshots per coin) |
+| `coins_new`, `coins_dropped` | Coins with no row the day before; coins that traded the day before but not this day |
+| `last_loaded_at` | Newest bronze load time behind the day |
+| `candle_status` | `complete`, or `check` when a coin is missing minutes or dropped out |
+
 ## Gold: other tables
 
-Planned: `market_daily`, `data_health`, `unusual_moves`, `hour_profile`. The planned tables are listed in [Architecture](architecture.md#data-flow).
+Planned: `unusual_moves`, `hour_profile`. The planned tables are listed in [Architecture](architecture.md#data-flow).

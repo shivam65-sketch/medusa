@@ -1,6 +1,6 @@
 # Step 13: Gold, one row per coin per day
 
-[← Lakehouse home](../../README.md) · [← Step 12](12-silver-hourly-candles.md)
+[← Lakehouse home](../../README.md) · [← Step 12](12-silver-hourly-candles.md) · Next: [Step 14 →](14-gold-market-and-health.md)
 
 | | |
 |---|---|

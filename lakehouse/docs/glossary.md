@@ -10,10 +10,13 @@ The data engineering terms used in this project, in plain words.
 | **Atomic grain** | The finest level of detail stored. Everything coarser is built from it. | 1-minute candles |
 | **Atomic write** | Writing a file under a temporary name and renaming it when complete, so a half-written file never appears | The downloader |
 | **Auto Loader** | Databricks' incremental file loader: it remembers which files it has loaded and reads only new ones | Bronze pipeline |
+| **Backfill** | Running the pipeline for past dates to load history | `lakehouse-backfill.yml` |
+| **Breadth** | The share of moving coins that went up | `market_daily.breadth` |
 | **Bronze / silver / gold** | The medallion layers: raw data, cleaned and typed data, business-ready tables | Schemas in `market` |
 | **Catalog** | Top level of Unity Catalog's `catalog.schema.table` names, roughly a database in SQL Server | `market` |
 | **Checksum (SHA-256)** | A fingerprint of a file's bytes. If the fingerprint doesn't match the published one, the file is damaged | The downloader |
 | **CI/CD** | Automatically checking and deploying code when it changes | Planned |
+| **Data observability** | A pipeline reporting on its own data: completeness, freshness, unexpected changes | `data_health` |
 | **Declarative** | Describing what should exist and letting the tool work out how | Bundles, pipelines |
 | **Dimension / fact** | Kimball's split: facts are measurements (candles), dimensions describe what is measured (coins) | `dim_coin`, `fct_candle_1m` |
 | **Exactly once** | Each input is processed one time: never skipped, never twice | Auto Loader |
@@ -27,11 +30,13 @@ The data engineering terms used in this project, in plain words.
 | **Landing zone** | Where raw files arrive, unchanged, before any processing | `market.landing.binance` |
 | **Lineage** | Knowing where each piece of data came from | `source_file`, `loaded_at` |
 | **Liquid clustering** | Delta's way of keeping data files grouped by chosen columns as data arrives, replacing partitions and Z-ordering | Silver tables |
+| **Matrix job** | GitHub Actions running the same job once per value in a list, several at a time | The backfill |
 | **Medallion architecture** | Organising data into bronze, silver and gold layers | The schemas |
 | **MERGE (upsert)** | Insert new rows and update existing ones by a key, in one statement | Incremental models |
 | **Reconciliation test** | A check that two layers add up to the same totals | `assert_candle_1h_reconciles_with_1m` |
 | **Rescued data** | A column that catches values that didn't fit the expected file layout, instead of losing them | `_rescued_data` |
 | **Retention** | How long each kind of data is kept | [ADR-011](decisions.md#adr-011-keep-1-minute-candles-for-a-limited-time) |
+| **Reusable workflow** | A GitHub Actions workflow other workflows call, so shared steps live in one place | `lakehouse-load-day.yml` |
 | **Reverse ETL / serving layer** | Copying finished warehouse tables to where an app can serve them | The planned MEDUSA Markets page |
 | **SCD Type 2** | Keeping the full history of a dimension's changes, one row per version | `dim_coin` |
 | **Schema drift** | A source changing its columns or format over time | Caught by `_rescued_data` |
