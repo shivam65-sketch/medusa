@@ -65,3 +65,80 @@ models:
         description: 5-minute metric snapshots behind the day; 288 when complete, 0 when none.
       - name: last_bronze_loaded_at
         description: Newest bronze load time behind the day; incremental runs start from it.
+
+  - name: market_daily
+    description: >
+      Gold: the whole market, one row per UTC day, built from coin_daily (rebuilt every run).
+      Returns and shares are fractions.
+    columns:
+      - name: trade_date
+        description: The UTC day.
+        data_tests: [unique, not_null]
+      - name: coins
+        description: Coins with candles that day.
+        data_tests: [not_null]
+      - name: coins_up
+        description: Coins whose close was above the previous day's close.
+      - name: coins_down
+        description: Coins whose close was below the previous day's close.
+      - name: coins_flat
+        description: Coins whose close didn't change (often thinly traded coins and stock perpetuals).
+      - name: breadth
+        description: coins_up / (coins_up + coins_down); 0.5 means as many up as down. Empty on the first day.
+      - name: coins_moved_20pct
+        description: Coins that rose or fell 20% or more.
+      - name: median_return_1d
+        description: The middle coin's return (equal weight).
+      - name: volume_weighted_return_1d
+        description: Returns weighted by each coin's USDT volume.
+      - name: median_realized_volatility_1d
+        description: The middle coin's realised volatility.
+      - name: quote_volume
+        description: USDT traded across all coins.
+      - name: btc_volume_share
+        description: Bitcoin's share of the day's USDT volume.
+      - name: taker_buy_share
+        description: Volume-weighted share of aggressive buying across all coins.
+      - name: open_interest_usdt
+        description: Total open interest at the day's last snapshot, USDT (coins with metrics only).
+      - name: btc_return_1d
+        description: Bitcoin's return that day.
+      - name: eth_return_1d
+        description: Ethereum's return that day.
+
+  - name: data_health
+    description: >
+      Gold: is each day's data complete? One row per UTC day, built from coin_daily (rebuilt every
+      run). Feeds the dashboard's Data health page.
+    columns:
+      - name: trade_date
+        description: The UTC day.
+        data_tests: [unique, not_null]
+      - name: coins
+        description: Coins with candles that day.
+      - name: coins_complete_candles
+        description: Coins with all 1,440 minutes.
+      - name: coins_incomplete_candles
+        description: Coins with fewer than 1,440 minutes.
+      - name: missing_minutes
+        description: Minutes missing across all coins.
+      - name: coins_with_metrics
+        description: Coins with at least one 5-minute metric snapshot.
+      - name: coins_complete_metrics
+        description: Coins with all 288 snapshots.
+      - name: coins_incomplete_metrics
+        description: Coins with some, but not all, snapshots.
+      - name: missing_metric_snapshots
+        description: Snapshots missing across the coins that have metrics.
+      - name: coins_new
+        description: Coins with no row the day before (every coin counts as new on the first day).
+      - name: coins_dropped
+        description: Coins that traded the day before but have no row this day.
+      - name: last_loaded_at
+        description: Newest bronze load time behind the day.
+      - name: candle_status
+        description: complete when every coin has all its minutes and none dropped out; otherwise check.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['complete', 'check']
