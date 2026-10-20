@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: fct_candle_1h
+    description: >
+      One row per coin per hour, rolled up from fct_candle_1m. Times are UTC. A complete hour has
+      60 minutes. Built incrementally: each run rebuilds every hour of the days that got new minutes.
+    columns:
+      - name: symbol
+        description: Binance symbol, e.g. BTCUSDT.
+        data_tests: [not_null]
+      - name: hour_start
+        description: Start of the hour (UTC).
+        data_tests: [not_null]
+      - name: candle_date
+        description: Day of the hour (UTC); used with symbol to cluster the table.
+        data_tests: [not_null]
+      - name: open
+        description: The first minute's open, USDT.
+        data_tests: [not_null]
+      - name: high
+        description: Highest price in the hour, USDT.
+        data_tests: [not_null]
+      - name: low
+        description: Lowest price in the hour, USDT.
+        data_tests: [not_null]
+      - name: close
+        description: The last minute's close, USDT.
+        data_tests: [not_null]
+      - name: volume
+        description: Amount traded in the hour, in the coin.
+        data_tests: [not_null]
+      - name: quote_volume
+        description: Amount traded in the hour, in USDT.
+      - name: trades
+        description: Number of trades in the hour.
+        data_tests: [not_null]
+      - name: taker_buy_volume
+        description: Aggressive buying in the hour, in the coin.
+      - name: taker_buy_quote_volume
+        description: Aggressive buying in the hour, in USDT.
+      - name: vwap
+        description: Volume-weighted average price (quote_volume / volume); NULL when nothing traded.
+      - name: taker_buy_share
+        description: taker_buy_volume / volume, between 0 and 1; NULL when nothing traded.
+      - name: minutes
+        description: How many 1-minute candles the hour was built from; 60 when complete.
+        data_tests: [not_null]
+      - name: zero_volume_minutes
+        description: Minutes in the hour with no trades.
+      - name: last_bronze_loaded_at
+        description: Newest bronze load time among the hour's minutes; incremental runs start from it.
