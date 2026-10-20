@@ -42,3 +42,18 @@ resources:
             warehouse_id: ${var.warehouse_id}
             file:
               path: ./sql/ddl/003_volumes.sql
+
+  # Bronze: loads new landing files into market.bronze. Runs when started, then stops.
+  pipelines:
+    bronze:
+      name: lakehouse-bronze
+      catalog: market
+      schema: bronze
+      serverless: true
+      continuous: false
+      channel: CURRENT
+      libraries:
+        - file:
+            path: ./pipelines/bronze/klines_1m.sql
+        - file:
+            path: ./pipelines/bronze/metrics.sql
