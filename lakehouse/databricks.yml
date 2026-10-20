@@ -1,0 +1,44 @@
+# MEDUSA lakehouse: everything Databricks runs, defined as code.
+# Deploy with `databricks bundle deploy`, run a job with `databricks bundle run <job>`.
+bundle:
+  name: medusa-lakehouse
+
+variables:
+  warehouse_id:
+    description: The SQL warehouse that runs the SQL tasks. Found by name, so no ids live in Git.
+    lookup:
+      warehouse: Serverless Starter Warehouse
+
+# One target: Free Edition has a single workspace. The workspace address comes from
+# your CLI profile (~/.databrickscfg), not from this file.
+targets:
+  prod:
+    default: true
+
+resources:
+  jobs:
+    setup_ddl:
+      name: lakehouse-setup-ddl
+      description: Creates the catalog, the layer schemas and the landing volume. Safe to run again.
+      tasks:
+        - task_key: create_catalog
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/ddl/001_catalog.sql
+
+        - task_key: create_schemas
+          depends_on:
+            - task_key: create_catalog
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/ddl/002_schemas.sql
+
+        - task_key: create_volumes
+          depends_on:
+            - task_key: create_schemas
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/ddl/003_volumes.sql
