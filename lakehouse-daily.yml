@@ -1,0 +1,55 @@
+# MEDUSA lakehouse: daily load.
+# Downloads yesterday's Binance futures files (every USDT perpetual), checks their checksums,
+# and uploads them to the Databricks landing volume. Runs on GitHub's servers, not your computer.
+name: Lakehouse daily load
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # every day at 06:00 UTC, after Binance has published yesterday's files
+  workflow_dispatch:       # adds a "Run workflow" button on GitHub
+    inputs:
+      date:
+        description: "Day to load, YYYY-MM-DD (leave empty for yesterday)"
+        required: false
+        default: ""
+
+# The job only reads the repository; it never writes to it.
+permissions:
+  contents: read
+
+# Never run two loads at the same time.
+concurrency:
+  group: lakehouse-daily-load
+  cancel-in-progress: false
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: lakehouse/ingest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      # The date goes through an environment variable, not straight into the command,
+      # so whatever is typed in the box can't be run as a command.
+      - name: Download and check Binance files
+        env:
+          DAY: ${{ inputs.date }}
+        run: python download_binance.py --symbols ALL ${DAY:+--date "$DAY"}
+
+      - name: Install the Databricks CLI
+        uses: databricks/setup-cli@v1.21.0
+
+      - name: Upload to the landing volume
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: databricks fs cp -r ../data/landing dbfs:/Volumes/market/landing/binance --overwrite --concurrency 16
