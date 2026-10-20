@@ -79,7 +79,27 @@ One row per line of a metrics file. Built by [`pipelines/bronze/metrics.sql`](..
   744 files were incomplete, some with a single row. The day had 208,453 rows instead of 214,272.
 - Rows inside a file are **not in time order**. Never rely on file order; silver sorts and checks.
 
-## Silver and gold
+## Silver: `market.silver.fct_candle_1m`
 
-Planned (dbt). The planned tables are listed in [Architecture](architecture.md#data-flow); this page
-will describe each one as it's built.
+One row per coin per minute, typed and de-duplicated. Built incrementally by dbt from
+`bronze.klines_1m` ([model](../dbt/models/silver/fct_candle_1m.sql)); clustered by `symbol`, `candle_date`.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `symbol` | STRING | Binance symbol |
+| `open_time` | TIMESTAMP | Start of the minute, UTC |
+| `candle_date` | DATE | Day of the minute, UTC |
+| `open`, `high`, `low`, `close` | DOUBLE | Prices in USDT |
+| `volume` | DOUBLE | Traded amount in the coin; 0 when nothing traded |
+| `quote_volume` | DOUBLE | Traded amount in USDT |
+| `trades` | BIGINT | Number of trades |
+| `taker_buy_volume`, `taker_buy_quote_volume` | DOUBLE | Aggressive buying, in the coin and in USDT |
+| `source_file` | STRING | Landing file the row came from |
+| `bronze_loaded_at` | TIMESTAMP | When bronze loaded the row |
+
+Key: (`symbol`, `open_time`), tested unique. **What the data looks like:** 1,255,680 rows per day
+(872 coins); 23.6% of minutes have zero volume (313,313 on 2026-10-18, 278,972 on 2026-10-19).
+
+## Gold
+
+Planned (dbt). The planned tables are listed in [Architecture](architecture.md#data-flow).

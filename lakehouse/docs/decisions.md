@@ -21,6 +21,8 @@ entry replaces it and the old one is marked *Superseded*.
 | 011 | [Keep 1-minute candles for a limited time](#adr-011-keep-1-minute-candles-for-a-limited-time) | Accepted |
 | 012 | [Tools left out on purpose](#adr-012-tools-left-out-on-purpose) | Accepted |
 | 013 | [Serve the public dashboard from a daily copy](#adr-013-serve-the-public-dashboard-from-a-daily-copy) | Accepted |
+| 014 | [DOUBLE, not DECIMAL, for prices and volumes](#adr-014-double-not-decimal-for-prices-and-volumes) | Accepted |
+| 015 | [Liquid clustering instead of partitions](#adr-015-liquid-clustering-instead-of-partitions) | Accepted |
 
 ---
 
@@ -215,3 +217,32 @@ page from that copy (a "serving layer", also called reverse ETL).
 
 **Consequences:** The public page is fast and free, and the warehouse stays private. The page is at
 most one day behind, which matches the daily data anyway.
+
+## ADR-014: DOUBLE, not DECIMAL, for prices and volumes
+
+**Status:** Accepted, 2026-10-20
+
+**Context:** Silver has to turn bronze's text into numbers. Money is often stored as DECIMAL for
+exactness, but the analysis here is returns, volatility and averages over millions of rows.
+
+**Decision:** Prices and volumes are DOUBLE; trade counts are BIGINT.
+
+**Consequences:** Binance publishes at most 8 decimal places, and DOUBLE keeps 15–17 significant
+digits, so no published value is changed. Calculations stay fast and avoid Spark's DECIMAL rules,
+where multiplying two wide DECIMALs can round away precision. DOUBLE isn't suitable for exact
+accounting (adding up money to the cent); nothing in this platform does that.
+
+## ADR-015: Liquid clustering instead of partitions
+
+**Status:** Accepted, 2026-10-20
+
+**Context:** Large tables are queried by coin and by day. The older approach is to partition by
+date (one folder per day) and Z-order by coin, which creates many small files for small days and
+has to be maintained.
+
+**Decision:** Silver tables use Delta liquid clustering on (`symbol`, date) through dbt's
+`liquid_clustered_by`.
+
+**Consequences:** Databricks keeps the files organised by coin and day as data arrives, works with
+incremental MERGE, and the clustering keys can be changed later without rewriting the table by hand.
+

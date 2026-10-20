@@ -1,6 +1,6 @@
 # Step 8: dbt installed and connected
 
-[← Lakehouse home](../../README.md) · [← Step 7](07-bronze-pipeline.md)
+[← Lakehouse home](../../README.md) · [← Step 7](07-bronze-pipeline.md) · Next: [Step 9 →](09-silver-candles.md)
 
 | | |
 |---|---|

@@ -15,7 +15,7 @@ flowchart LR
   B --> C["Landing volume<br>market.landing.binance"]
   subgraph D["Databricks Free Edition · catalog market"]
     C --> E["Bronze<br>Lakeflow pipeline + Auto Loader"]
-    E --> F["Silver<br>dbt models (planned)"]
+    E --> F["Silver<br>dbt models (in progress)"]
     F --> G["Gold<br>dbt models (planned)"]
     G --> H["AI/BI dashboard + Genie (planned)"]
   end
@@ -51,7 +51,8 @@ flowchart LR
 | [6. Daily automation](docs/steps/06-daily-github-action.md) | GitHub Actions load at 06:00 UTC | Done |
 | [7. Bronze layer](docs/steps/07-bronze-pipeline.md) | First tables, loaded with Auto Loader | Done |
 | [8. dbt setup](docs/steps/08-dbt-setup.md) | dbt installed in a venv and connected to the SQL warehouse | Done |
-| 9. Silver candles | Typed, incremental `fct_candle_1m` with tests and source freshness | Next |
+| [9. Silver candles](docs/steps/09-silver-candles.md) | Typed, incremental `fct_candle_1m` with tests and source freshness | Done |
+| 10. Silver metrics | Typed, incremental `fct_metrics_5m` with tests | Next |
 
 ## Folder layout
 

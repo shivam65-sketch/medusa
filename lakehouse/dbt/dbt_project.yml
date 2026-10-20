@@ -16,3 +16,8 @@ models:
       +schema: silver
     gold:
       +schema: gold
+
+
+# Don't send dbt Labs anonymous usage statistics.
+flags:
+  send_anonymous_usage_stats: false

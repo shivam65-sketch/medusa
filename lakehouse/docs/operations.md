@@ -26,6 +26,9 @@ All `databricks` commands run from the `lakehouse/` folder.
 | Deploy a change to a job or pipeline | `databricks bundle validate`, then `databricks bundle deploy` |
 | Re-create the catalog, schemas and volume | `databricks bundle run setup_ddl` (harmless if they already exist) |
 | Check the dbt connection | From `lakehouse/dbt/`: `../.venv/Scripts/dbt debug` |
+| Check bronze is fresh | From `lakehouse/dbt/`: `../.venv/Scripts/dbt source freshness` (warns after 36 h, errors after 72 h) |
+| Build silver and run its tests | From `lakehouse/dbt/`: `../.venv/Scripts/dbt build` (incremental: only new bronze rows) |
+| Rebuild a silver table from scratch | `../.venv/Scripts/dbt build --select <model> --full-refresh` |
 | Test the downloader locally | `cd lakehouse/ingest` then `python download_binance.py --symbols BTCUSDT --date 2026-10-19` |
 
 ## Checking a day is complete
