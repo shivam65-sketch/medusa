@@ -1,0 +1,67 @@
+version: 2
+
+models:
+  - name: coin_daily
+    description: >
+      Gold: one row per coin per UTC day, the main table the dashboards read. Built from the
+      silver hourly and 1-minute candles and the 5-minute metrics. Returns and changes are
+      fractions (0.05 = +5%). Incremental: each run rebuilds the days that got new candles and
+      the day after each of them.
+    columns:
+      - name: symbol
+        description: Binance symbol, e.g. BTCUSDT. Join dim_coin for the base asset and status.
+        data_tests: [not_null]
+      - name: trade_date
+        description: The UTC day.
+        data_tests: [not_null]
+      - name: open
+        description: First price of the day (00:00 UTC), USDT.
+        data_tests: [not_null]
+      - name: high
+        description: Highest price of the day.
+        data_tests: [not_null]
+      - name: low
+        description: Lowest price of the day.
+        data_tests: [not_null]
+      - name: close
+        description: Last price of the day (23:59 UTC).
+        data_tests: [not_null]
+      - name: return_1d
+        description: close / previous day's close - 1. Empty on a coin's first day and after a gap.
+      - name: range_1d
+        description: (high - low) / open, how wide the day's range was.
+      - name: volume
+        description: Amount traded in the day, in the coin.
+        data_tests: [not_null]
+      - name: quote_volume
+        description: Amount traded in the day, in USDT.
+      - name: trades
+        description: Number of trades in the day.
+        data_tests: [not_null]
+      - name: taker_buy_share
+        description: Share of the volume that was aggressive buying (0 to 1); empty when nothing traded.
+      - name: realized_volatility_1d
+        description: Square root of the sum of squared 1-minute log returns within the day (not annualised).
+      - name: max_move_1m
+        description: The biggest single 1-minute price move in the day, up or down, as a fraction.
+      - name: open_interest_open_usdt
+        description: Open interest at the day's first 5-minute snapshot, USDT. Empty when Binance has no metrics for the coin.
+      - name: open_interest_close_usdt
+        description: Open interest at the day's last snapshot, USDT.
+      - name: open_interest_change_1d
+        description: open_interest_close_usdt / open_interest_open_usdt - 1.
+      - name: avg_taker_buy_sell_ratio
+        description: Average of the 5-minute aggressive buy / sell volume ratios.
+      - name: avg_top_trader_position_ratio
+        description: Average of the 5-minute top-trader long / short position ratios.
+      - name: avg_account_long_short_ratio
+        description: Average of the 5-minute all-account long / short ratios.
+      - name: minutes
+        description: 1-minute candles behind the day; 1,440 when complete.
+        data_tests: [not_null]
+      - name: zero_volume_minutes
+        description: Minutes in the day with no trades.
+      - name: metric_snapshots
+        description: 5-minute metric snapshots behind the day; 288 when complete, 0 when none.
+      - name: last_bronze_loaded_at
+        description: Newest bronze load time behind the day; incremental runs start from it.
