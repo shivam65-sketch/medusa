@@ -1,11 +1,11 @@
 # Step 9: Silver 1-minute candles
 
-[← Lakehouse home](../../README.md) · [← Step 8](08-dbt-setup.md)
+[← Lakehouse home](../../README.md) · [← Step 8](08-dbt-setup.md) · Next: [Step 10 →](10-silver-metrics.md)
 
 | | |
 |---|---|
 | **Built** | 2026-10-20 |
-| **Commit** | `56c36cc` Lakehouse: silver fct_candle_1m (typed, incremental merge, liquid clustering) with tests and source freshness |
+| **Commits** | `56c36cc` Lakehouse: silver fct_candle_1m (typed, incremental merge, liquid clustering) with tests and source freshness · `5ece862` step 9 docs; dbt usage statistics off |
 | **Files** | [`dbt/models/sources.yml`](../../dbt/models/sources.yml) · [`dbt/models/silver/fct_candle_1m.sql`](../../dbt/models/silver/fct_candle_1m.sql) · [`dbt/models/silver/_silver.yml`](../../dbt/models/silver/_silver.yml) · [`dbt/tests/`](../../dbt/tests/) |
 
 ## Goal
@@ -82,6 +82,7 @@ From `lakehouse/dbt/`:
 | First build | Created with `CREATE OR REPLACE TABLE AS SELECT`, 2,511,360 rows, 22.9 s; 1 model and 12 tests passed in 41 s |
 | Rows per day | 1,255,680 on 2026-10-18 and on 2026-10-19, 872 coins each |
 | Table | Delta, clustered by `["symbol","candle_date"]`, 1 file, 69 MB (about 28 bytes per row) |
+| Second build | A MERGE with 0 source rows and 0 inserted: re-running adds nothing |
 
 Checked read-only before writing the model: no duplicate (coin, minute), no value that failed to
 convert, no open or close outside the low–high range, every minute on its file's date.

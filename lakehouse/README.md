@@ -52,7 +52,8 @@ flowchart LR
 | [7. Bronze layer](docs/steps/07-bronze-pipeline.md) | First tables, loaded with Auto Loader | Done |
 | [8. dbt setup](docs/steps/08-dbt-setup.md) | dbt installed in a venv and connected to the SQL warehouse | Done |
 | [9. Silver candles](docs/steps/09-silver-candles.md) | Typed, incremental `fct_candle_1m` with tests and source freshness | Done |
-| 10. Silver metrics | Typed, incremental `fct_metrics_5m` with tests | Next |
+| [10. Silver metrics](docs/steps/10-silver-metrics.md) | Typed, incremental `fct_metrics_5m` with tests | Done |
+| 11. Coin dimension | `dim_coin` with full history (SCD Type 2) from a dbt snapshot | Next |
 
 ## Folder layout
 

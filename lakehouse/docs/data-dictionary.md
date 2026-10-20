@@ -100,6 +100,28 @@ One row per coin per minute, typed and de-duplicated. Built incrementally by dbt
 Key: (`symbol`, `open_time`), tested unique. **What the data looks like:** 1,255,680 rows per day
 (872 coins); 23.6% of minutes have zero volume (313,313 on 2026-10-18, 278,972 on 2026-10-19).
 
+## Silver: `market.silver.fct_metrics_5m`
+
+One row per coin per 5 minutes, typed, renamed and de-duplicated. Built incrementally by dbt from
+`bronze.metrics` ([model](../dbt/models/silver/fct_metrics_5m.sql)); clustered by `symbol`, `metric_date`.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `symbol` | STRING | Binance symbol |
+| `metric_time` | TIMESTAMP | Time of the 5-minute snapshot, UTC |
+| `metric_date` | DATE | Day of the snapshot, UTC |
+| `open_interest` | DOUBLE | Contracts still open, in the coin |
+| `open_interest_usdt` | DOUBLE | Open interest in USDT |
+| `top_trader_account_ratio` | DOUBLE | Top traders: long accounts ÷ short accounts; NULL when Binance left it empty |
+| `top_trader_position_ratio` | DOUBLE | Top traders: long positions ÷ short positions; can be NULL |
+| `account_long_short_ratio` | DOUBLE | All accounts: long ÷ short; can be NULL |
+| `taker_buy_sell_ratio` | DOUBLE | Aggressive buy volume ÷ aggressive sell volume; can be NULL, and 0 when nobody bought aggressively |
+| `source_file`, `bronze_loaded_at` | | Lineage, as in `fct_candle_1m` |
+
+Key: (`symbol`, `metric_time`), tested unique. **What the data looks like:** 744 coins; 1,204 of 1,488
+coin-days complete (288 rows), the rest short, down to 1 row; taker ratio empty in 10,051 rows and
+exactly 0 in 9,313.
+
 ## Gold
 
 Planned (dbt). The planned tables are listed in [Architecture](architecture.md#data-flow).
