@@ -1,0 +1,45 @@
+version: 2
+
+models:
+  - name: fct_candle_1m
+    description: >
+      One row per coin per minute: Binance USD-M perpetual 1-minute candles with proper types,
+      de-duplicated. Times are UTC. Built incrementally from bronze.klines_1m.
+    columns:
+      - name: symbol
+        description: Binance symbol, e.g. BTCUSDT.
+        data_tests: [not_null]
+      - name: open_time
+        description: Start of the minute (UTC).
+        data_tests: [not_null]
+      - name: candle_date
+        description: Day of the minute (UTC); used with symbol to cluster the table.
+        data_tests: [not_null]
+      - name: open
+        description: First price of the minute, USDT.
+        data_tests: [not_null]
+      - name: high
+        description: Highest price of the minute, USDT.
+        data_tests: [not_null]
+      - name: low
+        description: Lowest price of the minute, USDT.
+        data_tests: [not_null]
+      - name: close
+        description: Last price of the minute, USDT.
+        data_tests: [not_null]
+      - name: volume
+        description: Amount traded, in the coin. 0 when nothing traded that minute.
+        data_tests: [not_null]
+      - name: quote_volume
+        description: Amount traded, in USDT.
+      - name: trades
+        description: Number of trades in the minute.
+        data_tests: [not_null]
+      - name: taker_buy_volume
+        description: Aggressive buying, in the coin (the input to the TAKER signal).
+      - name: taker_buy_quote_volume
+        description: Aggressive buying, in USDT.
+      - name: source_file
+        description: Landing file the row came from (lineage).
+      - name: bronze_loaded_at
+        description: When bronze loaded the row; incremental runs pick up rows newer than the latest one here.

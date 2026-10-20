@@ -1,0 +1,17 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: Raw rows loaded from Binance's daily files by the bronze Lakeflow pipeline.
+    database: market
+    schema: bronze
+    config:
+      loaded_at_field: loaded_at
+      freshness:
+        warn_after: {count: 36, period: hour}
+        error_after: {count: 72, period: hour}
+    tables:
+      - name: klines_1m
+        description: One row per line of a 1-minute candle file; every column is text.
+      - name: metrics
+        description: One row per line of a 5-minute metrics file; every column is text.
