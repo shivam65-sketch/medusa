@@ -69,20 +69,24 @@ models:
   - name: market_daily
     description: >
       Gold: the whole market, one row per UTC day, built from coin_daily (rebuilt every run).
-      Returns and shares are fractions.
+      Only coins that traded that day are counted; delisted contracts that still get flat,
+      zero-volume candles are counted in coins_inactive. Returns and shares are fractions.
     columns:
       - name: trade_date
         description: The UTC day.
         data_tests: [unique, not_null]
       - name: coins
-        description: Coins with candles that day.
+        description: Coins that traded that day (at least one trade).
+        data_tests: [not_null]
+      - name: coins_inactive
+        description: Coins with candles but no trades that day, mostly contracts Binance has delisted ("settling").
         data_tests: [not_null]
       - name: coins_up
-        description: Coins whose close was above the previous day's close.
+        description: Traded coins whose close was above the previous day's close.
       - name: coins_down
-        description: Coins whose close was below the previous day's close.
+        description: Traded coins whose close was below the previous day's close.
       - name: coins_flat
-        description: Coins whose close didn't change (often thinly traded coins and stock perpetuals).
+        description: Traded coins whose close didn't change.
       - name: breadth
         description: coins_up / (coins_up + coins_down); 0.5 means as many up as down. Empty on the first day.
       - name: coins_moved_20pct
@@ -115,7 +119,9 @@ models:
         description: The UTC day.
         data_tests: [unique, not_null]
       - name: coins
-        description: Coins with candles that day.
+        description: Coins with candles that day, including inactive ones.
+      - name: coins_inactive
+        description: Coins with candles but not a single trade that day (delisted contracts still get flat candles).
       - name: coins_complete_candles
         description: Coins with all 1,440 minutes.
       - name: coins_incomplete_candles

@@ -26,7 +26,7 @@ snapshots:
       - name: first_candle_date
         description: First day with candles in the lakehouse.
       - name: status
-        description: trading, or not trading after 3 days without candles.
+        description: trading, or not trading after 3 days without a single trade (delisted contracts keep getting flat, zero-volume candles, so candles alone don't count).
         data_tests:
           - accepted_values:
               arguments:

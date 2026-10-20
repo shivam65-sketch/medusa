@@ -9,6 +9,7 @@ with coin_days as (
         symbol,
         trade_date,
         minutes,
+        trades,
         metric_snapshots,
         last_bronze_loaded_at,
         lag(trade_date)  over (partition by symbol order by trade_date) as previous_date,
@@ -20,6 +21,9 @@ days as (
     select
         trade_date,
         count(*)                                                     as coins,
+        -- Candles but not a single trade: contracts Binance has delisted ("settling") still get
+        -- flat, zero-volume candles in the archive.
+        count_if(trades = 0)                                         as coins_inactive,
         count_if(minutes = 1440)                                     as coins_complete_candles,
         count(*) * 1440 - sum(minutes)                               as missing_minutes,
         count_if(metric_snapshots > 0)                               as coins_with_metrics,
@@ -44,6 +48,7 @@ dropped as (
 select
     d.trade_date,
     d.coins,
+    d.coins_inactive,
     d.coins_complete_candles,
     d.coins - d.coins_complete_candles                               as coins_incomplete_candles,
     d.missing_minutes,
