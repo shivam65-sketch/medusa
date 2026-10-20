@@ -8,8 +8,9 @@ How the platform runs day to day, and what to do when something goes wrong.
 
 | What | When | Where to look |
 |---|---|---|
-| Download + upload (`Lakehouse daily load`) | 06:00 UTC (11:30 India time). GitHub may start it a few minutes late. | GitHub → **Actions** → Lakehouse daily load |
-| Bronze pipeline (`lakehouse-bronze`) | By hand for now: `databricks bundle run bronze` | Databricks → **Jobs & Pipelines** → lakehouse-bronze |
+| Download + upload (`Lakehouse daily load`, job `load`) | 06:00 UTC (11:30 India time). GitHub may start it a few minutes late. | GitHub → **Actions** → Lakehouse daily load |
+| Bronze, freshness check, `dbt build` (job `transform`) | Right after a successful upload, in the same run | The same run's `transform` job; Databricks → **Jobs & Pipelines** → lakehouse-bronze for the pipeline |
+| Check the result | After the run | The last line of `dbt build` in the log; `market.gold.data_health` for the new day |
 
 A failed scheduled run sends GitHub's failure email.
 
@@ -19,7 +20,8 @@ All `databricks` commands run from the `lakehouse/` folder.
 
 | Task | How |
 |---|---|
-| Load a range of past days | GitHub → Actions → **Lakehouse backfill** → Run workflow, first and last day (up to 60 days; 4 days at a time). Then run bronze and `dbt build`. |
+| Load a range of past days | GitHub → Actions → **Lakehouse backfill** → Run workflow, first and last day (up to 60 days; 4 days at a time). Bronze and `dbt build` run at the end. |
+| Run only bronze and dbt | GitHub → Actions → **Lakehouse transform** → Run workflow |
 | Load a particular day | GitHub → Actions → Lakehouse daily load → **Run workflow**, type the date (`YYYY-MM-DD`). Safe to repeat: files are re-uploaded identically. |
 | Load new files into bronze | `databricks bundle run bronze` (only files not loaded before are read) |
 | Rebuild bronze from every file | `databricks bundle run bronze --full-refresh-all`. Use only after changing a bronze definition: it reloads everything. |

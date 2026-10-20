@@ -21,8 +21,8 @@ flowchart TB
   subgraph DBX["Databricks Free Edition · catalog market"]
     L["landing.binance (volume)<br>klines_1m/date=…/ · metrics/date=…/"]
     BR["bronze.klines_1m · bronze.metrics<br>streaming tables (Auto Loader)"]
-    SI["silver (dbt, planned)<br>typed facts · dim_coin (SCD2) · 1h candles"]
-    GO["gold (dbt, planned)<br>coin_daily · market_daily · unusual_moves · hour_profile · data_health"]
+    SI["silver (dbt)<br>typed facts · dim_coin (SCD2) · 1h candles"]
+    GO["gold (dbt)<br>coin_daily · market_daily · unusual_moves · hour_profile · data_health"]
     DA["AI/BI dashboard + Genie (planned)"]
     L --> BR --> SI --> GO --> DA
   end
@@ -37,7 +37,8 @@ flowchart TB
 | Download, checksum, upload | GitHub Actions (free for public repositories) | Databricks Free Edition only allows internet access to a short list of trusted sites, so the download has to happen outside it. A fresh Linux machine per run, so nothing is left over between days. |
 | Storage, compute, tables | Databricks Free Edition | Unity Catalog, Delta tables, serverless compute, pipelines and dashboards, with no cost. |
 | Bronze loading | Lakeflow Declarative Pipeline (serverless, triggered) | Auto Loader loads each new file exactly once and remembers what it has loaded. |
-| Silver and gold | dbt Core (planned) | SQL models with tests, documentation and lineage. |
+| Silver and gold | dbt Core on the SQL warehouse | SQL models with tests, snapshots, documentation and lineage. |
+| Orchestration | GitHub Actions: load, then transform ([ADR-017](decisions.md#adr-017-orchestrate-the-daily-chain-in-github-actions)) | One place for the whole chain, one set of secrets and one failure email. |
 | Deploying Databricks resources | Databricks Asset Bundle ([`databricks.yml`](../databricks.yml)) | Jobs and pipelines are defined as code and deployed with one command. |
 | Public dashboard | MEDUSA on Cloudflare (planned) | Recruiters can't sign in to a Databricks workspace; a daily copy of the small gold tables is served from MEDUSA's own database. |
 
@@ -61,7 +62,7 @@ SQL Server.
 |---|---|
 | ~00:00–05:00 | Binance publishes the previous day's files |
 | 06:00 | GitHub Actions downloads every coin's files (~1 minute), checks them and uploads them (~2.5 minutes in total) |
-| Planned | The Databricks job runs bronze → silver → gold, then the dashboards and the MEDUSA copy refresh |
+| Right after | The same run's `transform` job: bronze pipeline, `dbt source freshness`, `dbt build` (silver and gold, with tests) |
 
 ## Volumes of data
 

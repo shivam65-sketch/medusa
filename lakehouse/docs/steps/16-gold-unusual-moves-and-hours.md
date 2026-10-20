@@ -1,6 +1,6 @@
 # Step 16: Gold for unusual moves and hour-of-day patterns
 
-[← Lakehouse home](../../README.md) · [← Step 15](15-backfill.md)
+[← Lakehouse home](../../README.md) · [← Step 15](15-backfill.md) · Next: [Step 17 →](17-daily-chain.md)
 
 | | |
 |---|---|

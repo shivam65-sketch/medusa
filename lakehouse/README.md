@@ -16,7 +16,7 @@ flowchart LR
   subgraph D["Databricks Free Edition · catalog market"]
     C --> E["Bronze<br>Lakeflow pipeline + Auto Loader"]
     E --> F["Silver<br>dbt models"]
-    F --> G["Gold<br>dbt models (in progress)"]
+    F --> G["Gold<br>dbt models"]
     G --> H["AI/BI dashboard + Genie (planned)"]
   end
   G -.->|daily copy, planned| I["MEDUSA Markets page<br>Cloudflare"]
@@ -27,7 +27,7 @@ flowchart LR
 | Landing | Binance's files, unchanged apart from unzip + gzip | [`ingest/download_binance.py`](ingest/download_binance.py) run by GitHub Actions |
 | Bronze | Every file line as a row, all columns as text, plus lineage | [`pipelines/bronze/`](pipelines/bronze/) (Lakeflow Declarative Pipeline) |
 | Silver | Typed, checked facts and dimensions | [`dbt/models/silver/`](dbt/models/silver/) (dbt Core) |
-| Gold | Daily tables the dashboards read | [`dbt/models/gold/`](dbt/models/gold/) (dbt Core, in progress) |
+| Gold | Daily tables the dashboards read | [`dbt/models/gold/`](dbt/models/gold/) (dbt Core) |
 
 ## Documentation
 
@@ -59,7 +59,8 @@ flowchart LR
 | [14. Gold: market_daily and data_health](docs/steps/14-gold-market-and-health.md) | The whole market per day, and how complete each day's data is | Done |
 | [15. Backfill](docs/steps/15-backfill.md) | Load 30 past days through the whole pipeline (GitHub Actions matrix + reusable workflow) | Done |
 | [16. Gold: unusual_moves and hour_profile](docs/steps/16-gold-unusual-moves-and-hours.md) | Each coin's day against its own history; hour-of-day patterns | Done |
-| 17. Daily chain | Every morning: download → landing → bronze → dbt, all from GitHub Actions | Next |
+| [17. Daily chain](docs/steps/17-daily-chain.md) | Every morning: download → landing → bronze → dbt, all from GitHub Actions | Done |
+| 18. Dashboard | Analysis of yesterday and of history, read from the gold tables | Next |
 
 ## Folder layout
 
@@ -75,6 +76,7 @@ lakehouse/
 └─ .gitignore                keeps downloaded data and secrets out of Git
 ```
 
-The daily workflow lives at the repository root in
-[`.github/workflows/lakehouse-daily.yml`](../.github/workflows/lakehouse-daily.yml), because that is
-the only place GitHub looks for workflows.
+The workflows live at the repository root in [`.github/workflows/`](../.github/workflows/), because
+that is the only place GitHub looks for them: `lakehouse-daily.yml` (every day at 06:00 UTC),
+`lakehouse-backfill.yml` (past days), and the two they share, `lakehouse-load-day.yml` (download,
+check, upload) and `lakehouse-transform.yml` (bronze, freshness, dbt build).

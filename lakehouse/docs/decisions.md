@@ -24,6 +24,7 @@ entry replaces it and the old one is marked *Superseded*.
 | 014 | [DOUBLE, not DECIMAL, for prices and volumes](#adr-014-double-not-decimal-for-prices-and-volumes) | Accepted |
 | 015 | [Liquid clustering instead of partitions](#adr-015-liquid-clustering-instead-of-partitions) | Accepted |
 | 016 | [Coin history from the candles, with a grace period](#adr-016-coin-history-from-the-candles-with-a-grace-period) | Accepted |
+| 017 | [Orchestrate the daily chain in GitHub Actions](#adr-017-orchestrate-the-daily-chain-in-github-actions) | Accepted |
 
 ---
 
@@ -263,4 +264,22 @@ every change (SCD Type 2).
 **Consequences:** No extra source to maintain. A delisting appears in the history up to 3 days
 late, and `valid_from` times are when the snapshot ran, not the exchange's exact listing moment.
 Loading older history would move `first_candle_date` earlier and record that as a new version.
+
+## ADR-017: Orchestrate the daily chain in GitHub Actions
+
+**Status:** Accepted, 2026-10-20
+
+**Context:** After each upload, bronze, a freshness check and dbt must run in order. A Lakeflow Job
+could chain the pipeline and a dbt task, but whether Free Edition allows the dbt task type is
+unconfirmed ([ADR-010](#adr-010-lakeflow-pipeline-for-bronze-dbt-for-silver-and-gold)), and a
+job-side dbt profile would need the workspace address and warehouse id in the repository.
+
+**Decision:** A reusable workflow, `lakehouse-transform.yml`, runs `databricks bundle run bronze`,
+then `dbt source freshness` and `dbt build`. The daily load and the backfill call it after their
+uploads succeed; it can also be started by hand. The warehouse's HTTP path is looked up by name on
+every run and masked in the log.
+
+**Consequences:** The whole chain lives in one place, with one set of secrets and one failure email.
+dbt is installed on every run (pip's cache keeps that quick). Everything depends on GitHub's
+schedule; if a Databricks-side dbt task becomes possible, the transform can move there.
 
