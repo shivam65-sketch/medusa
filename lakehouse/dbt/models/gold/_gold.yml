@@ -142,3 +142,67 @@ models:
           - accepted_values:
               arguments:
                 values: ['complete', 'check']
+
+  - name: unusual_moves
+    description: >
+      Gold: coin-days that were unusual for that coin, compared with the coin's own previous 30
+      trading days (z-scores). Unusual = return, volume (log scale) or realised volatility 3 or more
+      standard deviations from normal. Needs at least 20 days of history. Rebuilt every run.
+    columns:
+      - name: symbol
+        description: Binance symbol.
+        data_tests: [not_null]
+      - name: trade_date
+        description: The UTC day.
+        data_tests: [not_null]
+      - name: return_1d
+        description: The day's return (fraction).
+      - name: return_z
+        description: How many standard deviations the return was from the coin's 30-day average.
+      - name: quote_volume
+        description: USDT traded that day.
+      - name: volume_z
+        description: Standard deviations of log volume above or below the 30-day average.
+      - name: realized_volatility_1d
+        description: The day's realised volatility.
+      - name: volatility_z
+        description: Standard deviations of realised volatility from the 30-day average.
+      - name: taker_buy_share
+        description: Share of the volume that was aggressive buying.
+      - name: history_days
+        description: Days of history the scores are based on (20 to 30).
+      - name: reasons
+        description: Why the day is unusual, e.g. 'big rise, volume surge, volatility spike'.
+        data_tests: [not_null]
+
+  - name: hour_profile
+    description: >
+      Gold: each coin's hour-of-day pattern over its whole history, one row per coin per UTC hour.
+      Rebuilt every run from fct_candle_1h.
+    columns:
+      - name: symbol
+        description: Binance symbol.
+        data_tests: [not_null]
+      - name: utc_hour
+        description: Hour of the day, 0 to 23 (UTC).
+        data_tests: [not_null]
+      - name: days
+        description: Days of history behind the row.
+      - name: first_date
+        description: First day in the history.
+      - name: last_date
+        description: Last day in the history.
+      - name: avg_return
+        description: Average return within the hour (close / open - 1).
+      - name: sd_return
+        description: Standard deviation of the hour's returns.
+      - name: t_stat_return
+        description: avg_return / (sd_return / sqrt(days)). Roughly, below 2 either way could easily be chance.
+      - name: avg_abs_return
+        description: Average size of the hour's move, up or down.
+      - name: avg_volume_share
+        description: Average share of the day's volume traded in this hour.
+      - name: avg_quote_volume
+        description: Average USDT traded in this hour.
+      - name: avg_taker_buy_share
+        description: Average share of aggressive buying in this hour.
