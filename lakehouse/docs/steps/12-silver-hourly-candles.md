@@ -1,6 +1,6 @@
 # Step 12: Silver hourly candles
 
-[← Lakehouse home](../../README.md) · [← Step 11](11-dim-coin.md)
+[← Lakehouse home](../../README.md) · [← Step 11](11-dim-coin.md) · Next: [Step 13 →](13-gold-coin-daily.md)
 
 | | |
 |---|---|

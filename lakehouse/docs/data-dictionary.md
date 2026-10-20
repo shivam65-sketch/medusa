@@ -178,6 +178,29 @@ WHERE status = 'trading'
 `market.silver.int_coin_status` is the view the snapshot reads: each coin's state now, worked out
 from `fct_candle_1m`.
 
-## Gold
+## Gold: `market.gold.coin_daily`
 
-Planned (dbt). The planned tables are listed in [Architecture](architecture.md#data-flow).
+One row per coin per UTC day ([model](../dbt/models/gold/coin_daily.sql)); clustered by `trade_date`,
+`symbol`. Returns and changes are fractions (0.05 = +5%). Key (`symbol`, `trade_date`).
+
+| Column | Meaning |
+|---|---|
+| `symbol`, `trade_date` | Coin and UTC day |
+| `open`, `high`, `low`, `close` | The day's prices (USDT) |
+| `return_1d` | close / previous day's close − 1; empty on a coin's first day and after a gap |
+| `range_1d` | (high − low) / open |
+| `volume`, `quote_volume`, `trades` | Traded in the coin, in USDT, number of trades |
+| `taker_buy_share` | Share of volume that was aggressive buying (0–1) |
+| `realized_volatility_1d` | √(Σ squared 1-minute log returns), not annualised |
+| `max_move_1m` | Biggest single 1-minute move, up or down |
+| `open_interest_open_usdt`, `open_interest_close_usdt`, `open_interest_change_1d` | Open interest at the first and last snapshot, and the change; empty when Binance has no metrics for the coin |
+| `avg_taker_buy_sell_ratio`, `avg_top_trader_position_ratio`, `avg_account_long_short_ratio` | Day averages of the 5-minute ratios |
+| `minutes`, `zero_volume_minutes`, `metric_snapshots` | Completeness: 1,440 minutes and 288 snapshots when complete |
+| `last_bronze_loaded_at` | Newest bronze load time behind the day |
+
+**What the data looks like:** 872 coins a day (744 with open interest). On 2026-10-19: 431 up, 306
+down, 135 unchanged; median realised volatility 3.7%.
+
+## Gold: other tables
+
+Planned: `market_daily`, `data_health`, `unusual_moves`, `hour_profile`. The planned tables are listed in [Architecture](architecture.md#data-flow).

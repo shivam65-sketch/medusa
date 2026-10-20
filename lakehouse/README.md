@@ -55,7 +55,8 @@ flowchart LR
 | [10. Silver metrics](docs/steps/10-silver-metrics.md) | Typed, incremental `fct_metrics_5m` with tests | Done |
 | [11. Coin dimension](docs/steps/11-dim-coin.md) | `dim_coin` with full history (SCD Type 2) from a dbt snapshot | Done |
 | [12. Hourly candles](docs/steps/12-silver-hourly-candles.md) | `fct_candle_1h` rolled up from the 1-minute candles | Done |
-| 13. Gold: coin_daily | One row per coin per day: returns, volatility, volume, taker share, open interest | Next |
+| [13. Gold: coin_daily](docs/steps/13-gold-coin-daily.md) | One row per coin per day: returns, volatility, volume, taker share, open interest | Done |
+| 14. Gold: market_daily and data_health | The whole market per day, and how complete each day's data is | Next |
 
 ## Folder layout
 
