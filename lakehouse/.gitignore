@@ -1,0 +1,8 @@
+# Databricks deploy working files
+.databricks/
+# Secrets never go in Git
+.env
+# Downloaded market data stays out of Git
+data/
+*.zip
+*.csv
