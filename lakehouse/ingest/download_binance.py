@@ -9,31 +9,42 @@ For each coin and dataset, the script:
 
 A file that is already saved is skipped, so running it twice is safe.
 A day Binance hasn't published yet, or a coin that wasn't trading, is reported as missing.
+With --symbols ALL, the list of coins comes from Binance's archive itself: every USDT
+perpetual it has ever published (coins delisted long ago simply come back as missing).
 
 Standard library only: nothing to install.
 
   python download_binance.py --symbols BTCUSDT --date 2026-10-19
-  python download_binance.py --symbols BTCUSDT,ETHUSDT      (date defaults to yesterday, UTC)
+  python download_binance.py --symbols ALL                  (date defaults to yesterday, UTC)
 """
 import argparse
+import concurrent.futures
 import datetime as dt
 import gzip
 import hashlib
 import io
 import pathlib
+import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 import zipfile
 
 BASE_URL = "https://data.binance.vision/data/futures/um/daily"
+# The archive's file listing (it is an Amazon S3 bucket; the website reads the same listing).
+LISTING_URL = "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision"
 
 # Dataset name -> where that day's zip file lives under BASE_URL.
 DATASETS = {
     "klines_1m": "klines/{symbol}/1m/{symbol}-1m-{day}.zip",
     "metrics": "metrics/{symbol}/{symbol}-metrics-{day}.zip",
 }
+
+# USDT-margined perpetuals only: no USDC/BUSD pairs, no dated futures like BTCUSDT_250926.
+PERPETUAL = re.compile(r"^[A-Z0-9]+USDT$")
 
 # lakehouse/data/landing (the data/ folder is in .gitignore, so downloads never reach Git).
 LANDING = pathlib.Path(__file__).resolve().parent.parent / "data" / "landing"
@@ -56,6 +67,24 @@ def fetch(url):
             if attempt == 3:
                 raise
         time.sleep(2 * attempt)
+
+
+def all_perpetuals():
+    """Every USDT perpetual that has a folder in the archive. The listing comes in
+    pages of up to 1,000 entries, so keep asking until it says it isn't truncated."""
+    prefix = "data/futures/um/daily/klines/"
+    ns = {"s3": "http://s3.amazonaws.com/doc/2006-03-01/"}
+    symbols, marker = [], ""
+    while True:
+        query = urllib.parse.urlencode({"delimiter": "/", "prefix": prefix, "marker": marker})
+        page = ET.fromstring(fetch(f"{LISTING_URL}?{query}"))
+        for p in page.findall("s3:CommonPrefixes/s3:Prefix", ns):
+            symbol = p.text[len(prefix):].strip("/")
+            if PERPETUAL.match(symbol):
+                symbols.append(symbol)
+        if page.findtext("s3:IsTruncated", namespaces=ns) != "true":
+            return sorted(symbols)
+        marker = page.findtext("s3:NextMarker", namespaces=ns)
 
 
 def download_one(dataset, symbol, day):
@@ -94,31 +123,41 @@ def download_one(dataset, symbol, day):
 
 def main():
     parser = argparse.ArgumentParser(description="Download Binance USD-M futures daily files.")
-    parser.add_argument("--symbols", required=True, help="comma-separated, e.g. BTCUSDT,ETHUSDT")
+    parser.add_argument("--symbols", required=True, help="ALL, or comma-separated, e.g. BTCUSDT,ETHUSDT")
     parser.add_argument("--date", help="day to download, YYYY-MM-DD in UTC (default: yesterday)")
     parser.add_argument("--datasets", default=",".join(DATASETS), help="default: " + ",".join(DATASETS))
+    parser.add_argument("--workers", type=int, default=16, help="downloads at the same time (default: 16)")
     args = parser.parse_args()
 
     if args.date:
         day = dt.date.fromisoformat(args.date).isoformat()
     else:
         day = (dt.datetime.now(dt.timezone.utc).date() - dt.timedelta(days=1)).isoformat()
-    symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     datasets = [d.strip() for d in args.datasets.split(",") if d.strip()]
     unknown = [d for d in datasets if d not in DATASETS]
     if unknown:
         parser.error("unknown dataset(s): " + ", ".join(unknown))
+    if args.symbols.strip().upper() == "ALL":
+        symbols = all_perpetuals()
+        print(f"{len(symbols)} USDT perpetuals in Binance's archive")
+    else:
+        symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
 
+    # Downloads wait on the network, not the CPU, so running several at once is much faster.
+    jobs = [(dataset, symbol) for dataset in datasets for symbol in symbols]
     counts = {"saved": 0, "skipped": 0, "missing": 0, "failed": 0}
-    for dataset in datasets:
-        for symbol in symbols:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
+        futures = {pool.submit(download_one, d, s, day): (d, s) for d, s in jobs}
+        for future in concurrent.futures.as_completed(futures):
+            dataset, symbol = futures[future]
             try:
-                result = download_one(dataset, symbol, day)
-                print(f"{result:<8} {dataset:<10} {symbol} {day}")
+                result = future.result()
             except Exception as e:
                 result = "failed"
                 print(f"FAILED   {dataset:<10} {symbol} {day}: {e}", file=sys.stderr)
             counts[result] += 1
+            if result != "failed" and len(symbols) <= 20:  # a full run would print hundreds of lines
+                print(f"{result:<8} {dataset:<10} {symbol} {day}")
 
     print(f"\n{day}: " + ", ".join(f"{n} {name}" for name, n in counts.items()))
     return 1 if counts["failed"] else 0
