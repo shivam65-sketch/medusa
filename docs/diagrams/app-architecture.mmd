@@ -1,0 +1,31 @@
+%%{init: {"theme": "neutral"}}%%
+flowchart TB
+  subgraph B["Browser (phone or computer): the page and all heavy computing"]
+    direction LR
+    J["Journal page<br>index.html, app.js, stats.js<br>devtools.js (loaded when opened)"]
+    LAB["MEDUSA Lab (loaded when opened)<br>main.js, data.js, report.js<br>standalone.js, learn.js<br>chart.js, sim.js, console.js, editor.js"]
+    PY["py-worker.js + Pyodide<br>Python 3.14, numpy<br>engine, indicators, strategies<br>network switched off"]
+    J -->|"opens"| LAB
+    LAB -.->|"backtests run here"| PY
+  end
+  subgraph CF["Cloudflare free plan: storage and the API"]
+    direction LR
+    A["Static files<br>public/: page, Lab, Pyodide"]
+    S["Secret<br>ENCRYPTION_KEY"]
+    W["Worker: src/worker.js<br>auth, vault, sync, trades<br>coindcx, lab, logs, logos"]
+    D[("D1 (SQLite)<br>accounts, orders, trades<br>notes, Lab lists, logs")]
+    K[("Workers KV: LAB<br>downloads/ uploads/ results/")]
+    S -.->|"encrypts"| W
+    W --> D
+    W --> K
+  end
+  subgraph X["Outside services"]
+    direction LR
+    CD["CoinDCX private API<br>read-only history"]
+    CP["CoinDCX public data<br>candles, USDT/INR"]
+    LG["Coin logos<br>CoinCap, CoinGecko"]
+    BN["Binance public data<br>candles, funding, archives"]
+  end
+  B ==>|"pages and scripts, /api/* with the session cookie"| CF
+  CF ==>|"import with the decrypted key, trade candles, USDT/INR, logos"| X
+  B ==>|"Lab candles, straight from the browser to Binance"| X

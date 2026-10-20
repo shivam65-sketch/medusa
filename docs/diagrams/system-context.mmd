@@ -1,0 +1,26 @@
+%%{init: {"theme": "neutral"}}%%
+flowchart LR
+  U(["Traders and researchers<br>phone, tablet or computer"])
+  subgraph APP["MEDUSA app (Cloudflare free plan)"]
+    direction TB
+    FE["Single-page app<br>Journal, Lab, Dev tools"]
+    API["Worker API<br>accounts, import, Lab files, logs"]
+    DB[("D1 (SQLite)<br>accounts, trades, lists, logs")]
+    KV[("Workers KV<br>candle files, results")]
+    FE --> API
+    API --> DB
+    API --> KV
+  end
+  subgraph LH["Market data lakehouse"]
+    direction TB
+    GA["GitHub Actions<br>daily at 06:00 UTC"]
+    DBX[("Databricks Free Edition<br>landing, bronze, silver, gold")]
+    GA --> DBX
+  end
+  CDX["CoinDCX<br>read-only trade history"]
+  BIN["Binance<br>public market data"]
+  U --> FE
+  API -->|"import (read-only key)"| CDX
+  FE -->|"candles for the Lab"| BIN
+  GA -->|"daily archive files"| BIN
+  DBX -.->|"gold copy (planned)"| DB

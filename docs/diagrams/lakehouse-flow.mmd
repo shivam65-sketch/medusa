@@ -1,0 +1,25 @@
+%%{init: {"theme": "neutral"}}%%
+flowchart TB
+  BIN["Binance public archive<br>data.binance.vision<br>about 870 USDT perpetuals"]
+  subgraph GH["GitHub Actions"]
+    direction LR
+    LD["Load one day (reusable workflow)<br>list coins, download, SHA-256 check,<br>unzip, gzip, upload with retries"]
+    TR["Transform<br>bronze pipeline, dbt source freshness,<br>dbt build"]
+    LD --> TR
+  end
+  subgraph DBX["Databricks Free Edition: catalog market"]
+    direction LR
+    L[("landing<br>volume binance<br>date=YYYY-MM-DD folders")]
+    BR[("bronze<br>klines_1m, metrics<br>streaming tables")]
+    SI[("silver<br>fct_candle_1m, fct_metrics_5m<br>fct_candle_1h, dim_coin")]
+    GO[("gold<br>coin_daily, market_daily, data_health<br>unusual_moves, hour_profile")]
+    L -->|"Auto Loader"| BR
+    BR -->|"dbt incremental MERGE"| SI
+    SI -->|"dbt"| GO
+  end
+  BIN --> LD
+  LD -->|"databricks fs cp"| L
+  TR -.->|"runs"| BR
+  TR -.->|"runs"| SI
+  GO --> DASH["AI/BI dashboard<br>(next step)"]
+  GO -.-> WEB["MEDUSA Markets page<br>(planned)"]

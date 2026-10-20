@@ -1,0 +1,7 @@
+%%{init: {"theme": "neutral"}}%%
+flowchart LR
+  EK["ENCRYPTION_KEY<br>Cloudflare secret store<br>never readable"]
+  EK --> PEP["HMAC pepper"] --> PW["Password<br>PBKDF2-SHA256, 25,000 rounds,<br>random salt"]
+  EK --> HK["HKDF key derivation"] --> AES["CoinDCX key and secret<br>AES-256-GCM<br>account number as associated data"]
+  EK --> TOTP["Two-step login secret<br>stored encrypted"]
+  C["Session cookie<br>random 256-bit token"] --> SH["SHA-256 in D1<br>token itself never stored"]

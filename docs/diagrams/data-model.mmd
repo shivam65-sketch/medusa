@@ -1,0 +1,43 @@
+%%{init: {"theme": "neutral"}}%%
+flowchart LR
+  U[("users<br>one row per account")]
+  subgraph ACC["Accounts"]
+    direction TB
+    se["sessions<br>SHA-256 of cookie token"]
+    kv["kv<br>settings, coindcx key,<br>import, import_lock"]
+  end
+  subgraph JRN["Journal"]
+    direction TB
+    o["orders<br>imported fills"]
+    tx["txs<br>P&L, fee, funding records"]
+    tr["trades<br>closed round trips"]
+    tg["triggers<br>stop loss, take profit"]
+    an["annotations<br>trade notes"]
+    dy["days<br>day journal"]
+    o --> tr
+    tx --> tr
+  end
+  subgraph LABG["Lab and logs"]
+    direction TB
+    ds["lab_datasets<br>Downloads, Uploads"]
+    rn["lab_runs<br>Results"]
+    st["lab_strategies<br>own strategy code"]
+    lg["app_logs<br>Logs"]
+  end
+  subgraph KVS["Workers KV (binding LAB)"]
+    direction TB
+    k1["downloads/user/id"]
+    k2["uploads/user/id"]
+    k3["results/user/id"]
+  end
+  subgraph SH["Shared, no user_id"]
+    direction TB
+    LO["logos<br>coin images"]
+    AT["attempts<br>rate-limit counters"]
+  end
+  U --> ACC
+  U --> JRN
+  U --> LABG
+  ds -.->|"file body"| k1
+  ds -.->|"file body"| k2
+  rn -.->|"result body"| k3

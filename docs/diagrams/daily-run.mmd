@@ -1,0 +1,19 @@
+%%{init: {"theme": "neutral"}}%%
+sequenceDiagram
+  autonumber
+  participant S as GitHub schedule (06:00 UTC)
+  participant L as Load one day job
+  participant B as Binance archive
+  participant V as Landing volume
+  participant T as Transform job
+  participant P as Bronze pipeline
+  participant W as SQL warehouse (dbt)
+  S->>L: start, date = yesterday (UTC)
+  L->>B: list USDT perpetuals, download zip + .CHECKSUM
+  L->>L: verify SHA-256, unzip, gzip, atomic rename
+  L->>V: databricks fs cp --overwrite (up to 3 attempts)
+  L-->>T: upload succeeded (needs: load)
+  T->>P: databricks bundle run bronze
+  P->>V: Auto Loader reads only new files
+  T->>W: dbt source freshness (warn 36 h, error 72 h)
+  T->>W: dbt build (models, snapshot, tests)

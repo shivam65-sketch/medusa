@@ -1,0 +1,31 @@
+%%{init: {"theme": "neutral"}}%%
+flowchart LR
+  subgraph BRZ["Bronze (Lakeflow pipeline)"]
+    bk[("klines_1m")]
+    bm[("metrics")]
+  end
+  subgraph SLV["Silver (dbt)"]
+    c1["fct_candle_1m<br>coin x minute"]
+    m5["fct_metrics_5m<br>coin x 5 minutes"]
+    c1h["fct_candle_1h<br>coin x hour"]
+    ics["int_coin_status<br>view"]
+    dc["dim_coin<br>snapshot, SCD Type 2"]
+  end
+  subgraph GLD["Gold (dbt)"]
+    cd["coin_daily<br>coin x day"]
+    md["market_daily<br>day"]
+    dh["data_health<br>day"]
+    um["unusual_moves<br>coin x day, flagged"]
+    hp["hour_profile<br>coin x UTC hour"]
+  end
+  bk --> c1
+  bm --> m5
+  c1 --> c1h
+  c1 --> ics --> dc
+  c1h --> cd
+  c1 --> cd
+  m5 --> cd
+  cd --> md
+  cd --> dh
+  cd --> um
+  c1h --> hp

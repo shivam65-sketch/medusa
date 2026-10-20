@@ -1,0 +1,9 @@
+%%{init: {"theme": "neutral"}}%%
+flowchart TB
+  S(["Import pressed"]) --> K{"Import lock free?<br>import_lock, 30 s"}
+  K -->|"no"| X(["Already running"])
+  K -->|"yes"| O["1. orders<br>pages of 100, up to 6 per call<br>buy side, then sell side"]
+  O --> T["2. txs<br>P&L, fee and funding records<br>inserted once by key"]
+  T --> R["3. rebuild<br>closed trades for changed coins<br>10 coins per call"]
+  R --> G["4. trig<br>stop loss and take profit orders<br>never fails the import"]
+  G --> D(["done<br>newTrades, newOrders saved"])
