@@ -231,6 +231,32 @@ Is each day's data complete? One row per UTC day, rebuilt from `coin_daily` on e
 | `last_loaded_at` | Newest bronze load time behind the day |
 | `candle_status` | `complete`, or `check` when a coin is missing minutes or dropped out |
 
-## Gold: other tables
+## Gold: `market.gold.unusual_moves`
 
-Planned: `unusual_moves`, `hour_profile`. The planned tables are listed in [Architecture](architecture.md#data-flow).
+Coin-days that were unusual for that coin, rebuilt from `coin_daily` on every run
+([model](../dbt/models/gold/unusual_moves.sql)). Baseline: the coin's previous 30 trading days, not
+including the day itself; at least 20 days of history needed. Key (`symbol`, `trade_date`).
+
+| Column | Meaning |
+|---|---|
+| `return_1d`, `return_z` | The day's return, and how many standard deviations it was from the coin's 30-day average |
+| `quote_volume`, `volume_z` | USDT traded, and its z-score on a log scale |
+| `realized_volatility_1d`, `volatility_z` | The day's realised volatility and its z-score |
+| `taker_buy_share` | Share of aggressive buying |
+| `history_days` | Days behind the scores (20 to 30) |
+| `reasons` | Why it's unusual: `big rise` / `big fall` (|return z| ≥ 3), `volume surge` (volume z ≥ 3), `volatility spike` (volatility z ≥ 3) |
+
+## Gold: `market.gold.hour_profile`
+
+Each coin's hour-of-day pattern over its whole history, rebuilt from `fct_candle_1h` on every run
+([model](../dbt/models/gold/hour_profile.sql)). Key (`symbol`, `utc_hour`).
+
+| Column | Meaning |
+|---|---|
+| `utc_hour` | 0 to 23 (UTC) |
+| `days`, `first_date`, `last_date` | History behind the row |
+| `avg_return`, `sd_return` | Average and spread of the return within the hour (close / open − 1) |
+| `t_stat_return` | avg_return ÷ (sd_return ÷ √days); roughly, under 2 either way could be chance |
+| `avg_abs_return` | Average size of the hour's move |
+| `avg_volume_share`, `avg_quote_volume` | Share of the day's volume in this hour; USDT traded in it |
+| `avg_taker_buy_share` | Average share of aggressive buying | The planned tables are listed in [Architecture](architecture.md#data-flow).

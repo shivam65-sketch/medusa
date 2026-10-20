@@ -48,6 +48,9 @@ The data engineering terms used in this project, in plain words.
 | **Storage / compute separation** | Data sits in storage; engines (warehouses) start up to work on it and can be stopped | Databricks |
 | **Streaming table** | A table that is filled incrementally from a source, processing only new data each run | `bronze.klines_1m`, `bronze.metrics` |
 | **Survivorship bias** | Results that look better than reality because failed items (here, delisted coins) were left out | Why `dim_coin` keeps history |
+| **t-statistic** | average ÷ (standard deviation ÷ √n): whether a pattern is bigger than chance | `hour_profile.t_stat_return` |
 | **Unity Catalog** | Databricks' governance layer: names, permissions and lineage for all data | `market` catalog |
 | **Volume** | A Unity Catalog folder for files (not rows) | `market.landing.binance` |
 | **VWAP** | Volume-weighted average price: total USDT traded ÷ total coins traded | `fct_candle_1h.vwap` |
+| **Window frame** | The rows a window function looks at, e.g. the 30 rows before the current one | `unusual_moves` |
+| **z-score** | How many standard deviations a value is from the average | `unusual_moves` |

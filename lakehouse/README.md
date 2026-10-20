@@ -58,7 +58,8 @@ flowchart LR
 | [13. Gold: coin_daily](docs/steps/13-gold-coin-daily.md) | One row per coin per day: returns, volatility, volume, taker share, open interest | Done |
 | [14. Gold: market_daily and data_health](docs/steps/14-gold-market-and-health.md) | The whole market per day, and how complete each day's data is | Done |
 | [15. Backfill](docs/steps/15-backfill.md) | Load 30 past days through the whole pipeline (GitHub Actions matrix + reusable workflow) | Done |
-| 16. Gold: unusual_moves and hour_profile | Each coin's day against its own history; hour-of-day patterns | Next |
+| [16. Gold: unusual_moves and hour_profile](docs/steps/16-gold-unusual-moves-and-hours.md) | Each coin's day against its own history; hour-of-day patterns | Done |
+| 17. Daily chain | Every morning: download → landing → bronze → dbt, all from GitHub Actions | Next |
 
 ## Folder layout
 
