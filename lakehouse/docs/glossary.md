@@ -11,6 +11,7 @@ The data engineering terms used in this project, in plain words.
 | **Atomic write** | Writing a file under a temporary name and renaming it when complete, so a half-written file never appears | The downloader |
 | **Auto Loader** | Databricks' incremental file loader: it remembers which files it has loaded and reads only new ones | Bronze pipeline |
 | **Backfill** | Running the pipeline for past dates to load history | `lakehouse-backfill.yml` |
+| **Bitemporal** | Tracking both when something was true in the world and when the warehouse knew it | `dim_coin` after the backfill |
 | **Breadth** | The share of moving coins that went up | `market_daily.breadth` |
 | **Bronze / silver / gold** | The medallion layers: raw data, cleaned and typed data, business-ready tables | Schemas in `market` |
 | **Catalog** | Top level of Unity Catalog's `catalog.schema.table` names, roughly a database in SQL Server | `market` |

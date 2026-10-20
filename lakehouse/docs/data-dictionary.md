@@ -165,7 +165,7 @@ One row per **version** of a coin's description (SCD Type 2), kept by the dbt sn
 | `dbt_valid_to` | TIMESTAMP | When it stopped being true; 9999-12-31 for the current version |
 | `dbt_updated_at` | TIMESTAMP | When dbt recorded the version |
 
-Coins as of 2026-10-20: 872, all `trading`; 857 with multiplier 1, 12 with 1,000, 3 with 1,000,000.
+Coins as of 2026-10-20: 872, all `trading`; 857 with multiplier 1, 12 with 1,000, 3 with 1,000,000. After the 30-day backfill: 873 coins (one delisted on 2026-10-13 is `not trading`), and the 872 earlier coins have a second version because their `first_candle_date` moved to 2026-09-18 or their true listing day. Validity times are when the warehouse recorded each version, not market events.
 
 Which coins were trading at a given time:
 

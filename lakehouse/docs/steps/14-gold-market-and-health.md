@@ -1,6 +1,6 @@
 # Step 14: Gold for the whole market and for data health
 
-[← Lakehouse home](../../README.md) · [← Step 13](13-gold-coin-daily.md)
+[← Lakehouse home](../../README.md) · [← Step 13](13-gold-coin-daily.md) · Next: [Step 15 →](15-backfill.md)
 
 | | |
 |---|---|
