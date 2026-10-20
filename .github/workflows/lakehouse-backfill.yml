@@ -68,3 +68,10 @@ jobs:
       date: ${{ matrix.date }}
       upload_concurrency: 4
     secrets: inherit
+
+  # Once every day has uploaded: bronze, then dbt. If a day failed, this doesn't run; re-run the
+  # failed day, then start "Lakehouse transform" by hand.
+  transform:
+    needs: load
+    uses: ./.github/workflows/lakehouse-transform.yml
+    secrets: inherit

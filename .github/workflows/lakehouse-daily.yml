@@ -1,6 +1,7 @@
 # MEDUSA lakehouse: daily load.
-# Every day at 06:00 UTC, loads yesterday's Binance futures files into the Databricks landing
-# volume. The steps themselves are in lakehouse-load-day.yml. Runs on GitHub's servers.
+# Every day at 06:00 UTC: loads yesterday's Binance futures files into the Databricks landing
+# volume (lakehouse-load-day.yml), then refreshes bronze, silver and gold
+# (lakehouse-transform.yml). Runs on GitHub's servers.
 name: Lakehouse daily load
 
 on:
@@ -27,4 +28,10 @@ jobs:
     uses: ./.github/workflows/lakehouse-load-day.yml
     with:
       date: ${{ inputs.date || '' }}
+    secrets: inherit
+
+  # Only after the upload succeeded: bronze, then dbt (silver and gold).
+  transform:
+    needs: load
+    uses: ./.github/workflows/lakehouse-transform.yml
     secrets: inherit
