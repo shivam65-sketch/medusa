@@ -25,6 +25,7 @@ All `databricks` commands run from the `lakehouse/` folder.
 | See what's in the landing volume | `databricks fs ls dbfs:/Volumes/market/landing/binance/klines_1m` |
 | Deploy a change to a job or pipeline | `databricks bundle validate`, then `databricks bundle deploy` |
 | Re-create the catalog, schemas and volume | `databricks bundle run setup_ddl` (harmless if they already exist) |
+| Check the dbt connection | From `lakehouse/dbt/`: `../.venv/Scripts/dbt debug` |
 | Test the downloader locally | `cd lakehouse/ingest` then `python download_binance.py --symbols BTCUSDT --date 2026-10-19` |
 
 ## Checking a day is complete
@@ -54,6 +55,7 @@ A complete day has about 872 coins × 1,440 rows. A data-health table will autom
 | Credential | Where it lives | Expires | Renew by |
 |---|---|---|---|
 | CLI token (your computer) | `~/.databrickscfg` (outside the repository) | 90 days after creation | Generate a new token in Databricks, then run `databricks configure` |
+| dbt token (`medusa-dbt-local`) | Windows user environment variable `DBT_ENV_SECRET_DATABRICKS_TOKEN` | 90 days after creation | Generate a new token, edit the variable, open a new terminal |
 | GitHub Actions token (`github-actions-medusa`) | GitHub secret `DATABRICKS_TOKEN` | ~18 January 2027 | Generate a new token in Databricks → GitHub Settings → Secrets → `DATABRICKS_TOKEN` → update → revoke the old token |
 | Workspace address | GitHub secret `DATABRICKS_HOST` | Never | Only if the workspace changes |
 

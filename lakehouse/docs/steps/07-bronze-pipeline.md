@@ -1,6 +1,6 @@
 # Step 7: Bronze layer
 
-[← Lakehouse home](../../README.md) · [← Step 6](06-daily-github-action.md)
+[← Lakehouse home](../../README.md) · [← Step 6](06-daily-github-action.md) · Next: [Step 8 →](08-dbt-setup.md)
 
 | | |
 |---|---|

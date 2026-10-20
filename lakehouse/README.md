@@ -26,7 +26,7 @@ flowchart LR
 |---|---|---|
 | Landing | Binance's files, unchanged apart from unzip + gzip | [`ingest/download_binance.py`](ingest/download_binance.py) run by GitHub Actions |
 | Bronze | Every file line as a row, all columns as text, plus lineage | [`pipelines/bronze/`](pipelines/bronze/) (Lakeflow Declarative Pipeline) |
-| Silver | Typed, checked facts and dimensions | dbt (next step) |
+| Silver | Typed, checked facts and dimensions | [`dbt/`](dbt/) (dbt Core, in progress) |
 | Gold | Daily tables the dashboards read | dbt (planned) |
 
 ## Documentation
@@ -50,7 +50,8 @@ flowchart LR
 | [5. Every coin + upload](docs/steps/05-every-coin-and-upload.md) | All USDT perpetuals, uploaded to the landing volume | Done |
 | [6. Daily automation](docs/steps/06-daily-github-action.md) | GitHub Actions load at 06:00 UTC | Done |
 | [7. Bronze layer](docs/steps/07-bronze-pipeline.md) | First tables, loaded with Auto Loader | Done |
-| 8. Silver layer | dbt models, tests, coin history (SCD Type 2) | Next |
+| [8. dbt setup](docs/steps/08-dbt-setup.md) | dbt installed in a venv and connected to the SQL warehouse | Done |
+| 9. Silver candles | Typed, incremental `fct_candle_1m` with tests and source freshness | Next |
 
 ## Folder layout
 
@@ -61,6 +62,7 @@ lakehouse/
 ├─ sql/ddl/                  numbered, re-runnable DDL (catalog, schemas, volume)
 ├─ ingest/                   the downloader that GitHub Actions runs
 ├─ pipelines/bronze/         the bronze Lakeflow pipeline (SQL)
+├─ dbt/                      the dbt project for silver and gold (models, tests, macros)
 ├─ docs/                     everything linked above
 └─ .gitignore                keeps downloaded data and secrets out of Git
 ```
