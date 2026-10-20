@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: fct_metrics_5m
+    description: >
+      One row per coin per 5 minutes: Binance USD-M perpetual open interest and long/short ratios,
+      typed and de-duplicated. Times are UTC. Built incrementally from bronze.metrics. A full day
+      has 288 rows per coin, but Binance's files are often incomplete.
+    columns:
+      - name: symbol
+        description: Binance symbol, e.g. BTCUSDT.
+        data_tests: [not_null]
+      - name: metric_time
+        description: Time of the 5-minute snapshot (UTC).
+        data_tests: [not_null]
+      - name: metric_date
+        description: Day of the snapshot (UTC); used with symbol to cluster the table.
+        data_tests: [not_null]
+      - name: open_interest
+        description: Open interest, contracts still open, in the coin.
+        data_tests: [not_null]
+      - name: open_interest_usdt
+        description: Open interest in USDT.
+        data_tests: [not_null]
+      - name: top_trader_account_ratio
+        description: Top traders' long accounts divided by short accounts. Sometimes missing (NULL).
+      - name: top_trader_position_ratio
+        description: Top traders' long positions divided by short positions. Sometimes missing (NULL).
+      - name: account_long_short_ratio
+        description: All accounts, long divided by short. Sometimes missing (NULL).
+      - name: taker_buy_sell_ratio
+        description: Aggressive buy volume divided by aggressive sell volume. Sometimes missing (NULL).
+      - name: source_file
+        description: Landing file the row came from (lineage).
+      - name: bronze_loaded_at
+        description: When bronze loaded the row.
