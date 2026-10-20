@@ -1,0 +1,50 @@
+# MEDUSA lakehouse: load one day (a reusable workflow).
+# Downloads one day's Binance futures files (every USDT perpetual), checks their checksums, and
+# uploads them to the Databricks landing volume. It doesn't run on its own: the daily load and
+# the backfill both call it, so the steps live in one place.
+name: Lakehouse load one day
+
+on:
+  workflow_call:
+    inputs:
+      date:
+        description: "Day to load, YYYY-MM-DD (empty for yesterday, UTC)"
+        type: string
+        required: false
+        default: ""
+
+# The job only reads the repository; it never writes to it.
+permissions:
+  contents: read
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: lakehouse/ingest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      # The date goes through an environment variable, not straight into the command,
+      # so whatever is typed in the box can't be run as a command.
+      - name: Download and check Binance files
+        env:
+          DAY: ${{ inputs.date }}
+        run: python download_binance.py --symbols ALL ${DAY:+--date "$DAY"}
+
+      - name: Install the Databricks CLI
+        uses: databricks/setup-cli@v1.21.0
+
+      - name: Upload to the landing volume
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: databricks fs cp -r ../data/landing dbfs:/Volumes/market/landing/binance --overwrite --concurrency 16

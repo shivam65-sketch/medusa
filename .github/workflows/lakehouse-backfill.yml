@@ -1,0 +1,67 @@
+# MEDUSA lakehouse: backfill.
+# Loads a range of past days into the landing volume, one job per day, four at a time.
+# Started by hand from GitHub's Actions tab with a first and last day. Every day is loaded by the
+# same reusable workflow as the daily load, and loading a day twice is harmless.
+name: Lakehouse backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "First day, YYYY-MM-DD"
+        required: true
+      end:
+        description: "Last day, YYYY-MM-DD (at most 60 days after the first)"
+        required: true
+
+# The jobs only read the repository; they never write to it.
+permissions:
+  contents: read
+
+# Never run two backfills at the same time.
+concurrency:
+  group: lakehouse-backfill
+  cancel-in-progress: false
+
+jobs:
+  # Turns the two dates into a list of days for the next job.
+  days:
+    runs-on: ubuntu-latest
+    outputs:
+      dates: ${{ steps.list.outputs.dates }}
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - id: list
+        name: List the days
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        shell: python
+        run: |
+          import datetime as dt, json, os
+          start = dt.date.fromisoformat(os.environ["START"])
+          end = dt.date.fromisoformat(os.environ["END"])
+          days = (end - start).days + 1
+          if not 1 <= days <= 60:
+              raise SystemExit("Pick a range of 1 to 60 days, with the first day before the last.")
+          dates = [(start + dt.timedelta(n)).isoformat() for n in range(days)]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write("dates=" + json.dumps(dates) + "\n")
+          print(f"{days} days: {dates[0]} to {dates[-1]}")
+
+  # One job per day, four at a time; one failed day doesn't stop the others.
+  load:
+    needs: days
+    strategy:
+      max-parallel: 4
+      fail-fast: false
+      matrix:
+        date: ${{ fromJSON(needs.days.outputs.dates) }}
+    uses: ./.github/workflows/lakehouse-load-day.yml
+    with:
+      date: ${{ matrix.date }}
+    secrets: inherit
