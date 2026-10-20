@@ -212,3 +212,49 @@ models:
         description: Average USDT traded in this hour.
       - name: avg_taker_buy_share
         description: Average share of aggressive buying in this hour.
+
+  - name: coin_baseline
+    description: >
+      Gold: each coin's "normal" as of its latest day, one row per coin, for MEDUSA's live scanner.
+      Today's move = live price / last_close - 1; today's z-score = (today's move - avg_return_30d)
+      / sd_return_30d, unusual at 3 or more. The window is the coin's last 30 days with trades, up to
+      and including as_of_date. Rebuilt every run.
+    columns:
+      - name: symbol
+        description: Binance symbol.
+        data_tests: [unique, not_null]
+      - name: base_asset
+        description: The coin itself, from dim_coin, e.g. PEPE for 1000PEPEUSDT.
+      - name: multiplier
+        description: Coins per quoted unit, from dim_coin.
+      - name: status
+        description: trading or not trading, from dim_coin's current version.
+        data_tests: [not_null]
+      - name: as_of_date
+        description: The coin's latest day with trades; the baseline is "as of" the end of this day.
+        data_tests: [not_null]
+      - name: last_close
+        description: Close on as_of_date, the reference price for today's move.
+        data_tests: [not_null]
+      - name: history_days
+        description: Daily returns behind the averages (0 to 30). The scanner scores a coin from 20, like unusual_moves.
+      - name: avg_return_30d
+        description: Average daily return over the window.
+      - name: sd_return_30d
+        description: Standard deviation of the daily return over the window.
+      - name: avg_abs_return_30d
+        description: Average size of a day's move, up or down.
+      - name: avg_range_30d
+        description: Average (high - low) / open.
+      - name: avg_volatility_30d
+        description: Average daily realised volatility.
+      - name: sd_volatility_30d
+        description: Standard deviation of daily realised volatility.
+      - name: avg_quote_volume_30d
+        description: Average USDT traded per day.
+      - name: avg_log_volume_30d
+        description: Average of ln(USDT traded per day).
+      - name: sd_log_volume_30d
+        description: Standard deviation of ln(USDT traded per day).
+      - name: avg_abs_hour_return_30d
+        description: Average size of a one-hour move on the same days, to compare with a round trip's fees.
