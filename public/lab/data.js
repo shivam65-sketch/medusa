@@ -403,18 +403,23 @@ export async function fromBinance({ market, symbol, interval, start, end, fundin
   const months = monthsBetween(lo, hi);
   let done = 0;
   const parts = await pool(months, 4, async (mo) => {
-    const part = new Cols();
+    const from = Math.max(mo.from, lo), to = Math.min(mo.to, hi);
+    const expected = Math.ceil((to - from) / step);   // candles this month should hold
+    let part = new Cols();
     let got = false;
     if (mo.to <= now - 3_600_000) {
       try {
         const r = await fetch(`${BINANCE[market].archive}/monthly/klines/${symbol}/${interval}/${symbol}-${interval}-${mo.ym}.zip`, { signal, credentials: 'omit' });
         if (r.ok) {
           for (const { text } of await unzip(new Uint8Array(await r.arrayBuffer()))) klineCSV(text, part);
-          got = part.length > 0;
+          got = part.length >= expected;               // a short archive file has gaps
         }
       } catch (e) { if (isCancel(e)) throw e; }
     }
-    if (!got) await binanceRest(market, symbol, interval, Math.max(mo.from, lo), Math.min(mo.to, hi), signal, part);
+    if (!got) {
+      part = new Cols();                               // drop the partial archive rows
+      await binanceRest(market, symbol, interval, from, to, signal, part);
+    }
     done++;
     say((funding ? 0.85 : 0.97) * done / months.length, `Candles: ${done} of ${months.length} months`);
     return part;
