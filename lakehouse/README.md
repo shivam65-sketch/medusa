@@ -53,7 +53,8 @@ flowchart LR
 | [8. dbt setup](docs/steps/08-dbt-setup.md) | dbt installed in a venv and connected to the SQL warehouse | Done |
 | [9. Silver candles](docs/steps/09-silver-candles.md) | Typed, incremental `fct_candle_1m` with tests and source freshness | Done |
 | [10. Silver metrics](docs/steps/10-silver-metrics.md) | Typed, incremental `fct_metrics_5m` with tests | Done |
-| 11. Coin dimension | `dim_coin` with full history (SCD Type 2) from a dbt snapshot | Next |
+| [11. Coin dimension](docs/steps/11-dim-coin.md) | `dim_coin` with full history (SCD Type 2) from a dbt snapshot | Done |
+| 12. Hourly candles | `fct_candle_1h` rolled up from the 1-minute candles | Next |
 
 ## Folder layout
 

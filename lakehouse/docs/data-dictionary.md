@@ -122,6 +122,37 @@ Key: (`symbol`, `metric_time`), tested unique. **What the data looks like:** 744
 coin-days complete (288 rows), the rest short, down to 1 row; taker ratio empty in 10,051 rows and
 exactly 0 in 9,313.
 
+## Silver: `market.silver.dim_coin` (snapshot)
+
+One row per **version** of a coin's description (SCD Type 2), kept by the dbt snapshot
+[`dim_coin`](../dbt/snapshots/dim_coin.yml) from the view `int_coin_status`.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `symbol` | STRING | Binance symbol, e.g. `1000PEPEUSDT` (the business key) |
+| `base_asset` | STRING | The coin without multiplier or USDT, e.g. `PEPE` |
+| `quote_asset` | STRING | Always `USDT` |
+| `multiplier` | INT | Coins per quoted unit: 1, 1,000 or 1,000,000 |
+| `first_candle_date` | DATE | First day with candles in the lakehouse |
+| `status` | STRING | `trading`, or `not trading` after 3 days without candles |
+| `dbt_scd_id` | STRING | dbt's unique id for the version |
+| `dbt_valid_from` | TIMESTAMP | When this version became true |
+| `dbt_valid_to` | TIMESTAMP | When it stopped being true; 9999-12-31 for the current version |
+| `dbt_updated_at` | TIMESTAMP | When dbt recorded the version |
+
+Coins as of 2026-10-20: 872, all `trading`; 857 with multiplier 1, 12 with 1,000, 3 with 1,000,000.
+
+Which coins were trading at a given time:
+
+```sql
+SELECT symbol FROM market.silver.dim_coin
+WHERE status = 'trading'
+  AND TIMESTAMP '2026-10-20 18:00:00' BETWEEN dbt_valid_from AND dbt_valid_to;
+```
+
+`market.silver.int_coin_status` is the view the snapshot reads: each coin's state now, worked out
+from `fct_candle_1m`.
+
 ## Gold
 
 Planned (dbt). The planned tables are listed in [Architecture](architecture.md#data-flow).

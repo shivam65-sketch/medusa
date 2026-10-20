@@ -1,6 +1,6 @@
 # Step 10: Silver market metrics
 
-[← Lakehouse home](../../README.md) · [← Step 9](09-silver-candles.md)
+[← Lakehouse home](../../README.md) · [← Step 9](09-silver-candles.md) · Next: [Step 11 →](11-dim-coin.md)
 
 | | |
 |---|---|

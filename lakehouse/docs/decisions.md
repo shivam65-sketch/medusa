@@ -23,6 +23,7 @@ entry replaces it and the old one is marked *Superseded*.
 | 013 | [Serve the public dashboard from a daily copy](#adr-013-serve-the-public-dashboard-from-a-daily-copy) | Accepted |
 | 014 | [DOUBLE, not DECIMAL, for prices and volumes](#adr-014-double-not-decimal-for-prices-and-volumes) | Accepted |
 | 015 | [Liquid clustering instead of partitions](#adr-015-liquid-clustering-instead-of-partitions) | Accepted |
+| 016 | [Coin history from the candles, with a grace period](#adr-016-coin-history-from-the-candles-with-a-grace-period) | Accepted |
 
 ---
 
@@ -245,4 +246,21 @@ has to be maintained.
 
 **Consequences:** Databricks keeps the files organised by coin and day as data arrives, works with
 incremental MERGE, and the clustering keys can be changed later without rewriting the table by hand.
+
+## ADR-016: Coin history from the candles, with a grace period
+
+**Status:** Accepted, 2026-10-20
+
+**Context:** A coin dimension needs each coin's description and whether it trades, with history.
+Binance's archive has no listing or delisting dates; the exchange's own instrument list comes from
+its API, which this platform doesn't use ([ADR-004](#adr-004-use-binances-archive-files-not-its-api)).
+
+**Decision:** Work the description out from the data already loaded: base asset and multiplier from
+the symbol, first day from the earliest candle, and status from the latest candle, with a coin
+counted as *not trading* only after 3 days without candles. A dbt snapshot (`strategy: check`) keeps
+every change (SCD Type 2).
+
+**Consequences:** No extra source to maintain. A delisting appears in the history up to 3 days
+late, and `valid_from` times are when the snapshot ran, not the exchange's exact listing moment.
+Loading older history would move `first_candle_date` earlier and record that as a new version.
 

@@ -15,6 +15,7 @@ The data engineering terms used in this project, in plain words.
 | **Checksum (SHA-256)** | A fingerprint of a file's bytes. If the fingerprint doesn't match the published one, the file is damaged | The downloader |
 | **CI/CD** | Automatically checking and deploying code when it changes | Planned |
 | **Declarative** | Describing what should exist and letting the tool work out how | Bundles, pipelines |
+| **Dimension / fact** | Kimball's split: facts are measurements (candles), dimensions describe what is measured (coins) | `dim_coin`, `fct_candle_1m` |
 | **Exactly once** | Each input is processed one time: never skipped, never twice | Auto Loader |
 | **Expectation** | A data-quality rule in a Lakeflow pipeline that counts, drops or fails on bad rows | Bronze (count only) |
 | **Generic / singular test** | dbt tests: a generic test is one line of YAML (`not_null`); a singular test is a SQL file returning bad rows (0 rows = pass) | `dbt/tests/` |
@@ -30,12 +31,14 @@ The data engineering terms used in this project, in plain words.
 | **Rescued data** | A column that catches values that didn't fit the expected file layout, instead of losing them | `_rescued_data` |
 | **Retention** | How long each kind of data is kept | [ADR-011](decisions.md#adr-011-keep-1-minute-candles-for-a-limited-time) |
 | **Reverse ETL / serving layer** | Copying finished warehouse tables to where an app can serve them | The planned MEDUSA Markets page |
-| **SCD Type 2** | Keeping the full history of a dimension's changes, one row per version | Planned `dim_coin` |
+| **SCD Type 2** | Keeping the full history of a dimension's changes, one row per version | `dim_coin` |
 | **Schema drift** | A source changing its columns or format over time | Caught by `_rescued_data` |
 | **Schema-on-read** | Applying column names and types when reading files, not when storing them | `read_files` in bronze |
 | **Serverless** | Compute that starts when needed and stops afterwards, with nothing to manage | Pipeline, SQL warehouse |
+| **Snapshot (dbt)** | dbt's built-in way to record changes to a table over time as SCD Type 2 | `dim_coin` |
 | **Source freshness** | dbt's check of how long ago a source table last received data | `sources.yml` |
 | **Storage / compute separation** | Data sits in storage; engines (warehouses) start up to work on it and can be stopped | Databricks |
 | **Streaming table** | A table that is filled incrementally from a source, processing only new data each run | `bronze.klines_1m`, `bronze.metrics` |
+| **Survivorship bias** | Results that look better than reality because failed items (here, delisted coins) were left out | Why `dim_coin` keeps history |
 | **Unity Catalog** | Databricks' governance layer: names, permissions and lineage for all data | `market` catalog |
 | **Volume** | A Unity Catalog folder for files (not rows) | `market.landing.binance` |
