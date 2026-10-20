@@ -1,0 +1,13 @@
+# How dbt connects to Databricks. No secrets here: every value comes from an environment
+# variable. dbt hides variables whose names start with DBT_ENV_SECRET_ from its logs.
+medusa_lakehouse:
+  target: prod
+  outputs:
+    prod:
+      type: databricks
+      catalog: market
+      schema: silver
+      host: "{{ env_var('DBT_DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DBT_DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DBT_ENV_SECRET_DATABRICKS_TOKEN') }}"
+      threads: 4

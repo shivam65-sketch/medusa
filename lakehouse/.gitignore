@@ -6,3 +6,8 @@
 data/
 *.zip
 *.csv
+# dbt: the Python environment and dbt's generated folders
+.venv/
+target/
+logs/
+dbt_packages/

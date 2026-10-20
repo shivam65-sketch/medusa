@@ -1,0 +1,18 @@
+# MEDUSA lakehouse: the dbt project that builds the silver and gold layers.
+name: medusa_lakehouse
+version: "1.0.0"
+profile: medusa_lakehouse
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+test-paths: ["tests"]
+clean-targets: ["target", "dbt_packages"]
+
+# Each folder of models writes to the schema of the same name in the market catalog.
+models:
+  medusa_lakehouse:
+    silver:
+      +schema: silver
+    gold:
+      +schema: gold
