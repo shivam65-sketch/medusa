@@ -54,6 +54,8 @@ jobs:
           print(f"{days} days: {dates[0]} to {dates[-1]}")
 
   # One job per day, four at a time; one failed day doesn't stop the others.
+  # Each job uploads 4 files at a time, so all four together send no more than one daily load
+  # (16 at once). With 16 each, Databricks turned the uploads away.
   load:
     needs: days
     strategy:
@@ -64,4 +66,5 @@ jobs:
     uses: ./.github/workflows/lakehouse-load-day.yml
     with:
       date: ${{ matrix.date }}
+      upload_concurrency: 4
     secrets: inherit

@@ -12,6 +12,11 @@ on:
         type: string
         required: false
         default: ""
+      upload_concurrency:
+        description: "Files uploaded at the same time. The backfill lowers it, because it runs several days at once."
+        type: number
+        required: false
+        default: 16
 
 # The job only reads the repository; it never writes to it.
 permissions:
@@ -43,8 +48,23 @@ jobs:
       - name: Install the Databricks CLI
         uses: databricks/setup-cli@v1.21.0
 
+      # Databricks can turn requests away when too many arrive at once. The upload is safe to
+      # repeat (--overwrite writes the same checked files again), so a failed try is retried
+      # twice, waiting 30 and then 60 seconds.
       - name: Upload to the landing volume
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-        run: databricks fs cp -r ../data/landing dbfs:/Volumes/market/landing/binance --overwrite --concurrency 16
+          CONCURRENCY: ${{ inputs.upload_concurrency }}
+        run: |
+          for attempt in 1 2 3; do
+            if databricks fs cp -r ../data/landing dbfs:/Volumes/market/landing/binance --overwrite --concurrency "$CONCURRENCY"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Upload attempt $attempt failed; trying again in $((attempt * 30)) seconds."
+              sleep $((attempt * 30))
+            fi
+          done
+          echo "Upload failed 3 times."
+          exit 1
