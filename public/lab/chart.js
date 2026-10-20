@@ -1,9 +1,13 @@
 // MEDUSA Lab: the Chart tab. A TradingView-style candle chart of any file in the Downloads or Uploads
 // folder: timeframes, indicators (on the candles and in their own panes), drawing tools, a candle-by-candle
-// replay of a portion picked on the chart with practice trades, and backtests drawn on the candles (trades,
-// the strategy's own lines, the account value), which can be run from here too. Up to four charts can be
-// shown side by side: they share one timeframe and one replay, and their crosshair and scrolling can be
-// linked. Loaded the first time the tab is opened (main.js).
+// replay of a portion picked on the chart, and backtests drawn on the candles (trades, the strategy's own
+// lines, the account value), which can be run from here too. Up to four charts can be shown side by side:
+// they share one timeframe and one replay, and their crosshair and scrolling can be linked. Loaded the
+// first time the tab is opened (main.js).
+//
+// Long and short positions are drawings with an entry, a stop loss and a take profit; each shows what
+// the candles after it did to it. The trading simulation (sim.js) trades them with one account, together
+// with the market, limit and stop orders placed in a replay.
 // The chart itself is TradingView's free Lightweight Charts library (Apache 2.0, version 5), kept in
 // vendor/ because the page may only load its own scripts.
 //
@@ -20,6 +24,7 @@
 import { createChart, CandlestickSeries, BarSeries, LineSeries, HistogramSeries, createSeriesMarkers, CrosshairMode, PriceScaleMode, LineStyle } from './vendor/lightweight-charts.mjs';
 import { $, $$, esc, ymd, plural, INTERVAL_MS, DAY, toast, download, icon, money } from './util.js';
 import * as data from './data.js';
+import { Sim } from './sim.js';
 
 let host = null;
 let ctx = null;
@@ -37,6 +42,8 @@ const TOOLS = [
   ['rect', 'Rectangle', '<rect x="4" y="6" width="16" height="12" rx="1"/>'],
   ['fib', 'Fibonacci retracement', '<path d="M3 5h18M3 9.5h18M3 13h18M3 19h18"/>'],
   ['measure', 'Measure (price and time between two points)', '<path d="M4 20 20 4"/><path d="M7 17l2 2M10 14l2 2M13 11l2 2M16 8l2 2"/>'],
+  ['long', 'Long position: click the entry, then the stop loss, then the take profit', '<rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M4 13.5h16"/><path d="M12 10.5V6.8M9.8 8.9 12 6.7l2.2 2.2"/>'],
+  ['short', 'Short position: click the entry, then the stop loss, then the take profit', '<rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M4 10.5h16"/><path d="M12 13.5v3.7M9.8 15.1l2.2 2.2 2.2-2.2"/>'],
 ];
 const IC = {
   pause: '<rect x="6.5" y="5" width="3.5" height="14" rx="1"/><rect x="14" y="5" width="3.5" height="14" rx="1"/>',
@@ -54,6 +61,8 @@ const IC = {
   up: '<path d="m6 15 6-6 6 6"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  sim: '<path d="M4 7.5h14.5A1.5 1.5 0 0 1 20 9v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18z"/><path d="M4 7.5 15.5 4.3v3.2"/><path d="M15.5 13.5h2"/>',
+  flip: '<path d="M7 20V4M4 7l3-3 3 3"/><path d="M17 4v16M14 17l3 3 3-3"/>',
 };
 const LAYOUT_IC = {
   1: '<rect x="4" y="5" width="16" height="14" rx="1.5"/>',
@@ -405,6 +414,9 @@ function makeRunner(def, p, B) {
 
 /* ======================= state ======================= */
 
+/** The orders placed and the trades closed by you in a replay (the simulation's order ticket), on one chart. */
+const newTick = () => ({ orders: [], actions: [], seq: 0, ver: 0 });
+
 /** One chart of the layout. The functions below work on `st`, the chart being drawn or clicked (on()
     switches it); the toolbar works on the active chart (the one with the green border). */
 function newPane(i) {
@@ -422,8 +434,10 @@ function newPane(i) {
     mine: null,          // your journal trades on this chart's coin (see mineOf)
     focusMine: null,     // a journal trade to centre once the file is open
     pending: null,       // a result to draw once its data file is open
-    pos: null, ptrades: [],   // practice trades in a replay
-    chart: null, main: null, vol: null, layer: null, markers: null, hlines: [], posLine: null,
+    tick: newTick(),     // the orders you place in a replay
+    simE: null,          // the simulation of this chart's account (see simOf)
+    outc: new Map(),     // what happened to each position drawing on its own (see outcomeOf)
+    chart: null, main: null, vol: null, layer: null, markers: null, hlines: [], simLines: [],
     userAt: 0,           // when the pointer or the wheel last moved this chart (only that scrolling is passed on)
     placeTimer: 0,
   };
@@ -442,6 +456,11 @@ const G = {
   menu: null,                    // the open toolbar menu ("ind" or "strat")
   running: false,
   pre: null,                     // a file or result asked for before the tab was first drawn
+  sim: null,                     // the trading simulation's settings (see restore); its panel shows while sim.on
+  sel: null,                     // the chosen position drawing: {p (its chart), id}
+  drag: null,                    // a handle of the chosen position being dragged
+  simVer: 0,                     // goes up whenever something the simulations use changes (drawings, settings)
+  tk: { price: '', tp: '', sl: '', trail: '' },   // the order ticket's fields, as typed
 };
 let restored = false, listening = false, syncing = false;
 const A = () => panes[G.active];
@@ -476,6 +495,8 @@ function restore() {
   G.sshow = Object.assign({ trades: true, lines: true, equity: false }, load('sshow', {}));
   G.mine = Boolean(load('mine', false));
   G.legendMin = load('legendMin', null) ?? innerWidth <= 640;
+  // capital, fee and slip: null means the Dashboard's; size: mode 'pct' (% of the balance as margin), 'risk' or 'usdt'
+  G.sim = Object.assign({ on: false, capital: null, lev: 1, mode: 'pct', value: 10, fee: null, slip: null, kind: 'market', tab: 'pos' }, load('sim', {}));
 }
 
 export function paintChart(el, context) {
@@ -488,9 +509,11 @@ export function paintChart(el, context) {
       <div class="lab-ch-bar" id="lab-ch-bar"></div>
       <div class="lab-ch-replay" id="lab-ch-replay" hidden></div>
       <div class="lab-ch-stage" id="lab-ch-stage">${panes.map((p) => `<div class="lab-ch-main empty" data-pi="${p.i}"><div class="lab-ch-legend"></div><div class="lab-ch-plegs"></div><div class="lab-ch-hint" hidden></div><div class="lab-ch-pempty" hidden></div></div>`).join('')}</div>
+      <div class="lab-ch-strat lab-ch-pos" id="lab-ch-pos" hidden></div>
+      <div class="lab-ch-strat lab-ch-sim" id="lab-ch-sim" hidden></div>
       <div class="lab-ch-strat" id="lab-ch-strat" hidden></div>
       <div class="lab-ch-strat lab-ch-mine" id="lab-ch-mine" hidden></div>
-      <p class="faint small lab-ch-foot">Scroll to zoom, drag to move, drag a price scale to stretch it (double-click it to reset), drag the line between panes to resize them. The buttons on the left show 1 to 4 charts: they share the timeframe and the replay, and <b>Sync</b> links their crosshair and scrolling; the toolbar works on the chart with the green border (click a chart to pick it). Times are in your time zone. Keys: <kbd>Esc</kbd> stops a drawing tool or closes a menu, <kbd>Delete</kbd> removes every drawing and indicator on the chart, <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes; in a replay <kbd>Space</kbd> plays or pauses and <kbd>→</kbd> / <kbd>←</kbd> step. Chart by <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a> Lightweight Charts.</p>
+      <p class="faint small lab-ch-foot">Scroll to zoom, drag to move, drag a price scale to stretch it (double-click it to reset), drag the line between panes to resize them. The buttons on the left show 1 to 4 charts: they share the timeframe and the replay, and <b>Sync</b> links their crosshair and scrolling; the toolbar works on the chart with the green border (click a chart to pick it). <b>Long</b> and <b>Short position</b>: click the entry, then the stop loss, then the take profit; click a position to choose it, then drag its handles or type its prices. <b>Simulate</b> trades your positions with an account (and, in a replay, the orders you place). Times are in your time zone. Keys: <kbd>Esc</kbd> stops a drawing tool or closes a menu, <kbd>Delete</kbd> removes the chosen position (or, with none chosen, every drawing and indicator on the chart), <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes; in a replay <kbd>Space</kbd> plays or pauses and <kbd>→</kbd> / <kbd>←</kbd> step. Chart by <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a> Lightweight Charts.</p>
     </div>`;
     for (const p of panes) {
       if (p.chart) on(p, destroyChart);                        // a chart left in an older copy of the page
@@ -570,7 +593,8 @@ const savePanes = () => save('panes', panes.map((p) => ({ id: p.id, type: p.type
 function setLayout(n) {
   n = Math.max(1, Math.min(MAXN, n | 0));
   if (n === G.n) return;
-  for (const p of panes.slice(n)) on(p, () => { destroyChart(); Object.assign(p, { ds: null, B: null, loading: false, error: null, strat: null, pending: null, pos: null, ptrades: [] }); p.runners.clear(); });
+  for (const p of panes.slice(n)) on(p, () => { destroyChart(); Object.assign(p, { ds: null, B: null, loading: false, error: null, strat: null, pending: null, tick: newTick(), simE: null }); p.runners.clear(); p.outc.clear(); });
+  if (G.sel && G.sel.p.i >= n) G.sel = null;
   G.n = n;
   if (G.active >= n) G.active = 0;
   if (G.draft && G.draft.p.i >= n) G.draft = null;
@@ -638,7 +662,7 @@ function paintBarNow() {
     </details>
     <button class="btn btn-sm ${G.mine ? 'lab-ch-on' : ''}" data-ch="mine" title="Show your journal trades on this coin" aria-pressed="${G.mine}">${ic(IC.me)}My trades</button>
     <span class="lab-ch-tools" role="group" aria-label="Drawing tools">
-      ${TOOLS.map(([t, label, svg]) => `<button class="btn btn-sm lab-ch-tool ${G.tool === t ? 'on' : ''}" data-ch="tool" data-tool="${t}" title="${label}" aria-label="${label}" aria-pressed="${G.tool === t}">${ic(svg)}</button>`).join('')}
+      ${TOOLS.map(([t, label, svg]) => `<button class="btn btn-sm lab-ch-tool ${t === 'long' ? 'lab-ch-tlong' : t === 'short' ? 'lab-ch-tshort' : ''} ${G.tool === t ? 'on' : ''}" data-ch="tool" data-tool="${t}" title="${label}" aria-label="${label}" aria-pressed="${G.tool === t}">${ic(svg)}</button>`).join('')}
       <button class="btn btn-sm lab-ch-tool" data-ch="undo" title="Undo (Ctrl+Z)" aria-label="Undo" ${st.B && (st.drawings.length || st.undoAll) ? '' : 'disabled'}>${ic(IC.undo)}</button>
       <button class="btn btn-sm lab-ch-tool" data-ch="clear" title="Delete every drawing and indicator on this chart (Delete key)" aria-label="Delete all drawings and indicators" ${st.B && (st.drawings.length || n) ? '' : 'disabled'}>${icon('trash')}</button>
     </span>
@@ -649,7 +673,8 @@ function paintBarNow() {
     <button class="btn btn-sm" data-ch="fit" title="Show every candle" ${st.B ? '' : 'disabled'}>${ic(IC.fit)}<span class="sr-only">Show all</span></button>
     <button class="btn btn-sm" data-ch="png" title="Save the chart${G.n > 1 ? 's' : ''} as a PNG picture" ${any ? '' : 'disabled'}>${ic(IC.camera)}<span class="sr-only">Save PNG</span></button>
     <button class="btn btn-sm ${isFull() ? 'lab-ch-on' : ''}" data-ch="full" title="${isFull() ? 'Leave full screen (Esc)' : 'Full screen'}" aria-pressed="${isFull()}" ${any ? '' : 'disabled'}>${isFull() ? ic(IC.shrink) : icon('expand')}<span class="sr-only">${isFull() ? 'Leave full screen' : 'Full screen'}</span></button>
-    <button class="btn btn-sm ${G.replay || G.picking ? 'btn-green' : ''}" data-ch="replay" title="Replay a portion of the chart${G.n > 1 ? 's' : ''} candle by candle" ${any ? '' : 'disabled'}>${ic(IC.replay)}Replay</button>`;
+    <button class="btn btn-sm ${G.replay || G.picking ? 'btn-green' : ''}" data-ch="replay" title="Replay a portion of the chart${G.n > 1 ? 's' : ''} candle by candle" ${any ? '' : 'disabled'}>${ic(IC.replay)}Replay</button>
+    <button class="btn btn-sm ${G.sim.on ? 'lab-ch-on' : ''}" data-ch="sim" title="Trading simulation: an account with a starting amount trades your long and short positions and, in a replay, the market, limit and stop orders you place" aria-pressed="${G.sim.on}" ${any ? '' : 'disabled'}>${ic(IC.sim)}Simulate</button>`;
   if (G.menu) { const d = $(`details[data-menu="${G.menu}"]`, bar); if (d) { d.open = true; fitPop(d); } }
 }
 /** Keeps an open menu inside the window (it opens under its button, so near the right edge it moves left). */
@@ -700,8 +725,10 @@ async function openFile(id) {
     return;
   }
   if (p.strat && p.strat.R.meta.dataset !== id) p.strat = null;
-  Object.assign(p, { id, row, loading: true, error: null, pos: null, ptrades: [], undoAll: null });
+  Object.assign(p, { id, row, loading: true, error: null, tick: newTick(), simE: null, undoAll: null });
   p.runners.clear();
+  p.outc.clear();
+  if (G.sel && G.sel.p === p) G.sel = null;
   savePanes();
   paintBar();
   paintEmpty();
@@ -741,7 +768,9 @@ async function openFile(id) {
 }
 
 function closeFile() {
-  Object.assign(st, { id: null, row: null, ds: null, B: null, strat: null, pos: null, ptrades: [], error: null });
+  Object.assign(st, { id: null, row: null, ds: null, B: null, strat: null, tick: newTick(), simE: null, error: null });
+  st.outc.clear();
+  if (G.sel && G.sel.p === st) G.sel = null;
   destroyChart();
   savePanes();
   paintBar();
@@ -863,7 +892,7 @@ function haOf(B) {
 
 function destroyChart() {
   if (st.chart) st.chart.remove();
-  Object.assign(st, { chart: null, main: null, vol: null, layer: null, markers: null, markSig: '', posLine: null, hlines: [], feeds: [], groups: [], fills: [] });
+  Object.assign(st, { chart: null, main: null, vol: null, layer: null, markers: null, markSig: '', simLines: [], hlines: [], feeds: [], groups: [], fills: [] });
   if (st.el) { $('.lab-ch-plegs', st.el).innerHTML = ''; $('.lab-ch-legend', st.el).innerHTML = ''; }
 }
 
@@ -968,6 +997,7 @@ function build() {
   else if (!followOthers()) showRecent();
   paintPaneLegends();
   legend(null);
+  paintBar();                                                // its buttons that need candles (the bar was drawn before they were made)
   paintReplay();
   paintStrat();
   placeLegendsSoon();
@@ -1218,7 +1248,8 @@ function paintMarkers(force = false) {
   const now = nowT();
   const s0 = st.strat && G.sshow.trades ? st.strat : null, me0 = mineOf();
   const cnt = (set, k) => (set ? `${k}.${upto(set.trades, now)}.${ended(set, now)}.${set.sel}` : '-');
-  const sig = `${cnt(s0, s0 && s0.R.meta.made)}|${cnt(me0, me0 && me0.key)}|${G.replay ? `${st.ptrades.filter((x) => x.t <= now).length}.${st.ptrades.filter((x) => x.xt <= now).length}.${st.pos ? st.pos.t : 0}` : ''}`;
+  const sv = G.replay && st.tick.orders.length ? simView() : null;   // the orders you placed in the replay
+  const sig = `${cnt(s0, s0 && s0.R.meta.made)}|${cnt(me0, me0 && me0.key)}|${sv ? `${sv.events.length}.${sv.open.map((p) => `${p.id}:${fin(p.tstop) ? p.tstop : ''}`).join(',')}` : ''}`;
   if (!force && sig === st.markSig) return;              // nothing entered or left: the markers stay as they are
   st.markSig = sig;
   const m = [];
@@ -1241,17 +1272,32 @@ function paintMarkers(force = false) {
       if (x.xt <= now) m.push({ time: at(x.xt), position: long ? 'aboveBar' : 'belowBar', color: x.pnl >= 0 ? '#86efac' : '#fca5a5', shape: 'square', text: netText(x), size: sel ? 1.2 : 0.6 });
     }
   }
-  if (G.replay) {
-    for (const x of st.ptrades) {
-      if (x.t <= now) m.push({ time: at(x.t), position: x.side === 'long' ? 'belowBar' : 'aboveBar', color: '#facc15', shape: x.side === 'long' ? 'arrowUp' : 'arrowDown', text: x.side === 'long' ? 'Buy' : 'Sell' });
-      if (x.xt <= now) m.push({ time: at(x.xt), position: x.side === 'long' ? 'aboveBar' : 'belowBar', color: '#facc15', shape: 'circle', text: `${x.ret >= 0 ? '+' : ''}${x.ret.toFixed(2)}%` });
+  if (sv) {
+    const t = st.ds.cols.t;
+    const buy = (side, ms) => ({ time: at(ms), position: side > 0 ? 'belowBar' : 'aboveBar', color: '#facc15', shape: side > 0 ? 'arrowUp' : 'arrowDown', text: side > 0 ? 'Buy' : 'Sell' });
+    for (const x of sv.trades) {
+      if (x.src !== 'ticket') continue;
+      m.push(buy(x.side, t[x.ek]));
+      m.push({ time: at(t[x.xk]), position: x.side > 0 ? 'aboveBar' : 'belowBar', color: '#facc15', shape: 'circle', text: `${x.net >= 0 ? '+' : ''}${money(x.net)}` });
     }
-    if (st.pos) m.push({ time: at(st.pos.t), position: st.pos.side === 'long' ? 'belowBar' : 'aboveBar', color: '#facc15', shape: st.pos.side === 'long' ? 'arrowUp' : 'arrowDown', text: st.pos.side === 'long' ? 'Buy' : 'Sell' });
+    for (const p of sv.open) if (p.o.src === 'ticket') m.push(buy(p.side, t[p.k]));
   }
   m.sort((a, b) => a.time - b.time);
   st.markers.setMarkers(m);
-  if (st.posLine) { st.main.removePriceLine(st.posLine); st.posLine = null; }
-  if (G.replay && st.pos) st.posLine = st.main.createPriceLine({ price: st.pos.entry, color: '#facc15', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: st.pos.side === 'long' ? 'Long' : 'Short' });
+  // the price lines of your orders: a waiting entry, and an open trade's entry, stop loss, take profit and trailing stop
+  for (const pl of st.simLines) st.main.removePriceLine(pl);
+  st.simLines = [];
+  if (sv) {
+    const line = (price, color, title, style = LineStyle.Dashed) => { if (fin(price)) st.simLines.push(st.main.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title })); };
+    for (const o of sv.pending) if (o.src === 'ticket') line(o.price, '#facc15', `#${o.n} ${o.side > 0 ? 'Buy' : 'Sell'} ${o.kind}`);
+    for (const p of sv.open) {
+      if (p.o.src !== 'ticket') continue;
+      line(p.px, '#facc15', `#${p.n} ${p.side > 0 ? 'Long' : 'Short'}`, LineStyle.Solid);
+      line(p.sl, DOWN, `#${p.n} SL`);
+      line(p.tp, UP, `#${p.n} TP`);
+      line(p.tstop, '#fb923c', `#${p.n} Trail`);
+    }
+  }
 }
 
 /** Centres trade i on the chart and marks it. */
@@ -1288,7 +1334,7 @@ function stepTrade(dir) {
 
 /** The panel under the charts: the active chart's test, its numbers and its list of trades (click one to see it). */
 let stratSig = '';
-function paintStrat(force = false) { if (host) on(A(), () => { paintStratNow(force); paintMineNow(force); }); }
+function paintStrat(force = false) { if (host) on(A(), () => { paintPosNow(force); paintSimNow(force); paintStratNow(force); paintMineNow(force); }); }
 function paintStratNow(force) {
   const el = $('#lab-ch-strat', host);
   if (!el) return;
@@ -1552,6 +1598,625 @@ function paintMineNow(force) {
     ${list.length ? `<div class="lab-ch-tscroll"><table class="lab-table lab-ch-trades"><thead><tr><th>#</th><th>Side</th><th>Entry</th><th>Exit</th><th>Stop loss</th><th>Take profit</th><th>Net</th><th class="l">Exit</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="dim small">None of your trades yet at this point of the replay.</p>'}`;
   const box = $('.lab-ch-tscroll', el);
   if (box) { const sel = $('tr.on', box); if (sel) box.scrollTop = sel.offsetTop - box.clientHeight / 2; else if (G.replay) box.scrollTop = box.scrollHeight; }
+}
+
+/* ======================= long and short positions ======================= */
+
+/*
+ * A position drawing: {type: 'long' or 'short', id, a: {t, p} (the entry: its candle's time and price), sl, tp
+ * (prices), e (the time just after the box's last candle), c (the open time of the file candle it is placed
+ * in)}. It is an order: a market order when its entry is the close of that candle, else a limit (the price has
+ * to come back to it) or a stop (the price has to go on to it). It lives until the box's right edge.
+ */
+const isPos = (d) => Boolean(d) && (d.type === 'long' || d.type === 'short');
+const newId = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const tickSize = () => 10 ** -(st.prec ?? 2);
+/** A price rounded to the file's decimals (a click lands between them). */
+const roundP = (p) => +p.toFixed(st.prec ?? 2);
+const signPct = (v, dp = 2) => (fin(v) ? `${v >= 0 ? '+' : '-'}${Math.abs(v * 100).toFixed(dp)}%` : '–');
+const plusMoney = (v) => (fin(v) ? `${v >= 0 ? '+' : ''}${money(v)}` : '–');
+/** A price for a number box (no thousands separators). */
+const priceStr = (v) => (fin(v) ? String(+v.toFixed(Math.min(12, (st.prec ?? 2) + 1))) : '');
+const qtyStr = (q) => (!fin(q) ? '–' : q >= 1000 ? q.toLocaleString('en-US', { maximumFractionDigits: 0 }) : q >= 1 ? String(+q.toFixed(3)) : String(+q.toPrecision(4)));
+const coinOf = () => String(st.row ? st.row.symbol : '').replace(/(USDT|USDC|FDUSD|BUSD|USD)$/, '') || 'coins';
+const chipHtml = (k, v, t = '') => `<span class="lab-ch-chip"><span class="faint">${k}</span><b class="${t}">${v}</b></span>`;
+let fontName = '';
+const font = () => (fontName = fontName || getComputedStyle(document.body).fontFamily);
+const WHY = { tp: 'Take profit', sl: 'Stop loss', trail: 'Trailing stop', liq: 'Liquidated', end: 'Box ended', close: 'Closed by you' };
+
+/** The file candle that opens at time ms (or the last one before it); the file's length when ms is after its last candle. */
+function fileIdx(ms) { return ms > st.ds.cols.t[st.ds.n - 1] ? st.ds.n : fileAt(ms); }
+/** The last file candle that opens before time e (a box's end), or Infinity when the box goes on past the file. */
+function endIdx(e) {
+  const t = st.ds.cols.t, n = st.ds.n;
+  if (e > t[n - 1] + st.base) return Infinity;
+  let a = 0, b = n;
+  while (a < b) { const m = (a + b) >> 1; if (t[m] < e) a = m + 1; else b = m; }
+  return a - 1;
+}
+/** Where a position drawn on the chart candle at time `at` is placed: at that candle's close (its last file
+    candle), or at the newest candle shown while that candle is still forming in a replay. */
+function placedAt(at) {
+  const B = st.B;
+  if (at > B.T[B.n - 1]) return at;                          // after the file's last candle
+  const j = indexOfTime(at);
+  let k = B.first[j + 1] - 1;
+  if (G.replay && st.K > 0 && B.first[j] < st.K && k >= st.K) k = st.K - 1;
+  return st.ds.cols.t[k];
+}
+/** A box's end: after the candle clicked for the take profit when that is 3 or more candles after the entry, else 30 candles on. */
+function endFrom(at, ht) {
+  const ja = Math.round(msToLogical(at)), jh = ht == null ? -Infinity : Math.round(msToLogical(ht));
+  return logicalToMs(jh - ja >= 3 ? jh : ja + 30) + G.tf;
+}
+/** Position d as an order of the simulation. */
+function drawOrder(d, size) {
+  const k0 = fileIdx(d.c ?? d.a.t), side = d.type === 'long' ? 1 : -1;
+  let kind = 'market';
+  if (k0 < st.ds.n) {
+    const ref = st.ds.cols.c[k0];
+    if (Math.abs(d.a.p - ref) > Math.abs(ref) * 1e-9) kind = (d.a.p < ref) === (side > 0) ? 'limit' : 'stop';
+  }
+  return { id: d.id, n: 0, seq: -1, src: 'draw', side, kind, price: d.a.p, sl: d.sl, tp: d.tp, trail: 0, k0, kEnd: Math.max(k0 + 1, endIdx(d.e)), size };
+}
+/** What the candles shown did to position d on its own: the price only, without the account, fees or slippage. */
+function outcomeOf(d) {
+  const sig = `${st.id}|${d.type}|${d.a.p}|${d.sl}|${d.tp}|${d.c}|${d.e}`;
+  let m = st.outc.get(d.id);
+  if (!m || m.sig !== sig || m.sim.K > st.K) {
+    m = { sig, sim: new Sim(st.ds.cols, [drawOrder(d, { mode: 'usdt', value: 1 })], [], { capital: 1e12, fee: 0, slip: 0, lev: 1, liq: false }) };
+    st.outc.set(d.id, m);
+  }
+  return m.sim.advance(st.K);
+}
+/** Position d now: state 'future' (its candle hasn't come), 'waiting' (for the entry price), 'open', 'closed'
+    or 'expired' (not filled in its box), with its order's kind, the fill and the trade. */
+function posState(d) {
+  const s = outcomeOf(d), od = s.orders[0];
+  const r = { kind: od.kind, k0: od.k0, fill: s.events.find((e) => e.what === 'filled') || null, trade: s.trades[0] || null, open: s.open[0] || null };
+  r.state = r.trade ? 'closed' : r.open ? 'open' : s.pending.length ? 'waiting' : s.events.some((e) => e.what === 'expired') ? 'expired' : 'future';
+  return r;
+}
+/** The short status shown on a position: {text, tone}. */
+function posStatus(d, ps) {
+  const side = d.type === 'long' ? 1 : -1;
+  if (ps.state === 'closed') return { text: `${WHY[ps.trade.why]} ${signPct(ps.trade.move)}`, tone: ps.trade.move >= 0 ? 'pos' : 'neg' };
+  if (ps.state === 'open') return { text: `Open ${signPct(((st.ds.cols.c[st.K - 1] - ps.open.px) / ps.open.px) * side)}`, tone: 'open' };
+  if (ps.state === 'waiting') return { text: 'Waiting for the entry', tone: '' };
+  if (ps.state === 'expired') return { text: 'Not filled', tone: '' };
+  return { text: ps.k0 < st.ds.n ? 'Later in the replay' : 'After the last candle', tone: '' };
+}
+/** The size the simulation gives position d from the starting amount: quantity, value and margin. */
+function posSize(d) {
+  const c = simCfg(), e = d.a.p, v = G.sim.value;
+  let qty = G.sim.mode === 'risk' ? (c.capital * v) / 100 / Math.abs(e - d.sl) : ((G.sim.mode === 'usdt' ? v : (c.capital * v) / 100) * c.lev) / e;
+  qty = Math.min(qty, (c.capital * c.lev) / e);
+  return { qty, value: qty * e, margin: (qty * e) / c.lev };
+}
+
+/* ---------- placing, choosing and dragging ---------- */
+
+/** The three clicks of the Long and Short position tools: the entry, the stop loss, the take profit. */
+function placePos(pt) {
+  pt = { t: pt.t, p: roundP(pt.p) };
+  const type = G.tool, long = type === 'long', s = long ? 1 : -1;
+  const below = long ? 'below' : 'above', above = long ? 'above' : 'below';
+  const g = G.draft && G.draft.p === st && G.draft.type === type ? G.draft : null;
+  if (!g) {
+    G.draft = { p: st, type, a: { t: logicalToMs(Math.round(msToLogical(pt.t))), p: pt.p }, sl: null, tp: null, h: null };
+    hint(`${long ? 'Long' : 'Short'} position: now click the stop loss (${below} the entry). Esc cancels.`);
+    redrawAll();
+    return;
+  }
+  if (g.sl == null) {
+    if ((pt.p - g.a.p) * s >= 0) { hint(`The stop loss of a ${type} goes ${below} the entry: click ${long ? 'lower' : 'higher'}. Esc cancels.`); return; }
+    g.sl = pt.p;
+    hint(`Now click the take profit (${above} the entry), 3 or more candles to the right to set where the box ends. Esc cancels.`);
+    redrawAll();
+    return;
+  }
+  if ((pt.p - g.a.p) * s <= 0) { hint(`The take profit of a ${type} goes ${above} the entry: click ${long ? 'higher' : 'lower'}. Esc cancels.`); return; }
+  const d = { type, id: newId(), a: g.a, sl: g.sl, tp: pt.p, e: endFrom(g.a.t, pt.t), c: placedAt(g.a.t) };
+  G.draft = null;
+  G.tool = null;
+  G.sel = { p: st, id: d.id };
+  st.drawings.push(d);
+  hint('');
+  saveDrawings();
+}
+/** The position being drawn: the stop loss and then the take profit follow the pointer until clicked. */
+function draftPos() {
+  const g = G.draft, h = g.h, s = g.type === 'long' ? 1 : -1;
+  const sl = g.sl ?? (h && (h.p - g.a.p) * s < 0 ? h.p : NaN);
+  const tp = g.sl != null && h && (h.p - g.a.p) * s > 0 ? h.p : NaN;
+  return { type: g.type, id: '', a: g.a, sl, tp, e: endFrom(g.a.t, g.sl != null && h ? h.t : null) };
+}
+/** Position d on this chart in pixels: the box's left and right, and the y of its entry, stop loss and take profit. */
+function posBox(d) {
+  if (!st.chart || !st.main) return null;
+  const xa = xOf(msToLogical(d.a.t)), xe = xOf(msToLogical(d.e - G.tf));
+  const y = (p) => (fin(p) ? st.main.priceToCoordinate(p) : null);
+  const yE = y(d.a.p);
+  if (xa == null || xe == null || yE == null) return null;
+  return { L: Math.min(xa, xe), R: Math.max(xa + 8, xe), yE, yS: y(d.sl), yT: y(d.tp) };
+}
+const inBox = (b, x, y) => x >= b.L - 2 && x <= b.R + 2 && y >= Math.min(b.yE, b.yS ?? b.yE, b.yT ?? b.yE) - 2 && y <= Math.max(b.yE, b.yS ?? b.yE, b.yT ?? b.yE) + 2;
+/** The position drawing under (x, y): the one drawn last when they overlap. */
+function posAt(x, y) {
+  for (let i = st.drawings.length - 1; i >= 0; i--) {
+    const d = st.drawings[i], b = isPos(d) ? posBox(d) : null;
+    if (b && inBox(b, x, y)) return d;
+  }
+  return null;
+}
+/** The chosen position, when it is on this chart. */
+const selPos = () => (G.sel && G.sel.p === st ? st.drawings.find((d) => d.id === G.sel.id && isPos(d)) || null : null);
+/** The handle of the chosen position under (x, y): {did, part: 'entry', 'sl', 'tp', 'end' or 'body'}, or null. */
+function grabAt(x, y) {
+  const d = selPos(), b = d && posBox(d);
+  if (!b) return null;
+  const near = (hx, hy) => hy != null && Math.abs(x - hx) <= 9 && Math.abs(y - hy) <= 9;
+  const part = near(b.L, b.yS) ? 'sl' : near(b.L, b.yT) ? 'tp' : near(b.R, b.yE) ? 'end' : near(b.L, b.yE) ? 'entry' : inBox(b, x, y) ? 'body' : null;
+  return part ? { did: d.id, part } : null;
+}
+/** The pointer over the chart: a handle of the chosen position, its inside, or any position. */
+function hover(x, y) {
+  let cur = '';
+  if (st.drawings.some(isPos)) {
+    const h = grabAt(x, y);
+    cur = h ? (h.part === 'end' ? 'ew' : h.part === 'sl' || h.part === 'tp' ? 'ns' : 'move') : posAt(x, y) ? 'pointer' : '';
+  }
+  if ((st.el.dataset.cursor || '') !== cur) st.el.dataset.cursor = cur;
+}
+function selectPos(d) {
+  G.sel = d ? { p: st, id: d.id } : null;
+  redrawAll();
+  paintStrat();
+}
+/** Moves the dragged handle of the chosen position to (x, y): a price (magnet on the candles), the box's end,
+    or the whole position (in time by whole candles). */
+function dragTo(x, y) {
+  const g = G.drag, d = st.drawings.find((q) => q.id === g.did);
+  if (!d || !st.chart) return;
+  if (!g.moved && Math.hypot(x - g.x0, y - g.y0) < 3) return;
+  g.moved = true;
+  const L = st.chart.timeScale().coordinateToLogical(x);
+  const pt = L == null ? null : pointAt({ point: { x, y }, logical: L });
+  if (!pt) return;
+  pt.p = roundP(pt.p);
+  const o = g.orig, s = d.type === 'long' ? 1 : -1, tk = tickSize(), j = Math.round(L);
+  const ja = Math.round(msToLogical(o.a.t)), je = Math.round(msToLogical(o.e - G.tf));
+  if (g.part === 'sl') d.sl = s > 0 ? Math.min(pt.p, d.a.p - tk) : Math.max(pt.p, d.a.p + tk);
+  else if (g.part === 'tp') d.tp = s > 0 ? Math.max(pt.p, d.a.p + tk) : Math.min(pt.p, d.a.p - tk);
+  else if (g.part === 'end') d.e = logicalToMs(Math.max(j, ja + 1)) + G.tf;
+  else if (g.part === 'entry') {
+    d.a = { t: logicalToMs(Math.min(j, je - 1)), p: Math.min(Math.max(d.sl, d.tp) - tk, Math.max(Math.min(d.sl, d.tp) + tk, pt.p)) };
+    d.c = placedAt(d.a.t);
+  } else {
+    const p0 = st.main.coordinateToPrice(g.y0), p1 = st.main.coordinateToPrice(y);
+    if (p0 == null || p1 == null) return;
+    const dp = Math.max(p1 - p0, -0.99 * Math.min(o.a.p, o.sl, o.tp)), dj = j - Math.round(g.L0);
+    d.a = { t: logicalToMs(ja + dj), p: roundP(o.a.p + dp) };
+    d.sl = roundP(o.sl + dp);
+    d.tp = roundP(o.tp + dp);
+    d.e = logicalToMs(je + dj) + G.tf;
+    d.c = placedAt(d.a.t);
+  }
+  redrawAll();
+}
+function dragEnd() {
+  const g = G.drag;
+  G.drag = null;
+  if (g && g.moved) saveDrawings();
+}
+/** A price typed in the chosen position's panel. */
+function setPosField(k, raw) {
+  const d = selPos();
+  if (!d) return;
+  const v = Number(raw), s = d.type === 'long' ? 1 : -1;
+  const no = (msg) => { toast(msg); paintStrat(true); };
+  if (!fin(v) || v <= 0) { no(k === 'len' ? 'Length: 1 candle or more.' : 'Type a price above 0.'); return; }
+  if (k === 'len') d.e = logicalToMs(Math.round(msToLogical(d.a.t)) + Math.max(1, Math.round(v)) - 1) + G.tf;
+  else if (k === 'entry') {
+    if ((d.sl - v) * s >= 0 || (v - d.tp) * s >= 0) { no('The entry goes between the stop loss and the take profit.'); return; }
+    d.a = { ...d.a, p: v };
+  } else if (k === 'sl') {
+    if ((v - d.a.p) * s >= 0) { no(`The stop loss of a ${d.type} goes ${s > 0 ? 'below' : 'above'} the entry.`); return; }
+    d.sl = v;
+  } else if (k === 'tp') {
+    if ((d.a.p - v) * s >= 0) { no(`The take profit of a ${d.type} goes ${s > 0 ? 'above' : 'below'} the entry.`); return; }
+    d.tp = v;
+  }
+  saveDrawings();
+}
+/** Long to short or back: the stop loss and the take profit move to the other side of the entry, as far away. */
+function flipPos() {
+  const d = selPos();
+  if (!d) return;
+  const e = d.a.p, risk = Math.abs(e - d.sl), reward = Math.abs(d.tp - e), long = d.type !== 'long';
+  d.type = long ? 'long' : 'short';
+  d.sl = roundP(long ? Math.max(e - risk, e * 0.001) : e + risk);
+  d.tp = roundP(long ? e + reward : Math.max(e - reward, e * 0.001));
+  saveDrawings();
+}
+function deletePos() {
+  const d = selPos();
+  if (!d) return;
+  st.undoAll = { drawings: st.drawings.slice(), ind: JSON.parse(JSON.stringify(st.ind)) };
+  st.drawings = st.drawings.filter((x) => x !== d);
+  G.sel = null;
+  saveDrawings();
+  toast('Position deleted. Ctrl+Z brings it back.');
+}
+
+/* ---------- drawing them ---------- */
+
+function paintPositions(g, size) {
+  const list = st.drawings.filter(isPos);
+  const draft = G.draft && G.draft.p === st && isPos(G.draft) ? draftPos() : null;
+  if (!st.ds || (!list.length && !draft)) return;
+  const acc = G.sim.on && list.length ? simView() : null;
+  g.save();
+  g.font = '11.5px ' + font();
+  for (const d of list) drawPos(g, d, size, acc);
+  if (draft) drawPos(g, draft, size, null, true);
+  g.restore();
+}
+/** A label on a coloured box; align 'left' (x is its left), 'center' or 'right'. Returns its width. */
+function pill(g, text, x, y, bg, align = 'left') {
+  const w = g.measureText(text).width + 10, h = 17;
+  const bx = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
+  g.fillStyle = bg;
+  g.fillRect(bx, y - h / 2, w, h);
+  g.fillStyle = '#fff';
+  g.fillText(text, bx + 5, y + 4);
+  return w;
+}
+/** One position: the take profit (green) and stop loss (red) zones, what the price did after the fill, its
+    side, risk/reward and status; the chosen one (or one being drawn) also its target and stop with amounts. */
+function drawPos(g, d, size, acc, draft = false) {
+  const b = posBox(d);
+  if (!b) return;
+  const { L, R, yE, yS, yT } = b, W = R - L, long = d.type === 'long', s = long ? 1 : -1, main = st.main;
+  const edge = (y, color, w = 1) => { if (y == null) return; g.strokeStyle = color; g.lineWidth = w; g.beginPath(); g.moveTo(L, y); g.lineTo(R, y); g.stroke(); };
+  if (yT != null) { g.fillStyle = 'rgba(34,197,94,0.16)'; g.fillRect(L, Math.min(yE, yT), W, Math.abs(yT - yE)); }
+  if (yS != null) { g.fillStyle = 'rgba(240,75,75,0.16)'; g.fillRect(L, Math.min(yE, yS), W, Math.abs(yS - yE)); }
+  const ps = draft ? null : posState(d);
+  if (ps && ps.fill && st.K) {
+    // from the fill to the exit (or to now): the part of a zone the price went through, and the path
+    const t = st.ds.cols.t, xk = ps.trade ? ps.trade.xk : st.K - 1, px = ps.trade ? ps.trade.xp : st.ds.cols.c[st.K - 1];
+    const xf = xOf(msToLogical(t[ps.fill.k])), xx = xOf(msToLogical(t[xk]));
+    const yF = main.priceToCoordinate(ps.fill.price), yX = main.priceToCoordinate(px);
+    if (xf != null && xx != null && yF != null && yX != null) {
+      const good = (px - ps.fill.price) * s >= 0;
+      g.fillStyle = good ? 'rgba(34,197,94,0.3)' : 'rgba(240,75,75,0.3)';
+      g.fillRect(Math.min(xf, xx), Math.min(yF, yX), Math.max(2, Math.abs(xx - xf)), Math.max(1, Math.abs(yX - yF)));
+      g.strokeStyle = 'rgba(229,231,235,0.85)';
+      g.lineWidth = 1;
+      g.setLineDash([4, 3]);
+      g.beginPath(); g.moveTo(xf, yF); g.lineTo(xx, yX); g.stroke();
+      g.setLineDash([]);
+      for (const [x, y, c] of [[xf, yF, '#e5e7eb'], ...(ps.trade ? [[xx, yX, good ? '#4ade80' : '#f87171']] : [])]) { g.fillStyle = c; g.beginPath(); g.arc(x, y, 3.2, 0, Math.PI * 2); g.fill(); }
+    }
+  }
+  edge(yT, 'rgba(34,197,94,0.9)');
+  edge(yS, 'rgba(240,75,75,0.9)');
+  edge(yE, 'rgba(229,231,235,0.9)', 1.3);
+  const sel = !draft && G.sel && G.sel.p === st && G.sel.id === d.id;
+  const rr = fin(d.sl) && fin(d.tp) ? Math.abs(d.tp - d.a.p) / Math.abs(d.a.p - d.sl) : NaN;
+  const x = L + 4 + pill(g, `${long ? 'Long' : 'Short'}${fin(rr) ? ` · ${rr.toFixed(2)}R` : ''}`, L + 4, yE, long ? 'rgba(21,128,61,0.92)' : 'rgba(185,28,28,0.92)') + 4;
+  if (ps) {
+    const stt = posStatus(d, ps);
+    const a = acc ? acc.trades.find((q) => q.id === d.id) || acc.open.find((q) => q.id === d.id) : null;
+    const bg = stt.tone === 'pos' ? 'rgba(22,101,52,0.92)' : stt.tone === 'neg' ? 'rgba(127,29,29,0.92)' : stt.tone === 'open' ? 'rgba(30,58,95,0.92)' : 'rgba(55,55,55,0.92)';
+    const text = `${stt.text}${a ? ` · ${plusMoney(a.net ?? a.pnl)}` : ''}`;
+    pill(g, text, x + g.measureText(text).width + 10 > R - 8 ? R + 8 : x, yE, bg);   // outside the box when it doesn't fit (clear of the end's handle)
+  }
+  if (sel || draft) {
+    const z = fin(d.sl) ? posSize(d) : null, mid = (L + R) / 2;
+    if (yT != null) pill(g, `Target ${fmt(d.tp)} (${signPct(((d.tp - d.a.p) / d.a.p) * s)})${z ? ` · ${plusMoney(z.qty * Math.abs(d.tp - d.a.p))}` : ''}`, mid, yT - 11 * s, 'rgba(21,128,61,0.92)', 'center');
+    if (yS != null) pill(g, `Stop ${fmt(d.sl)} (${signPct(((d.sl - d.a.p) / d.a.p) * s)})${z ? ` · ${plusMoney(-z.qty * Math.abs(d.a.p - d.sl))}` : ''}`, mid, yS + 11 * s, 'rgba(185,28,28,0.92)', 'center');
+  }
+  if (sel) {
+    g.fillStyle = '#fff';
+    g.strokeStyle = '#111';
+    g.lineWidth = 1;
+    for (const [hx, hy] of [[L, yE], [L, yS], [L, yT], [R, yE]]) if (hy != null) { g.fillRect(hx - 4, hy - 4, 8, 8); g.strokeRect(hx - 4.5, hy - 4.5, 9, 9); }
+  }
+}
+
+/* ---------- the chosen position's panel ---------- */
+
+let posSig = '';
+function paintPosNow(force) {
+  const el = $('#lab-ch-pos', host);
+  if (!el) return;
+  const d = st.B && st.ds ? selPos() : null;
+  if (!d) {
+    if (G.sel && G.sel.p === st) G.sel = null;
+    el.hidden = true;
+    el.innerHTML = '';
+    posSig = '';
+    return;
+  }
+  const ps = posState(d);
+  const sig = `${st.i}|${JSON.stringify(d)}|${ps.state}|${ps.fill ? ps.fill.k : ''}|${ps.trade ? ps.trade.xk : ''}|${ps.state === 'open' ? st.K : ''}|${G.simVer}|${G.sim.on}|${G.n}`;
+  if (!force && sig === posSig && !el.hidden) return;
+  posSig = sig;
+  el.hidden = false;
+  const long = d.type === 'long', e = d.a.p, t = st.ds.cols.t;
+  const risk = Math.abs(e - d.sl), reward = Math.abs(d.tp - e), z = posSize(d), stt = posStatus(d, ps);
+  const len = Math.max(1, Math.round(msToLogical(d.e - G.tf)) - Math.round(msToLogical(d.a.t)) + 1);
+  const kind = ps.kind === 'market' ? 'Market entry: its entry is the close of the candle it is drawn on, so it fills there'
+    : ps.kind === 'limit' ? `${long ? 'Buy' : 'Sell'} limit: it fills when a later candle comes ${long ? 'down' : 'up'} to the entry`
+      : `${long ? 'Buy' : 'Sell'} stop: it fills when a later candle ${long ? 'rises' : 'falls'} to the entry`;
+  const entry = ps.fill ? `${esc(when(t[ps.fill.k], true))} at ${fmt(ps.fill.price)}` : ps.state === 'expired' ? 'not filled in the box' : ps.state === 'waiting' ? `waiting at ${fmt(e)}` : 'not placed yet';
+  const exit = ps.trade ? `${WHY[ps.trade.why]}, ${esc(when(t[ps.trade.xk], true))} at ${fmt(ps.trade.xp)}` : ps.state === 'open' ? 'still open' : '–';
+  let acct = '';
+  if (G.sim.on) {
+    const v = simView(), a = v && (v.trades.find((q) => q.id === d.id) || v.open.find((q) => q.id === d.id));
+    const net = a ? a.net ?? a.pnl : NaN;
+    if (a) acct = chipHtml('In the simulation', `${plusMoney(net)}${fin(a.r) ? ` · ${a.r >= 0 ? '+' : ''}${a.r.toFixed(2)}R` : ''}`, net >= 0 ? 'pos' : 'neg');
+  }
+  const fld = (k, label, v, attrs = 'step="any" min="0"') => `<label class="lab-ch-sp"><span class="label">${label}</span><input class="input" type="number" data-pos="${k}" value="${v}" ${attrs}></label>`;
+  el.innerHTML = `
+    <div class="lab-ch-shead">
+      <div class="lab-ch-sname"><b><i class="lab-ch-dot lab-ch-pdot" style="background:${long ? UP : DOWN}"></i>${long ? 'Long' : 'Short'} position${G.n > 1 ? ` · ${esc(st.row.symbol)}` : ''}<span class="lab-ch-pstat ${stt.tone}">${esc(stt.text)}</span></b>
+        <span class="faint small lab-ch-wrap">${kind}. The box’s right edge ends it: not filled by then, it is cancelled; still open, it is closed at that candle’s close. Drag its handles or type the prices. Amounts use the simulation’s starting amount and size.</span></div>
+      <div class="lab-ch-sbtns">
+        <button class="btn btn-sm" data-ch="posflip" title="Make it a ${long ? 'short' : 'long'}: the stop loss and the take profit move to the other side">${ic(IC.flip)}${long ? 'To short' : 'To long'}</button>
+        <button class="btn btn-sm" data-ch="posdel" title="Delete this position (Delete key)">${icon('trash')}Delete</button>
+        <button class="btn btn-sm" data-ch="posx" title="Done (Esc)">${ic(IC.close)}<span class="sr-only">Done</span></button>
+      </div>
+    </div>
+    <div class="lab-ch-posrow">${fld('entry', 'Entry', priceStr(e))}${fld('sl', 'Stop loss', priceStr(d.sl))}${fld('tp', 'Take profit', priceStr(d.tp))}${fld('len', 'Length (candles)', len, 'step="1" min="1"')}</div>
+    <div class="lab-ch-schips">
+      ${chipHtml('Risk', `${signPct(-risk / e)} · ${plusMoney(-z.qty * risk)}`, 'neg')}${chipHtml('Reward', `${signPct(reward / e)} · ${plusMoney(z.qty * reward)}`, 'pos')}
+      ${chipHtml('Risk/reward', (reward / risk).toFixed(2))}${chipHtml('Size', `${qtyStr(z.qty)} ${esc(coinOf())} · ${money(z.value)}`)}
+      ${chipHtml('Entry', entry)}${chipHtml('Exit', exit)}${acct}
+    </div>`;
+}
+
+/* ======================= the trading simulation (sim.js) ======================= */
+
+/** The Dashboard's money and costs: the simulation's defaults. */
+function dash() {
+  let c = null;
+  try { c = ctx.costs(); } catch { /* the Dashboard's form isn't ready yet */ }
+  const num = (v) => (v == null || v === '' ? NaN : Number(v));
+  const cap = num(c && c.capital), fee = num(c && c.fee_pct), slip = num(c && c.slippage_pct);
+  return { capital: cap > 0 ? cap : 1000, fee: fee >= 0 ? fee : 0.05, slip: slip >= 0 ? slip : 0.05 };
+}
+/** The account the simulation trades with. */
+function simCfg() {
+  const d = dash(), s = G.sim;
+  return { capital: s.capital ?? d.capital, fee: (s.fee ?? d.fee) / 100, slip: (s.slip ?? d.slip) / 100, lev: s.lev || 1 };
+}
+const saveSim = () => save('sim', G.sim);
+/** Every order of this chart's simulation: its position drawings and the orders placed in the replay, numbered by time. */
+function simOrders() {
+  const size = { mode: G.sim.mode, value: G.sim.value };
+  const list = st.drawings.filter(isPos).map((d) => drawOrder(d, size)).concat(st.tick.orders.map((o) => ({ ...o })));
+  list.sort((a, b) => a.k0 - b.k0 || a.seq - b.seq).forEach((o, i) => { o.n = i + 1; });
+  return list;
+}
+/** This chart's simulation, brought up to the candles shown (null when it has no orders). It is worked out
+    again from the start only when its orders or settings change or a replay steps back. */
+function simOf() {
+  if (!st.ds || !st.B) return null;
+  const key = `${st.id}|${G.simVer}|${st.tick.ver}`;
+  let e = st.simE;
+  if (!e || e.key !== key || (e.sim && e.sim.K > st.K)) {
+    const orders = simOrders();
+    e = st.simE = { key, sim: orders.length ? new Sim(st.ds.cols, orders, st.tick.actions, simCfg()) : null };
+  }
+  return e.sim ? e.sim.advance(st.K) : null;
+}
+const simView = () => { const s = simOf(); return s ? s.view() : null; };
+/** An order from the ticket (or the replay bar), placed at the newest candle shown, with the size set now. */
+function placeOrder(o) {
+  const t = st.tick, seq = ++t.seq;
+  t.orders.push({ id: `T${seq}`, n: 0, seq, src: 'ticket', kind: 'market', price: NaN, sl: NaN, tp: NaN, trail: 0, ...o, k0: st.K - 1, kEnd: Infinity, size: { mode: G.sim.mode, value: G.sim.value } });
+  t.ver++;
+  simMoved();
+}
+/** Close an open trade or cancel a waiting order, at the newest candle shown. */
+function simAct(type, id) {
+  const t = st.tick;
+  t.actions.push({ type, id, seq: ++t.seq, k: st.K - 1 });
+  t.ver++;
+}
+/** After an order or an action: the chart, the replay bar and the panels show it. */
+function simMoved() {
+  paintMarkers(true);
+  if (st.layer) st.layer.redraw();
+  paintReplayInfo();
+  paintStrat();
+}
+function openSim() {
+  G.sim.on = true;
+  saveSim();
+  paintBar();
+  paintStrat();
+  const el = $('#lab-ch-sim', host);
+  if (el && !el.hidden && !isFull()) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+/** The order ticket's Buy / Long and Sell / Short: checks the prices against the last one, then places the order. */
+function ticket(side) {
+  if (!G.replay || !st.K) { toast('Start a replay to place orders.'); return; }
+  const typed = (k) => String(G.tk[k] ?? '').trim();
+  const num = (k) => (typed(k) === '' ? NaN : Number(typed(k)));
+  const kind = G.sim.kind, long = side > 0, last = st.ds.cols.c[st.K - 1];
+  const price = kind === 'market' ? NaN : num('price'), sl = num('sl'), tp = num('tp'), trail = num('trail');
+  const no = (msg) => toast(msg);
+  if (typed('sl') && !(sl > 0)) return no('Stop loss: a price above 0, or leave it empty.');
+  if (typed('tp') && !(tp > 0)) return no('Take profit: a price above 0, or leave it empty.');
+  if (typed('trail') && !(trail > 0 && trail < 50)) return no('Trailing stop: more than 0 and under 50 (%), or leave it empty.');
+  if (kind !== 'market') {
+    if (!(price > 0)) return no(`Type the ${kind === 'stop' ? 'trigger' : 'limit'} price.`);
+    if (kind === 'limit' && (price < last) !== long) return no(`A ${long ? 'buy' : 'sell'} limit waits ${long ? 'below' : 'above'} the price (now ${fmt(last)}). To ${long ? 'buy higher' : 'sell lower'}, use a Stop order.`);
+    if (kind === 'stop' && (price > last) !== long) return no(`A ${long ? 'buy' : 'sell'} stop waits ${long ? 'above' : 'below'} the price (now ${fmt(last)}). To ${long ? 'buy lower' : 'sell higher'}, use a Limit order.`);
+  }
+  const ref = kind === 'market' ? last : price, at = kind === 'market' ? `the price (${fmt(last)})` : `the entry (${fmt(price)})`;
+  if (fin(sl) && (sl - ref) * side >= 0) return no(`The stop loss of a ${long ? 'long' : 'short'} goes ${long ? 'below' : 'above'} ${at}.`);
+  if (fin(tp) && (ref - tp) * side >= 0) return no(`The take profit of a ${long ? 'long' : 'short'} goes ${long ? 'above' : 'below'} ${at}.`);
+  if (G.sim.mode === 'risk' && !fin(sl)) return no('The size is set by risk, so the order needs a stop loss. Type one, or pick % of balance or $ as the size.');
+  return placeOrder({ side, kind, price, sl, tp, trail: fin(trail) ? trail / 100 : 0 });
+}
+/** Shows file candles a to b (a trade) in the middle of the chart. */
+function focusAt(a, b = a) {
+  if (!fin(a)) return;
+  const t = st.ds.cols.t, n = st.ds.n, ja = indexOfTime(t[Math.min(a, n - 1)]), jb = indexOfTime(t[Math.min(Math.max(a, b), n - 1)]);
+  const pad = Math.max(25, (jb - ja) * 0.7);
+  setRange({ from: ja - pad, to: jb + pad });
+}
+function simCsv() {
+  const v = simView();
+  if (!v || !v.n) { toast('No closed trades in the simulation yet.'); return; }
+  const t = st.ds.cols.t, iso = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+  const rows = v.trades.map((x) => [x.n, x.side > 0 ? 'long' : 'short', x.src === 'draw' ? 'position drawing' : 'order', x.kind, iso(t[x.ek]), x.ep, iso(t[x.xk]), x.xp, WHY[x.why], x.qty, x.qty * x.ep, x.margin, x.fees, x.net, fin(x.r) ? x.r : '', x.bal].join(','));
+  download(`${st.row.symbol}-simulation-${ymd(Date.now())}.csv`, `n,side,from,entry_type,entry_time_utc,entry_price,exit_time_utc,exit_price,exit,quantity,value,margin,fees,net,r,balance_after\n${rows.join('\n')}\n`, 'text/csv');
+}
+/** A setting in the simulation's panel: checked, kept, and every simulation worked out again. */
+function setSim(k, el) {
+  const S = G.sim, raw = String(el.value).trim(), v = raw === '' ? null : Number(raw);
+  const no = (msg) => { toast(msg); el.value = S[k] ?? ''; return false; };
+  if (k === 'mode') {
+    S.mode = el.value;
+    if (S.mode === 'risk' && !(S.value <= 10)) S.value = 1;            // a sensible start in the new unit
+    else if (S.mode === 'pct' && !(S.value <= 100)) S.value = 10;
+    else if (S.mode === 'usdt' && !(S.value >= 1)) S.value = 100;
+  } else if (k === 'capital') { if (v != null && !(v > 0 && v <= 1e12)) return no('Starting amount: more than 0 (or empty for the Dashboard’s).'); S.capital = v; }
+  else if (k === 'lev') { const x = v == null ? 1 : Math.round(v); if (!(x >= 1 && x <= 125)) return no('Leverage: 1 to 125.'); S.lev = x; }
+  else if (k === 'value') { if (!(v > 0) || (S.mode !== 'usdt' && v > 100)) return no(S.mode === 'usdt' ? 'Size: more than $0.' : 'Size: more than 0 and at most 100 (%).'); S.value = v; }
+  else if (k === 'fee' || k === 'slip') { if (v != null && !(v >= 0 && v <= 5)) return no(`${k === 'fee' ? 'Fee' : 'Slippage'}: 0 to 5 (%), or empty for the Dashboard’s.`); S[k] = v; }
+  saveSim();
+  G.simVer++;
+  for (const p of loaded()) on(p, () => { paintMarkers(true); if (st.layer) st.layer.redraw(); });
+  paintReplayInfo();
+  paintStrat();
+  return true;
+}
+
+/* ---------- the simulation's panel ---------- */
+
+const EVENT = { placed: 'Placed', filled: 'Entry filled', sl: 'Stop loss hit', tp: 'Take profit hit', trail: 'Trailing stop hit', liq: 'Liquidated', end: 'Closed: the box ended', close: 'Closed by you', cancel: 'Cancelled', expired: 'Not filled: the box ended', rejected: 'Not placed' };
+let simSig = '', simLiveSig = '', simTabSig = '';
+function paintSimNow(force) {
+  const el = $('#lab-ch-sim', host);
+  if (!el) return;
+  if (!G.sim || !G.sim.on || !st.B) { el.hidden = true; el.innerHTML = ''; simSig = ''; return; }
+  const sig = `${st.i}|${st.id}|${Boolean(G.replay)}|${G.sim.kind}|${G.simVer}|${st.tick.orders.length > 0}|${G.n}`;
+  if (force || sig !== simSig || el.hidden) {
+    simSig = sig;
+    simLiveSig = simTabSig = '';
+    el.hidden = false;
+    el.innerHTML = simHtml();
+  }
+  const v = simView();
+  paintSimLive(el, v);
+  paintSimTab(el, v);
+}
+function simHtml() {
+  const d = dash(), S = G.sim, rep = Boolean(G.replay);
+  const fld = (k, label, val, ph, attrs) => `<label class="lab-ch-sp"><span class="label">${label}</span><input class="input" type="number" data-sim="${k}" value="${val ?? ''}" placeholder="${esc(ph)}" ${attrs}></label>`;
+  const units = [['pct', '% of balance (margin)'], ['risk', '% risked at the stop'], ['usdt', '$ margin']];
+  const size = `<label class="lab-ch-sp lab-ch-spsize"><span class="label">Size per trade</span><span class="lab-ch-size"><input class="input" type="number" data-sim="value" value="${S.value}" min="0" step="any" aria-label="Size per trade"><select class="input" data-sim="mode" aria-label="What the size is">${units.map(([k, l]) => `<option value="${k}" ${S.mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select></span></label>`;
+  const kinds = [['market', 'At the close of the newest candle'], ['limit', 'Waits for a better price: buy below, sell above'], ['stop', 'Waits for the price to move on: buy above, sell below (a breakout)']]
+    .map(([k, tip]) => `<button class="lab-ch-seg ${S.kind === k ? 'on' : ''}" data-ch="tkkind" data-k="${k}" aria-pressed="${S.kind === k}" title="${tip}">${k[0].toUpperCase()}${k.slice(1)}</button>`).join('');
+  const tk = (k, label, ph, off = false) => `<label class="lab-ch-tk"><span class="label">${label}</span><input class="input" type="number" step="any" min="0" data-tk="${k}" value="${esc(G.tk[k])}" placeholder="${ph}" ${off ? 'disabled' : ''}></label>`;
+  const ticketHtml = rep
+    ? `<div class="lab-ch-ticket" role="group" aria-label="Order ticket">
+        <span class="lab-ch-segs" role="group" aria-label="Order type">${kinds}</span>
+        ${tk('price', S.kind === 'stop' ? 'Trigger price' : 'Limit price', S.kind === 'market' ? 'at the close' : 'price', S.kind === 'market')}
+        ${tk('tp', 'Take profit', 'none')}${tk('sl', 'Stop loss', 'none')}${tk('trail', 'Trailing stop %', 'none')}
+        <span class="lab-ch-tkbtns"><button class="btn btn-sm lab-ch-buy" data-ch="tkbuy">Buy / Long</button><button class="btn btn-sm lab-ch-sell" data-ch="tksell">Sell / Short</button></span>
+        <span class="faint small" id="lab-ch-tklast"></span>
+      </div>`
+    : '<p class="faint small lab-ch-simnote">Draw <b>Long</b> or <b>Short positions</b> (the last two drawing tools): each one is an order of this account. To place market, limit and stop orders yourself, candle by candle, press <b>Trade in a replay</b>.</p>';
+  return `
+    <div class="lab-ch-shead">
+      <div class="lab-ch-sname"><b>${ic(IC.sim)} Trading simulation${G.n > 1 && st.row ? ` · ${esc(st.row.symbol)}` : ''}</b><span class="faint small lab-ch-wrap">One account trades your positions${rep ? ' and the orders you place in this replay' : ''}. Entries, stop losses, take profits, trailing stops and liquidation trigger on each candle’s high and low; when a candle reaches both the stop and the take profit, the stop counts (what came first inside a candle isn’t known).</span></div>
+      <div class="lab-ch-sbtns">
+        ${rep ? `<button class="btn btn-sm" data-ch="simreset" ${st.tick.orders.length ? '' : 'disabled'} title="Remove the orders placed in this replay (your positions stay)">${ic(IC.undo)}Reset orders</button>` : `<button class="btn btn-sm btn-green" data-ch="simrep" title="Pick a moment in the past, then trade from there candle by candle">${ic(IC.replay)}Trade in a replay</button>`}
+        <button class="btn btn-sm" data-ch="simcsv" title="Download the closed trades as a CSV file">${icon('down')}CSV</button>
+        <button class="btn btn-sm" data-ch="sim" title="Hide the simulation">${ic(IC.close)}<span class="sr-only">Hide the simulation</span></button>
+      </div>
+    </div>
+    <div class="lab-ch-simset">
+      ${fld('capital', 'Starting amount ($)', S.capital, `${d.capital.toLocaleString('en-US')} (Dashboard)`, 'min="0" step="any"')}
+      ${fld('lev', 'Leverage (×)', S.lev, '1', 'min="1" max="125" step="1"')}
+      ${size}
+      ${fld('fee', 'Fee per fill (%)', S.fee, `${d.fee} (Dashboard)`, 'min="0" max="5" step="any"')}
+      ${fld('slip', 'Slippage per fill (%)', S.slip, `${d.slip} (Dashboard)`, 'min="0" max="5" step="any"')}
+    </div>
+    <div class="lab-ch-schips" id="lab-ch-simlive"></div>
+    ${ticketHtml}
+    <div class="lab-ch-simtab" id="lab-ch-simtab"></div>`;
+}
+/** The account's numbers (and the ticket's last price), as the replay moves. */
+function paintSimLive(el, v) {
+  const box = $('#lab-ch-simlive', el);
+  const c = simCfg();
+  const sig = v ? `${st.K}|${v.events.length}|${v.equity}|${v.balance}` : `-|${c.capital}`;
+  if (box && sig !== simLiveSig) {
+    simLiveSig = sig;
+    const tn = (x) => (x > 0 ? 'pos' : x < 0 ? 'neg' : '');
+    box.innerHTML = v
+      ? [chipHtml('Balance', money(v.balance)), chipHtml('Equity', money(v.equity), tn(v.net)), chipHtml('Open P&amp;L', v.open.length ? plusMoney(v.upnl) : '–', tn(v.upnl)),
+        chipHtml('Net P&amp;L', `${plusMoney(v.net)} (${signPct(v.ret)})`, tn(v.net)), chipHtml('Trades', v.n.toLocaleString('en-US')), chipHtml('Won', v.n ? `${Math.round((v.wins / v.n) * 100)}%` : '–'),
+        chipHtml('Profit factor', fin(v.pf) ? v.pf.toFixed(2) : v.pf === Infinity ? '∞' : '–', fin(v.pf) ? tn(v.pf - 1) : ''),
+        chipHtml('Worst drawdown', v.maxDD > 0 ? `-${(v.maxDD * 100).toFixed(v.maxDD < 0.01 ? 2 : 1)}%` : '–', v.maxDD > 0 ? 'neg' : ''), chipHtml('Fees', money(v.fees))].join('')
+      : `${chipHtml('Balance', money(c.capital))}${chipHtml('Trades', '0')}<span class="faint small lab-ch-simnone">No orders yet: draw a long or short position${G.replay ? ', or place an order below' : ''}.</span>`;
+  }
+  const last = $('#lab-ch-tklast', el);
+  if (last && st.K) last.textContent = `Last price ${fmt(st.ds.cols.c[st.K - 1])}`;
+}
+/** The tabs: open positions, waiting orders, closed trades and every trigger (click a row to see it on the chart). */
+function paintSimTab(el, v) {
+  const box = $('#lab-ch-simtab', el);
+  if (!box) return;
+  const tab = G.sim.tab, rep = Boolean(G.replay), t = st.ds.cols.t;
+  const c = v ? { pos: v.open.length, ord: v.pending.length, hist: v.n, ev: v.events.length } : { pos: 0, ord: 0, hist: 0, ev: 0 };
+  const sig = `${st.i}|${tab}|${c.pos}|${c.ord}|${c.hist}|${c.ev}|${tab === 'pos' && c.pos ? st.K : ''}|${rep}`;
+  if (sig === simTabSig) return;
+  simTabSig = sig;
+  const tabs = [['pos', 'Positions', c.pos], ['ord', 'Orders', c.ord], ['hist', 'History', c.hist], ['ev', 'Triggers', c.ev]]
+    .map(([k, l, n]) => `<button class="lab-ch-seg ${tab === k ? 'on' : ''}" data-ch="simtab" data-k="${k}" aria-pressed="${tab === k}">${l} <span class="lab-ch-tcount">${n.toLocaleString('en-US')}</span></button>`).join('');
+  const tw = (k) => esc(when(t[k], true));
+  const lvl = (x, cls) => (fin(x) ? `<span class="${cls}">${fmt(x)}</span>` : '<span class="faint">–</span>');
+  const who = (src, kind, side) => `<td class="${side > 0 ? 'pos' : 'neg'}">${side > 0 ? 'Long' : 'Short'}<br><span class="faint">${src === 'draw' ? 'drawing' : 'order'} · ${kind}</span></td>`;
+  let head = '', rows = '', empty = '';
+  if (tab === 'pos') {
+    empty = 'No open trades.';
+    head = `<th>#</th><th>Side</th><th>Entry</th><th>Size</th><th>Stop loss</th><th>Take profit</th><th>Liquidation</th><th>Open P&amp;L</th>${rep ? '<th></th>' : ''}`;
+    rows = v ? v.open.map((p) => `<tr data-ch="simrow" data-a="${p.k}" data-b="${st.K - 1}" tabindex="0"><td>${p.n}</td>${who(p.o.src, p.o.kind, p.side)}<td>${tw(p.k)}<br><span class="faint">${fmt(p.px)}</span></td>
+      <td>${qtyStr(p.qty)}<br><span class="faint">${money(p.qty * p.px)}</span></td><td>${lvl(p.sl, 'neg')}${fin(p.tstop) ? `<br><span class="faint">trail ${fmt(p.tstop)}</span>` : ''}</td><td>${lvl(p.tp, 'pos')}</td><td>${lvl(p.liq, 'faint')}</td>
+      <td class="${p.pnl >= 0 ? 'pos' : 'neg'}">${plusMoney(p.pnl)}<br><span class="faint">${signPct(p.move)}</span></td>${rep ? `<td><button class="btn btn-sm" data-ch="simclose" data-id="${esc(p.id)}" title="Close at the last price">Close</button></td>` : ''}</tr>`).join('') : '';
+  } else if (tab === 'ord') {
+    empty = 'No orders waiting for their price.';
+    head = `<th>#</th><th>Side</th><th>Order</th><th>Stop loss</th><th>Take profit</th><th>Placed</th><th>Ends</th>${rep ? '<th></th>' : ''}`;
+    rows = v ? v.pending.map((o) => `<tr data-ch="simrow" data-a="${o.k0}" data-b="${o.k0}" tabindex="0"><td>${o.n}</td>${who(o.src, o.kind, o.side)}<td>${o.side > 0 ? 'Buy' : 'Sell'} ${o.kind}<br><span class="faint">at ${fmt(o.price)}</span></td>
+      <td>${lvl(o.sl, 'neg')}</td><td>${lvl(o.tp, 'pos')}</td><td>${tw(o.k0)}</td><td>${fin(o.kEnd) ? tw(Math.min(o.kEnd, st.ds.n - 1)) : '<span class="faint">until cancelled</span>'}</td>
+      ${rep ? `<td><button class="btn btn-sm" data-ch="simcancel" data-id="${esc(o.id)}">Cancel</button></td>` : ''}</tr>`).join('') : '';
+  } else if (tab === 'hist') {
+    empty = 'No closed trades yet.';
+    head = '<th>#</th><th>Side</th><th>Entry</th><th>Exit</th><th class="l">Why</th><th>Net</th><th>Balance</th>';
+    rows = v ? v.trades.slice(-500).reverse().map((x) => `<tr data-ch="simrow" data-a="${x.ek}" data-b="${x.xk}" tabindex="0"><td>${x.n}</td>${who(x.src, x.kind, x.side)}<td>${tw(x.ek)}<br><span class="faint">${fmt(x.ep)}</span></td><td>${tw(x.xk)}<br><span class="faint">${fmt(x.xp)}</span></td>
+      <td class="l">${WHY[x.why]}</td><td class="${x.net >= 0 ? 'pos' : 'neg'}">${plusMoney(x.net)}<br><span class="faint">${fin(x.r) ? `${x.r >= 0 ? '+' : ''}${x.r.toFixed(2)}R · ` : ''}${signPct(x.move)}</span></td><td>${money(x.bal)}</td></tr>`).join('') : '';
+  } else {
+    empty = 'Nothing has happened yet.';
+    const what = (e) => {
+      const kind = `${e.side > 0 ? 'buy' : 'sell'} ${e.kind}`;
+      if (e.what === 'placed') return `Placed: ${kind}${e.kind === 'market' ? ' at the close' : ''} <span class="faint">(${e.src === 'draw' ? 'drawing' : 'order'})</span>`;
+      return `${EVENT[e.what]}${e.note ? ` <span class="faint">(${esc(e.note)})</span>` : ''}`;
+    };
+    head = '<th>Time</th><th>#</th><th class="l">What happened</th><th>Price</th><th>Result</th><th>Balance</th>';
+    rows = v ? v.events.slice(-400).reverse().map((e) => `<tr data-ch="simrow" data-a="${e.k}" data-b="${e.k}" tabindex="0"><td>${tw(e.k)}</td><td>${e.n}</td><td class="l">${what(e)}</td><td>${fin(e.price) ? fmt(e.price) : '–'}</td>
+      <td class="${fin(e.net) ? (e.net >= 0 ? 'pos' : 'neg') : ''}">${fin(e.net) ? plusMoney(e.net) : ''}</td><td>${money(e.bal)}</td></tr>`).join('') : '';
+  }
+  box.innerHTML = `<span class="lab-ch-segs lab-ch-simtabs" role="group" aria-label="Simulation lists">${tabs}</span>
+    ${rows ? `<div class="lab-ch-tscroll"><table class="lab-table lab-ch-trades lab-ch-simt"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>` : `<p class="dim small">${empty}</p>`}`;
 }
 
 /* ---------- the Strategy menu: run a backtest on this chart, or open a saved one ---------- */
@@ -1936,7 +2601,7 @@ function xy(pt) {
 }
 function paintDrawings(g, size) {
   const d0 = G.draft;
-  const items = st.drawings.filter((d) => d.type !== 'hline').concat(d0 && d0.p === st && d0.b ? [d0] : []);
+  const items = st.drawings.filter((d) => d.type !== 'hline' && !isPos(d)).concat(d0 && d0.p === st && d0.b && !isPos(d0) ? [d0] : []);
   g.save();
   g.font = '12px ' + getComputedStyle(document.body).fontFamily;
   for (const d of items) {
@@ -1986,6 +2651,7 @@ function paintDrawings(g, size) {
     }
   }
   g.restore();
+  paintPositions(g, size);
 }
 function span(ms) {
   const m = Math.round(ms / 60000);
@@ -1997,12 +2663,24 @@ function paintHlines() {
   for (const pl of st.hlines) st.main.removePriceLine(pl);
   st.hlines = st.drawings.filter((d) => d.type === 'hline').map((d) => st.main.createPriceLine({ price: d.a.p, color: '#4ea1ff', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: '' }));
 }
-/** Saves this coin's drawings and redraws every chart that shows the coin. */
+/** Saves this coin's drawings and redraws every chart that shows the coin (and their simulations). */
 function saveDrawings() {
   const key = drawKey(), list = st.drawings;
   save(`draw.${key}`, list);
-  for (const q of loaded()) if (drawKeyOf(q) === key) on(q, () => { st.drawings = list; paintHlines(); if (st.layer) st.layer.redraw(); });
+  G.simVer++;
+  for (const q of loaded()) {
+    if (drawKeyOf(q) !== key) continue;
+    on(q, () => {
+      st.drawings = list;
+      for (const id of [...st.outc.keys()]) if (!list.some((d) => d.id === id)) st.outc.delete(id);
+      paintHlines();
+      paintMarkers(true);
+      if (st.layer) st.layer.redraw();
+    });
+  }
   paintBar();
+  paintReplayInfo();
+  paintStrat();
 }
 
 /* ---------- removing indicators and drawings ---------- */
@@ -2078,14 +2756,43 @@ function watchClicks(p) {
   let down = null;
   // Capture phase: the library stops these events inside the chart.
   const touched = () => { p.userAt = performance.now(); };
+  const local = (e) => { const r = el.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const onControl = (e) => e.target.closest && e.target.closest('button, select, input, a');
   el.addEventListener('pointerdown', (e) => {
     down = e.button === 0 ? [e.clientX, e.clientY] : null;
     touched();
     if (p.i !== G.active) setActive(p);
+    // A handle (or the inside) of the chosen position: drag it. No mouse events reach the chart then, so it doesn't scroll.
+    if (e.button !== 0 || !p.chart || G.tool || G.picking || onControl(e)) return;
+    const [x, y] = local(e);
+    const h = on(p, () => grabAt(x, y));
+    if (!h) return;
+    e.preventDefault();
+    e.stopPropagation();
+    down = null;
+    G.drag = { p, ...h, x0: x, y0: y, L0: p.chart.timeScale().coordinateToLogical(x), moved: false, orig: JSON.parse(JSON.stringify(on(p, () => selPos()))) };
+    try { el.setPointerCapture(e.pointerId); } catch { /* the drag still follows the pointer over the chart */ }
   }, true);
-  el.addEventListener('pointermove', (e) => { if (e.buttons) touched(); }, true);
+  el.addEventListener('pointermove', (e) => {
+    if (G.drag && G.drag.p === p) { e.stopPropagation(); const [x, y] = local(e); on(p, () => dragTo(x, y)); return; }
+    if (e.buttons) touched();
+    else if (p.chart && !G.tool && !G.picking) { const [x, y] = local(e); on(p, () => hover(x, y)); }
+  }, true);
+  const endDrag = (e) => {
+    if (!G.drag || G.drag.p !== p) return false;
+    e.stopPropagation();
+    try { el.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
+    on(p, dragEnd);
+    return true;
+  };
+  el.addEventListener('pointercancel', endDrag, true);
+  // On a touch screen the chart scrolls with touch events: none reach it while a handle is dragged.
+  const holdTouch = (e) => { if (G.drag && G.drag.p === p) { e.preventDefault(); e.stopPropagation(); } };
+  el.addEventListener('touchstart', holdTouch, { capture: true, passive: false });
+  el.addEventListener('touchmove', holdTouch, { capture: true, passive: false });
   el.addEventListener('wheel', touched, { capture: true, passive: true });
   el.addEventListener('pointerup', (e) => {
+    if (endDrag(e)) return;
     if (!down || !p.chart) return;
     const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]);
     down = null;
@@ -2115,6 +2822,10 @@ function onChartClick(param) {
   }
   if (!param.inMain) return;
   if (!G.tool) {
+    // A click on a position drawing chooses it (its handles and its panel show); anywhere else lets it go.
+    const pd = posAt(param.point.x, param.point.y);
+    if (pd) { if (!G.sel || G.sel.p !== st || G.sel.id !== pd.id) selectPos(pd); return; }
+    if (G.sel) selectPos(null);
     // A click on a trade's entry or exit candle selects that trade.
     if (param.logical == null) return;
     const j = Math.round(param.logical), now = nowT();
@@ -2129,6 +2840,7 @@ function onChartClick(param) {
   const pt = pointAt(param);
   if (!pt) return;
   st.undoAll = null;
+  if (G.tool === 'long' || G.tool === 'short') { placePos(pt); return; }
   if (G.tool === 'hline') {
     st.drawings.push({ type: 'hline', a: pt });
     saveDrawings();
@@ -2146,7 +2858,7 @@ function onChartClick(param) {
 function onMove(param) {
   if (G.draft && G.draft.p === st && param.point && (param.paneIndex == null || param.paneIndex === 0)) {
     const pt = pointAt(param);
-    if (pt) { G.draft.b = pt; st.layer.redraw(); }
+    if (pt) { if (isPos(G.draft)) G.draft.h = pt; else G.draft.b = pt; st.layer.redraw(); }
   }
   if (G.picking && param.point && param.logical != null && param.sourceEvent) {
     const j = Math.max(1, Math.min(st.B.n - 2, Math.round(param.logical)));
@@ -2195,7 +2907,7 @@ function shareRange(range) {
   } finally { syncing = false; }
 }
 
-const toolHint = () => (G.tool ? `${TOOLS.find(([t]) => t === G.tool)[1]}: ${G.tool === 'hline' ? 'click a price.' : 'click the first point.'} Esc stops.` : '');
+const toolHint = () => (G.tool ? `${TOOLS.find(([t]) => t === G.tool)[1].split(':')[0]}: ${G.tool === 'hline' ? 'click a price.' : isPos({ type: G.tool }) ? 'click the entry.' : 'click the first point.'} Esc stops.` : '');
 function hint(text) {
   for (const p of live()) {
     const el = p.el && $('.lab-ch-hint', p.el);
@@ -2207,6 +2919,7 @@ function hint(text) {
 function setTool(t) {
   G.tool = G.tool === t ? null : t;
   G.draft = null;
+  for (const p of live()) if (p.el) p.el.dataset.cursor = '';
   if (G.tool && G.picking && !G.replay) { G.picking = null; paintReplay(); }
   hint(toolHint());
   redrawAll();
@@ -2253,8 +2966,8 @@ function startReplay(cut, end = null) {
   G.replay = { cut, start: cut, end, playing: false, timer: null, speed: old ? old.speed : load('speed', 2), by: old ? old.by : load('by', 'bar') };
   hint('');
   each(() => {
-    st.pos = null;
-    st.ptrades = [];
+    st.tick = newTick();                                     // a new replay starts with no orders
+    st.simE = null;
     if (st.strat) st.strat.sel = -1;
     setAll(kAt(st, cut));
     paintMarkers();
@@ -2275,9 +2988,13 @@ function stopReplay() {
   G.picking = null;
   if (r) {
     cancelAnimationFrame(r.timer);
+    // how the account did with the orders placed in this replay (they end with it)
+    const v = on(A(), () => (st.B && st.tick.orders.length ? simView() : null));
     G.replay = null;
+    if (v && (v.n || v.open.length)) toast(`The replay's account: ${money(v.equity)} (${signPct(v.ret)}), ${plural(v.n, 'closed trade')}${v.open.length ? `, ${v.open.length} still open` : ''}.`);
     each(() => {
-      st.pos = null;
+      st.tick = newTick();
+      st.simE = null;
       setAll(st.ds.n);
       paintMarkers();
       legend(null);
@@ -2376,25 +3093,28 @@ function pause() {
   cancelAnimationFrame(r.timer);
   if (was) paintReplay();                                    // the Play button shows Play again
 }
-const nowPrice = () => st.ds.cols.c[st.K - 1];
 const nowMs = () => st.ds.cols.t[st.K - 1];
-/** Practice trades in a replay, on the active chart: buy or sell at the last price shown, then close. Prices only, no fees. */
+/** The replay bar's Buy and Sell, on the active chart: a market order at the last price shown (a buy first
+    closes your shorts, a sell your longs), with the simulation's size, fees and slippage. */
 function trade(side) {
   if (!G.replay || !st.B) return;
   if (!st.K) { toast('This chart has no candles yet at this point of the replay.'); return; }
-  if (st.pos && st.pos.side !== side) closePos();
-  else if (st.pos) return;
-  st.pos = { side, entry: nowPrice(), t: nowMs() };
-  paintMarkers();
-  paintReplay();
+  const s = side === 'long' ? 1 : -1;
+  if (G.sim.mode === 'risk') {
+    toast('The size is set by risk, so an order needs a stop loss: use the order ticket in Simulate, or set the size as % of the balance or $.');
+    openSim();
+    return;
+  }
+  const v = simView();
+  if (v) for (const p of v.open) if (p.side !== s) simAct('close', p.id);
+  placeOrder({ side: s, kind: 'market' });
 }
+/** The replay bar's Close: every open trade on the active chart, at the last price. */
 function closePos() {
-  if (!G.replay || !st.pos) return;
-  const p = nowPrice();
-  st.ptrades.push({ ...st.pos, exit: p, xt: nowMs(), ret: ((p - st.pos.entry) / st.pos.entry) * (st.pos.side === 'long' ? 1 : -1) * 100 });
-  st.pos = null;
-  paintMarkers();
-  paintReplay();
+  const v = G.replay && st.B ? simView() : null;
+  if (!v || !v.open.length) return;
+  for (const p of v.open) simAct('close', p.id);
+  simMoved();
 }
 
 /** The replay bar: picking the portion, or the replay's controls (practice trades are on the active chart). */
@@ -2426,9 +3146,9 @@ function paintReplayNow() {
       <button class="btn btn-sm" data-ch="rpick" title="Pick a new portion to replay">${ic(IC.replay)}New portion</button>
     </span>
     <span class="lab-ch-rgroup lab-ch-trade">
-      <button class="btn btn-sm lab-ch-buy" data-ch="buy" ${st.pos && st.pos.side === 'long' ? 'disabled' : ''}>Buy</button>
-      <button class="btn btn-sm lab-ch-sell" data-ch="sell" ${st.pos && st.pos.side === 'short' ? 'disabled' : ''}>Sell</button>
-      <button class="btn btn-sm" data-ch="flat" ${st.pos ? '' : 'disabled'}>Close</button>
+      <button class="btn btn-sm lab-ch-buy" data-ch="buy" title="Buy at the last price (a market order with the simulation's size)">Buy</button>
+      <button class="btn btn-sm lab-ch-sell" data-ch="sell" title="Sell short at the last price (a market order with the simulation's size)">Sell</button>
+      <button class="btn btn-sm" data-ch="flat" title="Close every open trade at the last price" ${st.B && st.K && (simView() || { open: [] }).open.length ? '' : 'disabled'}>Close</button>
       <span class="small" id="lab-ch-rinfo"></span>
     </span>
     <button class="btn btn-sm" data-ch="rexit" title="Leave the replay and show every candle">${ic(IC.close)}Exit replay</button>`;
@@ -2439,18 +3159,17 @@ function paintReplayInfo() {
     const el = $('#lab-ch-rinfo', host);
     const r = G.replay;
     if (!el || !r) return;
-    const sign = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
-    let pos = '';
-    if (st.pos && st.K) {
-      const p = nowPrice();
-      const open = ((p - st.pos.entry) / st.pos.entry) * (st.pos.side === 'long' ? 1 : -1) * 100;
-      pos = `<b class="${open >= 0 ? 'pos' : 'neg'}">${st.pos.side === 'long' ? 'Long' : 'Short'} ${sign(open)}</b> · `;
+    // the account: open trades, its value and the closed trades (your orders and your positions)
+    const v = st.B && st.K ? simView() : null;
+    let acc = '';
+    if (v) {
+      const open = v.open.slice(0, 3).map((p) => `<b class="${p.pnl >= 0 ? 'pos' : 'neg'}">${p.side > 0 ? 'Long' : 'Short'} ${signPct(p.move)}</b>`).join(' ');
+      acc = `${open ? `${open} · ` : ''}<b class="${v.net >= 0 ? 'pos' : 'neg'}" title="The simulation's account value">${money(v.equity)} (${signPct(v.ret)})</b>${v.n ? ` <span class="faint">${plural(v.n, 'trade')}, ${v.wins} won</span>` : ''} · `;
     }
-    const total = st.ptrades.reduce((s, x) => s + x.ret, 0);
-    const wins = st.ptrades.filter((x) => x.ret > 0).length;
-    const done = st.ptrades.length ? `${plural(st.ptrades.length, 'trade')}, ${wins} won, <b class="${total >= 0 ? 'pos' : 'neg'}">${sign(total)}</b> <span class="faint">(no fees)</span> · ` : '';
+    const flat = $('[data-ch="flat"]', host);
+    if (flat) flat.disabled = !(v && v.open.length);
     const prog = r.end != null ? ` <span class="faint">· ${Math.round(Math.max(0, Math.min(1, (r.cut - r.start) / Math.max(1, r.end - r.start))) * 100)}% of the portion, to ${esc(when(r.end - G.tf))}</span>` : '';
-    el.innerHTML = `${G.n > 1 && st.row ? `<span class="faint">${esc(st.row.symbol)}:</span> ` : ''}${pos}${done}<span class="faint">${esc(when(st.B && st.K ? nowMs() : r.cut))}</span>${prog}`;
+    el.innerHTML = `${G.n > 1 && st.row ? `<span class="faint">${esc(st.row.symbol)}:</span> ` : ''}${acc}<span class="faint">${esc(when(st.B && st.K ? nowMs() : r.cut))}</span>${prog}`;
   });
 }
 
@@ -2496,10 +3215,24 @@ function click(el) {
     case 'rplay': if (G.replay.playing) pause(); else play(); return;
     case 'rstep': pause(); step(1); return;
     case 'rback': pause(); step(-1); return;
+    case 'sim': if (G.sim.on) { G.sim.on = false; saveSim(); paintBar(); paintStrat(); } else openSim(); return;
+    case 'simrep': if (!G.replay && loaded().length) startPicking(); return;
+    case 'simtab': G.sim.tab = el.dataset.k; saveSim(); paintStrat(); return;
+    case 'tkkind': G.sim.kind = el.dataset.k; saveSim(); paintStrat(true); return;
     default: break;
   }
   if (!st.B) return;
   switch (a) {
+    case 'tkbuy': ticket(1); break;
+    case 'tksell': ticket(-1); break;
+    case 'simclose': if (G.replay) { simAct('close', el.dataset.id); simMoved(); } break;
+    case 'simcancel': if (G.replay) { simAct('cancel', el.dataset.id); simMoved(); } break;
+    case 'simreset': if (G.replay) { st.tick = newTick(); st.simE = null; simMoved(); } break;
+    case 'simrow': focusAt(Number(el.dataset.a), Number(el.dataset.b)); break;
+    case 'simcsv': simCsv(); break;
+    case 'posflip': flipPos(); break;
+    case 'posdel': deletePos(); break;
+    case 'posx': selectPos(null); break;
     case 'tool': setTool(el.dataset.tool); break;
     case 'undo': undo(); break;
     case 'clear': clearAll(); break;
@@ -2527,6 +3260,9 @@ function onChange(ev) { on(paneOf(ev.target), () => change(ev.target)); }
 function change(t) {
   const P = G.picking;
   if (t.dataset.ch === 'file') { if (t.value) openFile(t.value); else closeFile(); return; }
+  if (t.dataset.sim) { setSim(t.dataset.sim, t); return; }
+  if (t.dataset.tk) { G.tk[t.dataset.tk] = t.value; return; }
+  if (t.dataset.pos) { setPosField(t.dataset.pos, t.value); return; }
   if (t.dataset.ch === 'sname') { G.sform.strategy = t.value; save('sform', G.sform); paintBar(); return; }
   if (t.dataset.ch === 'ssave') { G.sform.save = t.checked; save('sform', G.sform); return; }
   if (t.dataset.sp) { readSparam(t); return; }
@@ -2570,6 +3306,7 @@ function change(t) {
 }
 function onInput(ev) {
   if (ev.target.dataset.sp && ev.target.type === 'number') readSparam(ev.target);
+  if (ev.target.dataset.tk) G.tk[ev.target.dataset.tk] = ev.target.value;   // kept as typed: the panel is redrawn as the replay moves
 }
 function onToggle(ev) {
   const d = ev.target;
@@ -2601,13 +3338,14 @@ function onKey(ev) {
 }
 function key(ev) {
   if (ev.key === 'Escape') {
-    if (isFull() && !fsElement() && !G.draft && !G.tool && !G.picking) { setFull(false); return; }
+    if (isFull() && !fsElement() && !G.draft && !G.tool && !G.picking && !G.sel) { setFull(false); return; }
     if (G.draft || G.tool) { G.draft = null; G.tool = null; hint(''); redrawAll(); paintBar(); }
+    else if (G.sel) selectPos(null);
     else if (G.picking && !G.replay) stopReplay();
     return;
   }
   if (ev.key === 'Enter' && G.picking && G.picking.a != null) { ev.preventDefault(); beginPortion(); return; }
-  if (ev.key === 'Delete' && st.B) { ev.preventDefault(); clearAll(); return; }
+  if (ev.key === 'Delete' && st.B) { ev.preventDefault(); if (selPos()) deletePos(); else clearAll(); return; }
   if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z' && st.B && (st.undoAll || st.drawings.length)) { ev.preventDefault(); undo(); return; }
   if (!G.replay) return;
   if (ev.key === ' ') { ev.preventDefault(); if (G.replay.playing) pause(); else play(); }

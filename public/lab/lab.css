@@ -559,3 +559,37 @@ html.lab-ch-locked, html.lab-ch-locked body { overflow: hidden; overscroll-behav
 .lab-ch-lmin .ic { width: 13px; height: 13px; }
 .lab-ch-sym .pos { color: #4ade80; } .lab-ch-sym .neg { color: #f87171; }
 .lab-ch-sym { white-space: nowrap; }
+/* long and short positions, and the trading simulation */
+.lab-ch-tlong:not(.on) { color: #4ade80; }
+.lab-ch-tshort:not(.on) { color: #f87171; }
+.lab-ch-main[data-cursor="pointer"] * { cursor: pointer !important; }
+.lab-ch-main[data-cursor="ns"] * { cursor: ns-resize !important; }
+.lab-ch-main[data-cursor="ew"] * { cursor: ew-resize !important; }
+.lab-ch-main[data-cursor="move"] * { cursor: move !important; }
+.lab-ch-strat > .lab-ch-schips { grid-row: auto; }
+.lab-ch-wrap { white-space: normal !important; }
+.lab-ch-pdot { margin: 0 6px 0 0; }
+.lab-ch-pstat { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 4px; font-size: 11.5px; font-weight: 700; background: #333; color: var(--text); vertical-align: 1px; }
+.lab-ch-pstat.pos { background: #14532d; color: #bbf7d0; }
+.lab-ch-pstat.neg { background: #7f1d1d; color: #fecaca; }
+.lab-ch-pstat.open { background: #1e3a5f; color: #bfdbfe; }
+.lab-ch-posrow, .lab-ch-simset { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.lab-ch-spsize { grid-column: span 2; }
+.lab-ch-size { display: flex; gap: 6px; min-width: 0; }
+.lab-ch-size .input { min-width: 0; }
+.lab-ch-size input.input { flex: 0 0 76px; }
+.lab-ch-sname .ic { width: 16px; height: 16px; vertical-align: -3px; color: var(--green); }
+.lab-ch-simnote { margin: 0; }
+.lab-ch-simnone { align-self: center; }
+.lab-ch-ticket { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: flex-end; padding: 9px 10px; border-radius: 8px; background: #1b2420; border: 1px solid #27412f; }
+.lab-ch-tk { display: grid; gap: 3px; }
+.lab-ch-tk .label { font-size: 12px; color: var(--text-2); }
+.lab-ch-tk .input { width: 116px; height: 32px; padding: 0 8px; font-size: 13.5px; }
+.lab-ch-tkbtns { display: inline-flex; gap: 6px; }
+.lab-ch-ticket .lab-ch-segs { align-self: flex-end; }
+.lab-ch-simtab { display: grid; gap: 8px; min-width: 0; }
+.lab-ch-simtabs { justify-self: start; flex-wrap: wrap; }
+.lab-ch-tcount { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 99px; background: #3a3a3a; color: var(--text-2); font-size: 11px; text-align: center; }
+.lab-ch-seg.on .lab-ch-tcount { background: var(--green-btn); color: #fff; }
+.lab-ch-simt td .btn { height: 26px; padding: 0 8px; font-size: 12px; }
+@media (max-width: 640px) { .lab-ch-spsize { grid-column: 1 / -1; } .lab-ch-tk .input { width: 100px; } }

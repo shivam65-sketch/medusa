@@ -1,10 +1,11 @@
 {
-  "version": "1.4.0",
+  "version": "1.5.0",
   "date": "2026-10-20",
   "changes": [
-    "Python tab: the cursor stays on the line you're typing on, however long the code",
-    "Python tab charts: hover for values, drag across to zoom in, double-click to zoom out",
-    "Python tab: full screen (Ctrl+Shift+F), with a bar to drag between the code and the output",
-    "Editor: Ctrl+/ comments the selected lines out or back in; Tab and Shift+Tab indent them"
+    "Chart: Long and Short position tools: click the entry, the stop loss and the take profit; each shows what the candles after it did",
+    "Chart: Simulate, a trading simulation: one account with an optional starting amount, leverage, size, fees and slippage trades your positions",
+    "Chart replay: an order ticket with market, limit and stop orders, take profit, stop loss and trailing stop; Buy and Sell trade the simulation's account",
+    "Chart: picking a file no longer leaves Replay, Full screen and other toolbar buttons greyed out",
+    "Get data: months missing from Binance's archive files are downloaded from its API instead"
   ]
 }
