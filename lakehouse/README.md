@@ -2,7 +2,8 @@
 
 A daily data pipeline for crypto futures market data. Every morning it loads the previous day's
 1-minute candles and market metrics for every Binance USDⓈ-M perpetual into a Databricks
-lakehouse, where the history is kept and analysed. Dashboards read the finished tables.
+lakehouse, where the history is kept and analysed. A live scanner in MEDUSA (planned) compares
+each coin's move today with its own history from these tables.
 
 It lives inside the [MEDUSA](../README.md) repository: MEDUSA is the trading journal and backtesting
 app; this folder is its market data platform.
@@ -17,9 +18,8 @@ flowchart LR
     C --> E["Bronze<br>Lakeflow pipeline + Auto Loader"]
     E --> F["Silver<br>dbt models"]
     F --> G["Gold<br>dbt models"]
-    G --> H["AI/BI dashboard + Genie (planned)"]
   end
-  G -.->|daily copy, planned| I["MEDUSA Markets page<br>Cloudflare"]
+  G -.->|daily copy, planned| I["MEDUSA live scanner<br>Cloudflare D1 + live Binance stream"]
 ```
 
 | Layer | Holds | Built by |
@@ -60,7 +60,8 @@ flowchart LR
 | [15. Backfill](docs/steps/15-backfill.md) | Load 30 past days through the whole pipeline (GitHub Actions matrix + reusable workflow) | Done |
 | [16. Gold: unusual_moves and hour_profile](docs/steps/16-gold-unusual-moves-and-hours.md) | Each coin's day against its own history; hour-of-day patterns | Done |
 | [17. Daily chain](docs/steps/17-daily-chain.md) | Every morning: download → landing → bronze → dbt, all from GitHub Actions | Done |
-| 18. Dashboard | Analysis of yesterday and of history, read from the gold tables | Next |
+| [18. Active coins](docs/steps/18-active-coins.md) | Count only coins that trade: delisted contracts still get flat candles | Done |
+| 19. Coin baseline | Each coin's "normal" (yesterday's close, 30-day spread of returns and volume) for the live scanner | Next |
 
 ## Folder layout
 

@@ -1,6 +1,6 @@
 # Step 17: Daily chain (load, bronze, dbt)
 
-[← Lakehouse home](../../README.md) · [← Step 16](16-gold-unusual-moves-and-hours.md)
+[← Lakehouse home](../../README.md) · [← Step 16](16-gold-unusual-moves-and-hours.md) · Next: [Step 18 →](18-active-coins.md)
 
 | | |
 |---|---|

@@ -64,11 +64,15 @@ From `lakehouse/dbt/`: `../.venv/Scripts/dbt build --select market_daily data_he
 | Measure | Value |
 |---|---|
 | Breadth | 0.585 (431 up, 306 down, 135 unchanged) |
-| Median coin's return | exactly 0 (the unchanged coins sit in the middle) |
+| Median coin's return | exactly 0 (the unchanged coins sit in the middle; see the note below) |
 | Volume-weighted return | +2.58% |
 | Bitcoin | −0.21%, 21.7% of all volume |
 | Coins that moved 20% or more | 9 |
 | Total open interest | 25.9 billion USDT |
+
+> **Corrected in [step 18](18-active-coins.md):** 132 of the 135 unchanged coins were contracts
+> Binance had delisted, which still get flat, zero-volume candles. Counting only coins that traded,
+> 2026-10-19 had 740 coins, 3 unchanged and a median return of +0.40%.
 
 `data_health`:
 

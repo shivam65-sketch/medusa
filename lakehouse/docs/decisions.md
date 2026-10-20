@@ -23,8 +23,9 @@ entry replaces it and the old one is marked *Superseded*.
 | 013 | [Serve the public dashboard from a daily copy](#adr-013-serve-the-public-dashboard-from-a-daily-copy) | Accepted |
 | 014 | [DOUBLE, not DECIMAL, for prices and volumes](#adr-014-double-not-decimal-for-prices-and-volumes) | Accepted |
 | 015 | [Liquid clustering instead of partitions](#adr-015-liquid-clustering-instead-of-partitions) | Accepted |
-| 016 | [Coin history from the candles, with a grace period](#adr-016-coin-history-from-the-candles-with-a-grace-period) | Accepted |
+| 016 | [Coin history from the candles, with a grace period](#adr-016-coin-history-from-the-candles-with-a-grace-period) | Accepted; status rule superseded by ADR-018 |
 | 017 | [Orchestrate the daily chain in GitHub Actions](#adr-017-orchestrate-the-daily-chain-in-github-actions) | Accepted |
+| 018 | [A coin trades only if it has trades](#adr-018-a-coin-trades-only-if-it-has-trades) | Accepted |
 
 ---
 
@@ -282,4 +283,23 @@ every run and masked in the log.
 **Consequences:** The whole chain lives in one place, with one set of secrets and one failure email.
 dbt is installed on every run (pip's cache keeps that quick). Everything depends on GitHub's
 schedule; if a Databricks-side dbt task becomes possible, the transform can move there.
+
+## ADR-018: A coin trades only if it has trades
+
+**Status:** Accepted, 2026-10-20. Supersedes the status rule of
+[ADR-016](#adr-016-coin-history-from-the-candles-with-a-grace-period).
+
+**Context:** ADR-016 counted a coin as trading while it had candles. Binance keeps publishing flat,
+zero-volume candles for contracts it has delisted ("settling"): 132 of the 873 coins on 2026-10-19,
+confirmed against Binance's own contract list. They were counted as trading, added about 130
+"unchanged" coins to every day and pulled the median return to exactly 0.
+
+**Decision:** A coin is *trading* while it has had at least one trade in the last 3 days, and *not
+trading* after that. Market-wide measures (`market_daily`) count only coin-days with trades; coin-days
+with candles but no trades are counted separately as `coins_inactive`. Candles are still kept and
+loaded: they are what the source publishes.
+
+**Consequences:** `dim_coin` recorded 132 corrections as new versions, dated when the warehouse
+learned of them, not when the coins stopped trading. Market medians and counts are now real. A test
+checks the status against the last 3 days of trades in `coin_daily`.
 

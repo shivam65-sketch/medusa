@@ -28,6 +28,7 @@ The data engineering terms used in this project, in plain words.
 | **Idempotent** | Running something again gives the same result and does no harm | DDL, downloader, uploads |
 | **Incremental model** | A dbt model that, after its first full build, processes only new data and merges it in | `fct_candle_1m` |
 | **Lakehouse** | Data stored as open-format files in cheap storage, with warehouse features (tables, SQL, transactions) on top | The whole platform |
+| **Lambda architecture** | A slow, complete and checked batch layer plus a fast, approximate live layer, combined where the data is served; the batch layer later replaces the live numbers | The planned live scanner: this lakehouse plus Binance's live stream |
 | **Landing zone** | Where raw files arrive, unchanged, before any processing | `market.landing.binance` |
 | **Lineage** | Knowing where each piece of data came from | `source_file`, `loaded_at` |
 | **Liquid clustering** | Delta's way of keeping data files grouped by chosen columns as data arrives, replacing partitions and Z-ordering | Silver tables |
@@ -38,11 +39,12 @@ The data engineering terms used in this project, in plain words.
 | **Rescued data** | A column that catches values that didn't fit the expected file layout, instead of losing them | `_rescued_data` |
 | **Retention** | How long each kind of data is kept | [ADR-011](decisions.md#adr-011-keep-1-minute-candles-for-a-limited-time) |
 | **Reusable workflow** | A GitHub Actions workflow other workflows call, so shared steps live in one place | `lakehouse-load-day.yml` |
-| **Reverse ETL / serving layer** | Copying finished warehouse tables to where an app can serve them | The planned MEDUSA Markets page |
+| **Reverse ETL / serving layer** | Copying finished warehouse tables to where an app can serve them | The planned live scanner in MEDUSA |
 | **SCD Type 2** | Keeping the full history of a dimension's changes, one row per version | `dim_coin` |
 | **Schema drift** | A source changing its columns or format over time | Caught by `_rescued_data` |
 | **Schema-on-read** | Applying column names and types when reading files, not when storing them | `read_files` in bronze |
 | **Serverless** | Compute that starts when needed and stops afterwards, with nothing to manage | Pipeline, SQL warehouse |
+| **Settling (contract)** | Binance's status for a futures contract it has delisted and is closing out. The archive keeps publishing flat, zero-volume candles for it | Why status comes from trades ([ADR-018](decisions.md#adr-018-a-coin-trades-only-if-it-has-trades)) |
 | **Snapshot (dbt)** | dbt's built-in way to record changes to a table over time as SCD Type 2 | `dim_coin` |
 | **Source freshness** | dbt's check of how long ago a source table last received data | `sources.yml` |
 | **Storage / compute separation** | Data sits in storage; engines (warehouses) start up to work on it and can be stopped | Databricks |

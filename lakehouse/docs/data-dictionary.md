@@ -159,13 +159,13 @@ One row per **version** of a coin's description (SCD Type 2), kept by the dbt sn
 | `quote_asset` | STRING | Always `USDT` |
 | `multiplier` | INT | Coins per quoted unit: 1, 1,000 or 1,000,000 |
 | `first_candle_date` | DATE | First day with candles in the lakehouse |
-| `status` | STRING | `trading`, or `not trading` after 3 days without candles |
+| `status` | STRING | `trading`, or `not trading` after 3 days without a single trade (delisted contracts keep getting flat, zero-volume candles, so candles alone don't count) |
 | `dbt_scd_id` | STRING | dbt's unique id for the version |
 | `dbt_valid_from` | TIMESTAMP | When this version became true |
 | `dbt_valid_to` | TIMESTAMP | When it stopped being true; 9999-12-31 for the current version |
 | `dbt_updated_at` | TIMESTAMP | When dbt recorded the version |
 
-Coins as of 2026-10-20: 872, all `trading`; 857 with multiplier 1, 12 with 1,000, 3 with 1,000,000. After the 30-day backfill: 873 coins (one delisted on 2026-10-13 is `not trading`), and the 872 earlier coins have a second version because their `first_candle_date` moved to 2026-09-18 or their true listing day. Validity times are when the warehouse recorded each version, not market events.
+Coins as of 2026-10-20: 872, all `trading`; 857 with multiplier 1, 12 with 1,000, 3 with 1,000,000. After the 30-day backfill: 873 coins (one delisted on 2026-10-13 is `not trading`), and the 872 earlier coins have a second version because their `first_candle_date` moved to 2026-09-18 or their true listing day. Validity times are when the warehouse recorded each version, not market events. Since [step 18](steps/18-active-coins.md) status comes from trades: 740 `trading`, 133 `not trading` (132 contracts Binance has delisted but still publishes flat candles for, and the coin that dropped out on 2026-10-13); 1,877 versions of 873 coins.
 
 Which coins were trading at a given time:
 
@@ -176,7 +176,7 @@ WHERE status = 'trading'
 ```
 
 `market.silver.int_coin_status` is the view the snapshot reads: each coin's state now, worked out
-from `fct_candle_1m`.
+from `fct_candle_1h` (first day with candles, last day with trades).
 
 ## Gold: `market.gold.coin_daily`
 
@@ -198,8 +198,9 @@ One row per coin per UTC day ([model](../dbt/models/gold/coin_daily.sql)); clust
 | `minutes`, `zero_volume_minutes`, `metric_snapshots` | Completeness: 1,440 minutes and 288 snapshots when complete |
 | `last_bronze_loaded_at` | Newest bronze load time behind the day |
 
-**What the data looks like:** 872 coins a day (744 with open interest). On 2026-10-19: 431 up, 306
-down, 135 unchanged; median realised volatility 3.7%.
+**What the data looks like:** 872 coins a day (744 with open interest), of which about 130 are
+delisted contracts with flat, zero-volume candles (`trades = 0`). On 2026-10-19, among the 740 coins
+that traded: 431 up, 306 down, 3 unchanged; median realised volatility 3.96%.
 
 ## Gold: `market.gold.market_daily`
 
@@ -208,7 +209,8 @@ The whole market, one row per UTC day, rebuilt from `coin_daily` on every run
 
 | Column | Meaning |
 |---|---|
-| `coins`, `coins_up`, `coins_down`, `coins_flat` | Coins with candles; how many closed above, below or at the previous close |
+| `coins`, `coins_up`, `coins_down`, `coins_flat` | Coins that traded that day; how many closed above, below or at the previous close |
+| `coins_inactive` | Coins with candles but no trades that day (delisted contracts), not counted anywhere else |
 | `breadth` | coins_up / (coins_up + coins_down) |
 | `coins_moved_20pct` | Coins that rose or fell 20% or more |
 | `median_return_1d`, `volume_weighted_return_1d` | The middle coin's return; returns weighted by USDT volume |
@@ -226,6 +228,7 @@ Is each day's data complete? One row per UTC day, rebuilt from `coin_daily` on e
 | Column | Meaning |
 |---|---|
 | `coins`, `coins_complete_candles`, `coins_incomplete_candles`, `missing_minutes` | Candle completeness (1,440 minutes per coin) |
+| `coins_inactive` | Coins with candles but not a single trade |
 | `coins_with_metrics`, `coins_complete_metrics`, `coins_incomplete_metrics`, `missing_metric_snapshots` | Metric completeness (288 snapshots per coin) |
 | `coins_new`, `coins_dropped` | Coins with no row the day before; coins that traded the day before but not this day |
 | `last_loaded_at` | Newest bronze load time behind the day |

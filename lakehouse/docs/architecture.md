@@ -23,11 +23,10 @@ flowchart TB
     BR["bronze.klines_1m · bronze.metrics<br>streaming tables (Auto Loader)"]
     SI["silver (dbt)<br>typed facts · dim_coin (SCD2) · 1h candles"]
     GO["gold (dbt)<br>coin_daily · market_daily · unusual_moves · hour_profile · data_health"]
-    DA["AI/BI dashboard + Genie (planned)"]
-    L --> BR --> SI --> GO --> DA
+    L --> BR --> SI --> GO
   end
   D2 --> L
-  GO -.->|"daily copy (planned)"| CF["MEDUSA Markets page<br>Cloudflare D1"]
+  GO -.->|"daily copy (planned)"| CF["MEDUSA live scanner<br>Cloudflare D1 + live Binance stream"]
 ```
 
 ## Where each part runs
@@ -40,7 +39,7 @@ flowchart TB
 | Silver and gold | dbt Core on the SQL warehouse | SQL models with tests, snapshots, documentation and lineage. |
 | Orchestration | GitHub Actions: load, then transform ([ADR-017](decisions.md#adr-017-orchestrate-the-daily-chain-in-github-actions)) | One place for the whole chain, one set of secrets and one failure email. |
 | Deploying Databricks resources | Databricks Asset Bundle ([`databricks.yml`](../databricks.yml)) | Jobs and pipelines are defined as code and deployed with one command. |
-| Public dashboard | MEDUSA on Cloudflare (planned) | Recruiters can't sign in to a Databricks workspace; a daily copy of the small gold tables is served from MEDUSA's own database. |
+| Live scanner (planned) | MEDUSA on Cloudflare, with live prices streamed from Binance to the browser | Readers can't sign in to a Databricks workspace, and day trading needs today's prices: a daily copy of the small gold tables in MEDUSA's database gives each coin's normal, and the browser compares the live market with it. |
 
 ## Catalog layout
 
