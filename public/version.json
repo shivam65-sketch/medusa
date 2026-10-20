@@ -1,11 +1,10 @@
 {
-  "version": "1.3.0",
-  "date": "2026-10-18",
+  "version": "1.4.0",
+  "date": "2026-10-20",
   "changes": [
-    "Phone: the menu is a slim bar of icons; its button slides the full menu over the page when you need it",
-    "About MEDUSA (⋯ menu, or tap the version): the version, its release date, what's new and how your data is protected",
-    "Dev tools (in the menu, with the Logs as a tab): version check, speed, storage on this device, speed-ups, clean-up (clear the cache, temporary data, settings) and a diagnostic report",
-    "A newer version is noticed while MEDUSA is open, and a small bar offers to reload",
-    "Chart: the chosen trade's label sits above the candles instead of on them, and the legend folds to one line"
+    "Python tab: the cursor stays on the line you're typing on, however long the code",
+    "Python tab charts: hover for values, drag across to zoom in, double-click to zoom out",
+    "Python tab: full screen (Ctrl+Shift+F), with a bar to drag between the code and the output",
+    "Editor: Ctrl+/ comments the selected lines out or back in; Tab and Shift+Tab indent them"
   ]
 }

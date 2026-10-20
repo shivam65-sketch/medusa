@@ -143,14 +143,73 @@
 .lab-py-text.err { color: #fca5a5; border-color: #5a2a2d; white-space: pre-wrap; }
 .lab-py-img { max-width: 100%; height: auto; border-radius: 8px; background: #fff; justify-self: start; }
 .lab-py-fig { margin: 0; display: grid; gap: 6px; justify-items: start; min-width: 0; }
+.lab-py-split, .lab-py-edit { display: grid; gap: 12px; min-width: 0; }
+.lab-py-handle, .lab-py-bar [data-py="layout"] { display: none; }
+.lab-py-keys { position: relative; }
+.lab-py-keys > summary { list-style: none; cursor: pointer; }
+.lab-py-keys > summary::-webkit-details-marker { display: none; }
+.lab-py-keys-pop { position: absolute; left: 0; top: calc(100% + 6px); z-index: 30; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px 14px; align-items: baseline;
+  width: min(400px, calc(100vw - 32px)); padding: 12px 14px; border-radius: 10px; background: #232323; border: 1px solid var(--border-2); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); font-size: 13px; color: var(--text-2); white-space: normal; }
+.lab-py-keys-pop kbd { font: 600 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--text); white-space: nowrap; }
 
-/* the code editor (editor.js): a transparent textarea over a coloured copy of the code, with line numbers */
-.lab-ed { position: relative; display: grid; min-width: 0; --gutter: 4ch; }
+/* full screen: the code and its output fill the screen, with a bar between them to drag (console.js setFull) */
+html.lab-py-locked, html.lab-py-locked body { overflow: hidden; overscroll-behavior: none; }
+.lab-py.full { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; overscroll-behavior: contain; background: var(--bg);
+  padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+.lab-py.full > .lab-py-side, .lab-py.full .card-head { display: none; }
+.lab-py.full > .lab-py-main { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.lab-py.full .lab-py-bar [data-py="layout"] { display: inline-flex; }
+.lab-py.full .lab-py-split { flex: 1; min-height: 0; gap: 0; grid-template-columns: minmax(0, var(--py-a, 55fr)) 14px minmax(0, var(--py-b, 45fr)); }
+.lab-py.full .lab-py-split.below { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, var(--py-a, 55fr)) 14px minmax(0, var(--py-b, 45fr)); }
+.lab-py.full .lab-py-edit { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.lab-py.full .lab-ed { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+.lab-py.full .lab-ed-ta.lab-py-code { min-height: 0; height: 100%; resize: none; }
+.lab-py.full .lab-ed-probs { flex: none; margin-top: 0; max-height: 4.4em; overflow-y: auto; }
+.lab-py.full .lab-py-out { min-height: 0; overflow: auto; align-content: start; overscroll-behavior: contain; }
+.lab-py.full .lab-py-text { max-height: none; }
+.lab-py.full .lab-py-handle { display: block; position: relative; cursor: col-resize; touch-action: none; border-radius: 4px; }
+.lab-py.full .below > .lab-py-handle { cursor: row-resize; }
+.lab-py-handle::before { content: ''; position: absolute; inset: 0 6px; border-radius: 2px; background: var(--border-2); }
+.below > .lab-py-handle::before { inset: 6px 0; }
+.lab-py-handle:hover::before, .lab-py-handle.drag::before, .lab-py-handle:focus-visible::before { background: var(--green-btn); }
+.lab-py-handle:focus-visible { outline: none; }
+@media (max-width: 640px) {      /* a phone in full screen: the bar's other buttons as icons (their names stay for screen readers) */
+  .lab-py.full .lab-py-btxt, .lab-py.full [data-py="run"] .faint { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .lab-py.full .lab-py-bar .btn:not(.btn-green) { padding: 0 11px; }
+}
+
+/* a chart's readout and zoom (console.js hover, zoomChart) */
+.lab-py-chart { position: relative; max-width: 100%; justify-self: start; }
+.lab-py-chart > .lab-py-img { display: block; }
+.lab-py-chart.live { cursor: crosshair; user-select: none; -webkit-user-select: none; touch-action: pan-y; }
+.lab-py-chart.busy { cursor: progress; }
+.lab-py-chart.busy::after { content: ''; position: absolute; inset: 0; border-radius: 8px; background: rgba(255, 255, 255, 0.4); }
+.lab-py-hud { position: absolute; inset: 0; pointer-events: none; }
+.lab-py-vl, .lab-py-hl { position: absolute; background: rgba(90, 90, 100, 0.55); }
+.lab-py-vl { width: 1px; }
+.lab-py-hl { height: 1px; }
+.lab-py-dots i { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
+.lab-py-sel { position: absolute; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(37, 99, 235, 0.75); }
+.lab-py-hud.dragging > :not(.lab-py-sel) { visibility: hidden; }
+.lab-py-tt { position: absolute; max-width: min(340px, 100%); padding: 6px 9px; border-radius: 8px; background: #111; border: 1px solid var(--border-2); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  color: var(--text-2); font-size: 12.5px; line-height: 1.45; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lab-py-tt-x { color: var(--text); font-weight: 600; }
+.lab-py-tt-row { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: 7px; align-items: center; }
+.lab-py-tt-row i { width: 8px; height: 8px; border-radius: 2px; }
+.lab-py-tt-row span { overflow: hidden; text-overflow: ellipsis; }
+.lab-py-tt-row b { color: var(--text); font-weight: 600; }
+.lab-py-note.warn { color: #fbbf24; }
+
+/* the code editor (editor.js): a transparent textarea over a coloured copy of the code, with line numbers.
+   All three take their font from --ed-font: when the textarea's differed (textarea.input's line-height 1.5 won over
+   1.55), the caret drifted a little further from the coloured text on every line. */
+.lab-ed { position: relative; display: grid; min-width: 0; --gutter: 4ch; --ed-font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.lab-ed-ta.lab-code, .lab-ed-hl, .lab-ed-gutter { font: var(--ed-font); }
 .lab-ed-ta.lab-code { min-height: 52vh; }               /* beats textarea.input's 110px */
 .lab-ed-ta.lab-py-code { min-height: 46vh; }
 .lab-ed-ta.lab-code { position: relative; z-index: 2; background: transparent; color: transparent; caret-color: #f4f4f5; padding-left: calc(var(--gutter) + 16px); overflow-wrap: normal; }
 .lab-ed-ta::selection { background: rgba(96, 165, 250, 0.32); color: transparent; }
-.lab-ed-hl, .lab-ed-gutter { position: absolute; top: 1px; bottom: 1px; margin: 0; overflow: hidden; pointer-events: none; font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.lab-ed-hl, .lab-ed-gutter { position: absolute; top: 1px; bottom: 1px; margin: 0; overflow: hidden; pointer-events: none; }
 .lab-ed-hl { left: 1px; right: 1px; padding: 10px 12px 10px calc(var(--gutter) + 16px); border-radius: 7px; background: #171717; color: #e4e4e7; tab-size: 4; white-space: pre; }
 .lab-ed-hl code { display: block; font: inherit; background: none; border: 0; padding: 0; }
 .lab-ed-gutter { z-index: 1; left: 1px; width: calc(var(--gutter) + 6px); padding-top: 10px; background: #141414; border-right: 1px solid #262626; border-radius: 7px 0 0 7px; color: #55555c; text-align: right; }

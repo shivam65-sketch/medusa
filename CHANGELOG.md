@@ -3,6 +3,14 @@
 Every release of MEDUSA, newest first. The current version is in `public/version.json` (shown in the
 app's menu and on the sign-in page); each release adds a section here with the same number.
 
+## 1.4.0 (2026-10-20)
+
+- Python tab: the caret no longer drifts further from the code on every line (the editor's text box and its coloured copy had different line heights).
+- Python tab: charts are interactive. Hover for the values under the mouse (each line's nearest point, a bar's value, a histogram bin's count, a dot's x and y). Drag across a chart to zoom in: Python redraws it, and zooming in on the dates fits the y-axis to what's left. Double-click or **Reset zoom** to zoom out.
+- Python tab: **Full screen** (or Ctrl+Shift+F; Esc leaves it): the code and the output fill the screen, side by side or one above the other, with a bar between them you can drag.
+- Editor keys (Python tab and Strategies): **Ctrl+/** comments the selected lines out or back in; **Tab** and **Shift+Tab** indent and outdent them (Esc, then Tab, moves on to the next field). The keyboard button lists every shortcut.
+- Python tab: running your code keeps your place in the editor (cursor, scrolling and undo).
+
 ## 1.3.0 (2026-10-18)
 
 - Phone: the menu on the left is a slim bar of icons (more room for the page); the button at its bottom slides the full menu over the page, and picking a page or tapping outside closes it.

@@ -3,7 +3,8 @@
 // once, then the engine files the page sends (public/lab/py/*.py). After that this thread switches
 // its own network access off: strategy code, including files you upload, can compute but can't send
 // anything anywhere. The page talks to it with messages: init, strategies, check, run, and exec and
-// syntax (the Python tab: your own code, and Python's check of it as you type; see py/console.py), and plots (a strategy's own lines for the Chart tab). Libraries beyond numpy (pandas, matplotlib, scipy,
+// syntax (the Python tab: your own code, and Python's check of it as you type; see py/console.py), zoom (one of its
+// charts drawn again at new limits), and plots (a strategy's own lines for the Chart tab). Libraries beyond numpy (pandas, matplotlib, scipy,
 // statsmodels) are loaded at init, before the network is switched off, only when asked for.
 import { loadPyodide } from './pyodide/v314.0.7/pyodide.mjs';
 
@@ -77,6 +78,7 @@ self.onmessage = async (ev) => {
     else if (m.type === 'warmup') reply = { n: lab.warmup(String(m.key || ''), JSON.stringify(m.params || {}), String(m.interval || '')) };
     else if (m.type === 'syntax') reply = { json: py.pyimport('console').syntax(String(m.code || '')) };
     else if (m.type === 'exec') reply = { json: py.pyimport('console').run(String(m.code || ''), JSON.stringify(m.files || []), (m.files || []).map((f) => f.cols), Number(m.tz) || 0) };
+    else if (m.type === 'zoom') reply = { json: py.pyimport('console').zoom(Number(m.k) || 0, JSON.stringify(m.req || {})) };
     else throw new Error('Unknown request.');
     post({ type: 'done', id: m.id, ...reply, printed });
   } catch (e) {

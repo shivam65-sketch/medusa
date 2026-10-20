@@ -6,6 +6,9 @@
 // Mistakes come from two checks: a quick one here on every key (brackets, quotes, colons, indentation,
 // unknown attributes of a data file, load("name") of a file that isn't ticked), and Python's own compiler
 // once Python has started in the tab's background thread (exact, but only the first error).
+//
+// Keys: Ctrl+/ (⌘/ on a Mac) comments the selected lines out or back in, Tab and Shift+Tab indent them
+// (Esc then Tab leaves the editor, like any other field). Ctrl+Z undoes them like typing.
 
 import { esc } from './util.js';
 
@@ -373,7 +376,7 @@ export function attachEditor(ta, opts = {}) {
   const nums = wrap.querySelector('.lab-ed-nums');
   const pop = wrap.querySelector('.lab-ed-pop');
   const tip = wrap.querySelector('.lab-ed-tip');
-  const ed = { probs: [], py: null, pyFor: null, timer: 0, menu: null, quiet: -1, quietTimer: 0 };
+  const ed = { probs: [], py: null, pyFor: null, timer: 0, menu: null, quiet: -1, quietTimer: 0, silent: false, tabOut: false };
 
   const metrics = () => {
     const cs = getComputedStyle(ta);
@@ -572,14 +575,101 @@ export function attachEditor(ta, opts = {}) {
     place(tip);
   }
 
+  /* ---------- editing keys: Ctrl+/ comments lines out or in, Tab and Shift+Tab indent them ---------- */
+
+  /** Replaces from..to with text the way typing does (so Ctrl+Z undoes it), then selects s..e. */
+  function edit(from, to, text, s, e) {
+    ed.silent = true;
+    ta.setSelectionRange(from, to);
+    let typed = false;
+    try { typed = document.execCommand('insertText', false, text); } catch { /* not supported: below */ }
+    if (!typed) { ta.setRangeText(text, from, to, 'end'); ta.dispatchEvent(new Event('input', { bubbles: true })); }
+    ed.silent = false;
+    ta.setSelectionRange(s, e);
+  }
+
+  /** The whole lines the selection touches (a selection ending at the start of a line leaves that line out). */
+  function selectedLines() {
+    const v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
+    const from = v.slice(0, s).lastIndexOf('\n') + 1;
+    const nl = v.indexOf('\n', e > s && v[e - 1] === '\n' ? e - 1 : e);
+    const to = nl < 0 ? v.length : nl;
+    return { from, to, lines: v.slice(from, to).split('\n'), s, e };
+  }
+
+  /** Changes those lines: changes[k] is [column, characters removed, text put in] or null. The selection keeps
+   *  covering the same text; a selection's start right where text goes in stays in front of it. */
+  function changeLines({ from, to, lines, s, e }, changes) {
+    const out = lines.map((l, k) => (changes[k] ? l.slice(0, changes[k][0]) + changes[k][2] + l.slice(changes[k][0] + changes[k][1]) : l));
+    const text = out.join('\n');
+    if (text === lines.join('\n')) return;
+    const map = (p, stay) => {
+      let start = from, shift = 0;
+      for (let k = 0; k < lines.length; k++) {
+        const end = start + lines[k].length, c = changes[k];
+        if (p <= end) {
+          const col = p - start;
+          if (!c || col < c[0] || (stay && col === c[0])) return p + shift;
+          return p + shift + c[2].length - Math.min(col - c[0], c[1]);
+        }
+        shift += out[k].length - lines[k].length;
+        start = end + 1;
+      }
+      return p + shift;
+    };
+    edit(from, to, text, map(s, s !== e), map(e, false));
+  }
+
+  /** Ctrl+/: a "# " in front of the lines (at their common indent), or off again when all of them are comments. */
+  function toggleComment() {
+    const sel = selectedLines();
+    const code = sel.lines.filter((l) => l.trim());
+    if (!code.length) {                       // a blank line: start a comment on it
+      if (sel.lines.length === 1) changeLines(sel, [[sel.lines[0].length, 0, '# ']]);
+      return;
+    }
+    const off = code.every((l) => /^\s*#/.test(l));
+    const ind = code.reduce((m, l) => Math.min(m, l.length - l.trimStart().length), Infinity);
+    changeLines(sel, sel.lines.map((l) => {
+      if (!l.trim()) return null;
+      if (!off) return [ind, 0, '# '];
+      const at = l.indexOf('#');
+      return [at, l[at + 1] === ' ' ? 2 : 1, ''];
+    }));
+  }
+
+  /** Tab: spaces to the next multiple of 4 at the caret, or 4 in front of each selected line. Shift+Tab: up to 4 fewer. */
+  function indent(back) {
+    const sel = selectedLines();
+    if (!back && sel.s === sel.e) {
+      const n = 4 - ((sel.s - sel.from) % 4);
+      edit(sel.s, sel.s, ' '.repeat(n), sel.s + n, sel.s + n);
+      return;
+    }
+    changeLines(sel, sel.lines.map((l) => {
+      if (!back) return l.trim() || sel.lines.length === 1 ? [0, 0, '    '] : null;
+      const m = /^(?:\t| {1,4})/.exec(l);
+      return m ? [0, m[0].length, ''] : null;
+    }));
+  }
+
+  /** Ctrl+/ (⌘/) and Tab / Shift+Tab; true when the key was used. */
+  function editKey(ev, tabOut) {
+    const mod = ev.ctrlKey || ev.metaKey;
+    if (mod && !ev.altKey && ev.key === '/') { toggleComment(); return true; }
+    if (ev.key === 'Tab' && !mod && !ev.altKey && !tabOut) { indent(ev.shiftKey); return true; }
+    return false;
+  }
+
   /* ---------- events ---------- */
 
   ta.addEventListener('input', (ev) => {
     clearTimeout(ed.quietTimer);
-    ed.quiet = ev.inputType ? ta.value.slice(0, ta.selectionStart).split('\n').length - 1 : -1;
+    ed.quiet = ev.inputType && !ed.silent ? ta.value.slice(0, ta.selectionStart).split('\n').length - 1 : -1;
     if (ed.quiet >= 0) ed.quietTimer = setTimeout(() => { ed.quiet = -1; render(); }, 900);
     render();
     schedulePython();
+    if (ed.silent) { showMenu(null); tip.hidden = true; return; }   // a key's edit (Ctrl+/, Tab): no suggestions
     const typed = ev.inputType === 'insertText' && ev.data && /^[\w.]$/.test(ev.data.slice(-1));
     const c = typed || (ed.menu && ev.inputType === 'deleteContentBackward') ? context() : null;
     showMenu(c && (c.word.length || (ev.data || '').endsWith('.') || ed.menu) ? c : null);
@@ -589,10 +679,16 @@ export function attachEditor(ta, opts = {}) {
   ta.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== ta) { showMenu(null); tip.hidden = true; } }, 150));
   ta.addEventListener('click', () => { showMenu(null); showTip(); });
   ta.addEventListener('keydown', (ev) => {
+    const tabOut = ed.tabOut;
+    ed.tabOut = false;
     if (ev.ctrlKey && ev.key === ' ') { ev.preventDefault(); const c = context(); showMenu(c); if (!c) showTip(); return; }
     if (!ed.menu) {
-      if (ev.key === 'Escape') tip.hidden = true;
+      if (ev.key === 'Escape') {
+        if (!tip.hidden) { tip.hidden = true; ev.preventDefault(); }   // used: the page's own Esc (full screen) waits
+        else ed.tabOut = true;                                          // Esc, then Tab: on to the next field
+      }
       if (/^Arrow(Left|Right)$|^(Home|End)$/.test(ev.key)) setTimeout(showTip);
+      if (!ta.readOnly && !ev.isComposing && editKey(ev, tabOut)) ev.preventDefault();
       return;
     }
     const m = ed.menu;
