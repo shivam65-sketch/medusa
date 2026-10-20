@@ -57,3 +57,5 @@ resources:
             path: ./pipelines/bronze/klines_1m.sql
         - file:
             path: ./pipelines/bronze/metrics.sql
+        - file:
+            path: ./pipelines/bronze/klines_1h.sql

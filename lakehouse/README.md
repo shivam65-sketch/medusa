@@ -61,7 +61,8 @@ flowchart LR
 | [16. Gold: unusual_moves and hour_profile](docs/steps/16-gold-unusual-moves-and-hours.md) | Each coin's day against its own history; hour-of-day patterns | Done |
 | [17. Daily chain](docs/steps/17-daily-chain.md) | Every morning: download → landing → bronze → dbt, all from GitHub Actions | Done |
 | [18. Active coins](docs/steps/18-active-coins.md) | Count only coins that trade: delisted contracts still get flat candles | Done |
-| 19. Coin baseline | Each coin's "normal" (yesterday's close, 30-day spread of returns and volume) for the live scanner | Next |
+| [19. Coin baseline](docs/steps/19-coin-baseline.md) | Each coin's "normal" (yesterday's close, 30-day spread of returns and volume) for the live scanner | Done |
+| 20. Hourly history | Two years of hourly candles from Binance's monthly files, reconciled with the hours built from 1-minute candles | Next |
 
 ## Folder layout
 

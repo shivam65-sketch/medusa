@@ -262,4 +262,29 @@ Each coin's hour-of-day pattern over its whole history, rebuilt from `fct_candle
 | `t_stat_return` | avg_return ÷ (sd_return ÷ √days); roughly, under 2 either way could be chance |
 | `avg_abs_return` | Average size of the hour's move |
 | `avg_volume_share`, `avg_quote_volume` | Share of the day's volume in this hour; USDT traded in it |
-| `avg_taker_buy_share` | Average share of aggressive buying | The planned tables are listed in [Architecture](architecture.md#data-flow).
+| `avg_taker_buy_share` | Average share of aggressive buying |
+
+## Gold: `market.gold.coin_baseline`
+
+Each coin's "normal" as of its latest day, for MEDUSA's live scanner; one row per coin, rebuilt on
+every run ([model](../dbt/models/gold/coin_baseline.sql)). The window is the coin's last 30 days with
+trades, up to and including `as_of_date`. Key `symbol`.
+
+Today's move = live price / `last_close` − 1. Today's z-score = (today's move − `avg_return_30d`) /
+`sd_return_30d`, unusual at 3 or more, as in `unusual_moves`.
+
+| Column | Meaning |
+|---|---|
+| `symbol`, `base_asset`, `multiplier`, `status` | The coin, from `dim_coin`'s current version |
+| `as_of_date` | The coin's latest day with trades |
+| `last_close` | Close on `as_of_date`: today's reference price |
+| `history_days` | Daily returns behind the averages (0 to 30); the scanner scores a coin from 20 |
+| `avg_return_30d`, `sd_return_30d`, `avg_abs_return_30d` | Average, spread and average size of the daily return |
+| `avg_range_30d` | Average (high − low) / open |
+| `avg_volatility_30d`, `sd_volatility_30d` | Average and spread of daily realised volatility |
+| `avg_quote_volume_30d`, `avg_log_volume_30d`, `sd_log_volume_30d` | USDT traded per day, and the average and spread of its logarithm |
+| `avg_abs_hour_return_30d` | Typical size of a one-hour move on the same days, to compare with a round trip's fees |
+
+**What the data looks like (2026-10-19):** 744 coins (740 trading); 731 with at least 20 days of
+history. Bitcoin: daily spread 1.70%, typical hour move 0.23%. Median trading coin: typical hour move
+0.66%; 5 trading coins move less than 0.1% an hour.

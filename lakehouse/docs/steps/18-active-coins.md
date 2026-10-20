@@ -1,6 +1,6 @@
 # Step 18: Count only coins that actually trade
 
-[← Lakehouse home](../../README.md) · [← Step 17](17-daily-chain.md)
+[← Lakehouse home](../../README.md) · [← Step 17](17-daily-chain.md) · Next: [Step 19 →](19-coin-baseline.md)
 
 | | |
 |---|---|

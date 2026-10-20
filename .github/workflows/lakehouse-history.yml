@@ -1,0 +1,112 @@
+# MEDUSA lakehouse: history.
+# Loads Binance's monthly 1-hour candle files for every USDT perpetual (delisted ones included) into
+# the landing volume, one job per year, two at a time, then runs bronze and dbt once.
+# Started by hand from GitHub's Actions tab. Meant to run once (January 2020 onward); loading a
+# year again is harmless, because the files are checked and overwritten with identical copies.
+name: Lakehouse history
+
+on:
+  workflow_dispatch:
+    inputs:
+      first_year:
+        description: "First year, e.g. 2020 (Binance's monthly files start in January 2020)"
+        required: true
+        default: "2020"
+      last_year:
+        description: "Last year, e.g. 2026 (months not published yet are skipped)"
+        required: true
+        default: "2026"
+
+# The jobs only read the repository; they never write to it.
+permissions:
+  contents: read
+
+# Never run two history loads at the same time.
+concurrency:
+  group: lakehouse-history
+  cancel-in-progress: false
+
+jobs:
+  # Turns the two years into a list of years for the next job.
+  years:
+    runs-on: ubuntu-latest
+    outputs:
+      years: ${{ steps.list.outputs.years }}
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - id: list
+        name: List the years
+        env:
+          FIRST: ${{ inputs.first_year }}
+          LAST: ${{ inputs.last_year }}
+        shell: python
+        run: |
+          import json, os
+          first, last = int(os.environ["FIRST"]), int(os.environ["LAST"])
+          if not 2020 <= first <= last <= 2100:
+              raise SystemExit("Pick years from 2020 on, with the first year not after the last.")
+          years = [str(y) for y in range(first, last + 1)]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write("years=" + json.dumps(years) + "\n")
+          print(f"{len(years)} years: {years[0]} to {years[-1]}")
+
+  # One job per year, two at a time; one failed year doesn't stop the others.
+  # Each job uploads 8 files at a time, so both together send 16 at once, like one daily load.
+  load:
+    needs: years
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        year: ${{ fromJSON(needs.years.outputs.years) }}
+    defaults:
+      run:
+        working-directory: lakehouse/ingest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      # About 895 coins x 12 months a year; months before a coin was listed come back as missing.
+      - name: Download and check Binance's monthly files
+        env:
+          YEAR: ${{ matrix.year }}
+        run: python download_binance.py --symbols ALL --months "$YEAR-01..$YEAR-12"
+
+      - name: Install the Databricks CLI
+        uses: databricks/setup-cli@v1.21.0
+
+      # Same upload as lakehouse-load-day.yml: safe to repeat, so a failed try is retried twice.
+      - name: Upload to the landing volume
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          for attempt in 1 2 3; do
+            if databricks fs cp -r ../data/landing dbfs:/Volumes/market/landing/binance --overwrite --concurrency 8; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Upload attempt $attempt failed; trying again in $((attempt * 30)) seconds."
+              sleep $((attempt * 30))
+            fi
+          done
+          echo "Upload failed 3 times."
+          exit 1
+
+  # Once every year has uploaded: bronze, then dbt. If a year failed, this doesn't run; run that
+  # year again, then start "Lakehouse transform" by hand.
+  transform:
+    needs: load
+    uses: ./.github/workflows/lakehouse-transform.yml
+    secrets: inherit
