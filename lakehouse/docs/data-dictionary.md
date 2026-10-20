@@ -1,0 +1,85 @@
+# Data dictionary
+
+[← Lakehouse home](../README.md)
+
+Every dataset and table, with what the data really looks like. Numbers come from the loads of
+2026-10-18 and 2026-10-19.
+
+## Source: Binance's public archive
+
+Base address: `https://data.binance.vision/data/futures/um/daily/`
+
+| Dataset | File path under the base address | Rows per coin per day |
+|---|---|---|
+| 1-minute candles | `klines/{SYMBOL}/1m/{SYMBOL}-1m-{YYYY-MM-DD}.zip` | 1,440 |
+| Market metrics | `metrics/{SYMBOL}/{SYMBOL}-metrics-{YYYY-MM-DD}.zip` | 288 (one per 5 minutes) |
+
+Every file has a `.CHECKSUM` file next to it, containing its SHA-256 fingerprint. The list of coins
+comes from the archive's folder listing
+(`https://s3-ap-northeast-1.amazonaws.com/data.binance.vision?delimiter=/&prefix=data/futures/um/daily/klines/`),
+which returns up to 1,000 entries per page. Only USDT perpetuals are kept: names matching
+`^[A-Z0-9]+USDT$`, which excludes USDC and BUSD pairs and dated futures such as `BTCUSDT_250926`.
+
+## Landing: `market.landing.binance` (volume)
+
+```
+/Volumes/market/landing/binance/
+├─ klines_1m/date=2026-10-19/BTCUSDT-1m-2026-10-19.csv.gz
+└─ metrics/date=2026-10-19/BTCUSDT-metrics-2026-10-19.csv.gz
+```
+
+The files are Binance's CSVs, unchanged apart from being unzipped and gzipped. Each has a header row.
+
+## Bronze: `market.bronze.klines_1m`
+
+One row per line of a candle file. Every source column is text, exactly as written in the file.
+Built by [`pipelines/bronze/klines_1m.sql`](../pipelines/bronze/klines_1m.sql).
+
+| Column | Type | Meaning | Example |
+|---|---|---|---|
+| `symbol` | STRING | Coin, taken from the **file name** (the candle files have no coin column) | `BTCUSDT` |
+| `date` | STRING | Day, from the folder name `date=…` | `2026-10-19` |
+| `open_time` | STRING | Start of the minute, milliseconds since 1970-01-01 UTC | `1792368000000` |
+| `open`, `high`, `low`, `close` | STRING | Prices in USDT | `82077.90` |
+| `volume` | STRING | Traded amount in the coin (base asset) | `124.928` |
+| `close_time` | STRING | End of the minute, ms (open_time + 59,999) | `1792368059999` |
+| `quote_volume` | STRING | Traded amount in USDT | `10254472.67370` |
+| `count` | STRING | Number of trades in the minute | `3933` |
+| `taker_buy_volume` | STRING | Volume of aggressive buys, in the coin; the input to the TAKER signal | `60.264` |
+| `taker_buy_quote_volume` | STRING | Aggressive buys in USDT | `4946020.17240` |
+| `ignore` | STRING | Unused by Binance, always `0` | `0` |
+| `_rescued_data` | STRING | Anything that didn't fit the expected columns (should be empty) | |
+| `source_file` | STRING | Full path of the file the row came from | `/Volumes/market/landing/binance/klines_1m/date=…/BTCUSDT-1m-….csv.gz` |
+| `source_file_modified_at` | TIMESTAMP | When that file was uploaded | |
+| `loaded_at` | TIMESTAMP | When the pipeline loaded the row | |
+
+**What the data looks like:** 872 coins per day, every one with exactly 1,440 rows, so
+1,255,680 rows per day. No rescued data so far.
+
+## Bronze: `market.bronze.metrics`
+
+One row per line of a metrics file. Built by [`pipelines/bronze/metrics.sql`](../pipelines/bronze/metrics.sql).
+
+| Column | Type | Meaning |
+|---|---|---|
+| `symbol` | STRING | Coin (these files do have a coin column; it always matches the file name) |
+| `date` | STRING | Day, from the folder name |
+| `create_time` | STRING | Time of the 5-minute snapshot, `YYYY-MM-DD HH:MM:SS` UTC |
+| `sum_open_interest` | STRING | Open interest: contracts still open, in the coin |
+| `sum_open_interest_value` | STRING | Open interest in USDT |
+| `count_toptrader_long_short_ratio` | STRING | Top traders: accounts long ÷ accounts short |
+| `sum_toptrader_long_short_ratio` | STRING | Top traders: positions long ÷ positions short |
+| `count_long_short_ratio` | STRING | All accounts: long ÷ short |
+| `sum_taker_long_short_vol_ratio` | STRING | Aggressive buy volume ÷ aggressive sell volume |
+| `_rescued_data`, `source_file`, `source_file_modified_at`, `loaded_at` | | As in `klines_1m` |
+
+**What the data looks like:**
+- 744 coins per day, fewer than the 872 with candles.
+- A full day should have 288 rows per coin, but many coins have fewer: on 2026-10-19, 135 of the
+  744 files were incomplete, some with a single row. The day had 208,453 rows instead of 214,272.
+- Rows inside a file are **not in time order**. Never rely on file order; silver sorts and checks.
+
+## Silver and gold
+
+Planned (dbt). The planned tables are listed in [Architecture](architecture.md#data-flow); this page
+will describe each one as it's built.
