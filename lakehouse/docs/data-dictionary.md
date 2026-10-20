@@ -122,6 +122,31 @@ Key: (`symbol`, `metric_time`), tested unique. **What the data looks like:** 744
 coin-days complete (288 rows), the rest short, down to 1 row; taker ratio empty in 10,051 rows and
 exactly 0 in 9,313.
 
+## Silver: `market.silver.fct_candle_1h`
+
+One row per coin per hour, rolled up from `fct_candle_1m` ([model](../dbt/models/silver/fct_candle_1h.sql));
+clustered by `symbol`, `candle_date`. Key (`symbol`, `hour_start`), tested unique and reconciled with
+the minute table.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `symbol` | STRING | Binance symbol |
+| `hour_start` | TIMESTAMP | Start of the hour, UTC |
+| `candle_date` | DATE | Day of the hour, UTC |
+| `open`, `close` | DOUBLE | First minute's open, last minute's close |
+| `high`, `low` | DOUBLE | Highest and lowest price in the hour |
+| `volume`, `quote_volume` | DOUBLE | Traded amount in the coin and in USDT |
+| `trades` | BIGINT | Number of trades |
+| `taker_buy_volume`, `taker_buy_quote_volume` | DOUBLE | Aggressive buying |
+| `vwap` | DOUBLE | quote_volume / volume; NULL when nothing traded |
+| `taker_buy_share` | DOUBLE | taker_buy_volume / volume (0 to 1); NULL when nothing traded |
+| `minutes` | BIGINT | 1-minute candles behind the hour; 60 when complete |
+| `zero_volume_minutes` | BIGINT | Minutes in the hour with no trades |
+| `last_bronze_loaded_at` | TIMESTAMP | Newest bronze load time among the hour's minutes |
+
+**What the data looks like:** 20,928 hours per day, all complete; about 3,175 hours a day with no
+trades at all, mostly thinly traded coins and the stock perpetuals.
+
 ## Silver: `market.silver.dim_coin` (snapshot)
 
 One row per **version** of a coin's description (SCD Type 2), kept by the dbt snapshot

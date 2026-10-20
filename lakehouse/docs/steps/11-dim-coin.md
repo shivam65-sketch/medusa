@@ -1,6 +1,6 @@
 # Step 11: Coin dimension with history (SCD Type 2)
 
-[← Lakehouse home](../../README.md) · [← Step 10](10-silver-metrics.md)
+[← Lakehouse home](../../README.md) · [← Step 10](10-silver-metrics.md) · Next: [Step 12 →](12-silver-hourly-candles.md)
 
 | | |
 |---|---|

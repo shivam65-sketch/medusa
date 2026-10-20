@@ -15,8 +15,8 @@ flowchart LR
   B --> C["Landing volume<br>market.landing.binance"]
   subgraph D["Databricks Free Edition · catalog market"]
     C --> E["Bronze<br>Lakeflow pipeline + Auto Loader"]
-    E --> F["Silver<br>dbt models (in progress)"]
-    F --> G["Gold<br>dbt models (planned)"]
+    E --> F["Silver<br>dbt models"]
+    F --> G["Gold<br>dbt models (in progress)"]
     G --> H["AI/BI dashboard + Genie (planned)"]
   end
   G -.->|daily copy, planned| I["MEDUSA Markets page<br>Cloudflare"]
@@ -26,8 +26,8 @@ flowchart LR
 |---|---|---|
 | Landing | Binance's files, unchanged apart from unzip + gzip | [`ingest/download_binance.py`](ingest/download_binance.py) run by GitHub Actions |
 | Bronze | Every file line as a row, all columns as text, plus lineage | [`pipelines/bronze/`](pipelines/bronze/) (Lakeflow Declarative Pipeline) |
-| Silver | Typed, checked facts and dimensions | [`dbt/`](dbt/) (dbt Core, in progress) |
-| Gold | Daily tables the dashboards read | dbt (planned) |
+| Silver | Typed, checked facts and dimensions | [`dbt/models/silver/`](dbt/models/silver/) (dbt Core) |
+| Gold | Daily tables the dashboards read | [`dbt/models/gold/`](dbt/models/gold/) (dbt Core, in progress) |
 
 ## Documentation
 
@@ -54,7 +54,8 @@ flowchart LR
 | [9. Silver candles](docs/steps/09-silver-candles.md) | Typed, incremental `fct_candle_1m` with tests and source freshness | Done |
 | [10. Silver metrics](docs/steps/10-silver-metrics.md) | Typed, incremental `fct_metrics_5m` with tests | Done |
 | [11. Coin dimension](docs/steps/11-dim-coin.md) | `dim_coin` with full history (SCD Type 2) from a dbt snapshot | Done |
-| 12. Hourly candles | `fct_candle_1h` rolled up from the 1-minute candles | Next |
+| [12. Hourly candles](docs/steps/12-silver-hourly-candles.md) | `fct_candle_1h` rolled up from the 1-minute candles | Done |
+| 13. Gold: coin_daily | One row per coin per day: returns, volatility, volume, taker share, open interest | Next |
 
 ## Folder layout
 
