@@ -1,0 +1,37 @@
+snapshots:
+  - name: dim_coin
+    description: >
+      Every coin and its history (SCD Type 2): one row per version of a coin's description.
+      dbt_valid_from and dbt_valid_to say when each version was true; the current version has
+      dbt_valid_to = 9999-12-31.
+    relation: ref('int_coin_status')
+    config:
+      schema: silver
+      unique_key: symbol
+      strategy: check
+      check_cols: [base_asset, multiplier, first_candle_date, status]
+      dbt_valid_to_current: "cast('9999-12-31' as timestamp)"
+    columns:
+      - name: symbol
+        description: Binance symbol, e.g. 1000PEPEUSDT.
+        data_tests: [not_null]
+      - name: base_asset
+        description: The coin itself, without the multiplier or USDT, e.g. PEPE.
+        data_tests: [not_null]
+      - name: quote_asset
+        description: Always USDT here.
+      - name: multiplier
+        description: Coins per quoted unit, e.g. 1000 for 1000PEPEUSDT; 1 for most coins.
+        data_tests: [not_null]
+      - name: first_candle_date
+        description: First day with candles in the lakehouse.
+      - name: status
+        description: trading, or not trading after 3 days without candles.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['trading', 'not trading']
+      - name: dbt_valid_from
+        description: When this version became true.
+      - name: dbt_valid_to
+        description: When it stopped being true; 9999-12-31 for the current version.
