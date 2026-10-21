@@ -22,6 +22,7 @@ All `databricks` commands run from the `lakehouse/` folder.
 |---|---|
 | Load a range of past days | GitHub → Actions → **Lakehouse backfill** → Run workflow, first and last day (up to 60 days; 4 days at a time). Bronze and `dbt build` run at the end. |
 | Run only bronze and dbt | GitHub → Actions → **Lakehouse transform** → Run workflow |
+| Load the hourly history | GitHub → Actions → **Lakehouse history** → Run workflow, first and last year (2020 to 2026 was loaded on 2026-10-20; one job per year, two at a time). Bronze and `dbt build` run at the end. Needed again only if the history must be rebuilt. |
 | Load a particular day | GitHub → Actions → Lakehouse daily load → **Run workflow**, type the date (`YYYY-MM-DD`). Safe to repeat: files are re-uploaded identically. |
 | Load new files into bronze | `databricks bundle run bronze` (only files not loaded before are read) |
 | Rebuild bronze from every file | `databricks bundle run bronze --full-refresh-all`. Use only after changing a bronze definition: it reloads everything. |

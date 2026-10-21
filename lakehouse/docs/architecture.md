@@ -19,10 +19,10 @@ flowchart TB
   end
   BIN["data.binance.vision<br>(Binance's public archive)"] --> D1
   subgraph DBX["Databricks Free Edition · catalog market"]
-    L["landing.binance (volume)<br>klines_1m/date=…/ · metrics/date=…/"]
-    BR["bronze.klines_1m · bronze.metrics<br>streaming tables (Auto Loader)"]
-    SI["silver (dbt)<br>typed facts · dim_coin (SCD2) · 1h candles"]
-    GO["gold (dbt)<br>coin_daily · market_daily · unusual_moves · hour_profile · data_health"]
+    L["landing.binance (volume)<br>klines_1m/date=…/ · metrics/date=…/ · klines_1h/month=…/"]
+    BR["bronze.klines_1m · bronze.metrics · bronze.klines_1h<br>streaming tables (Auto Loader)"]
+    SI["silver (dbt)<br>typed facts · dim_coin (SCD2) · 1h candles · hourly series since 2020"]
+    GO["gold (dbt)<br>coin_daily · market_daily · unusual_moves · hour_profile · data_health · coin_baseline"]
     L --> BR --> SI --> GO
   end
   D2 --> L
@@ -51,8 +51,8 @@ SQL Server.
 | `market` | Catalog | The whole platform |
 | `market.landing` | Schema | Raw files |
 | `market.landing.binance` | Volume (managed) | Daily files, one folder per dataset and day: `klines_1m/date=2026-10-19/BTCUSDT-1m-2026-10-19.csv.gz` |
-| `market.bronze` | Schema | Raw rows: `klines_1m`, `metrics` |
-| `market.silver` | Schema | Typed, checked tables (dbt) |
+| `market.bronze` | Schema | Raw rows: `klines_1m`, `metrics`, `klines_1h` (monthly history files) |
+| `market.silver` | Schema | Typed, checked tables (dbt), including `fct_candle_1h_archive` and the continuous hourly series `int_candle_1h_all` |
 | `market.gold` | Schema | Tables the dashboards read (dbt) |
 
 ## Daily timeline (UTC)

@@ -63,7 +63,8 @@ flowchart LR
 | [18. Active coins](docs/steps/18-active-coins.md) | Count only coins that trade: delisted contracts still get flat candles | Done |
 | [19. Coin baseline](docs/steps/19-coin-baseline.md) | Each coin's "normal" (yesterday's close, 30-day spread of returns and volume) for the live scanner | Done |
 | [20. Hourly history](docs/steps/20-hourly-history.md) | Every USDT perpetual's hourly candles since January 2020 from Binance's monthly files (22,221 files, 15.9 million rows) | Done |
-| 21. Silver hourly history | Typed archive hours, one continuous series, and a test that the two hourly sources agree | Next |
+| [21. Silver hourly history](docs/steps/21-silver-hourly-history.md) | Typed archive hours, one continuous series since 2020, the two hourly sources reconciled (and an open/high/low fix it found) | Done |
+| 22. Evidence | What moves like today's did over the next 1, 4 and 24 hours, after fees, over six years | Next |
 
 ## Folder layout
 
@@ -81,5 +82,6 @@ lakehouse/
 
 The workflows live at the repository root in [`.github/workflows/`](../.github/workflows/), because
 that is the only place GitHub looks for them: `lakehouse-daily.yml` (every day at 06:00 UTC),
-`lakehouse-backfill.yml` (past days), and the two they share, `lakehouse-load-day.yml` (download,
-check, upload) and `lakehouse-transform.yml` (bronze, freshness, dbt build).
+`lakehouse-backfill.yml` (past days), `lakehouse-history.yml` (Binance's monthly hourly files, one
+year per job), and the two they share, `lakehouse-load-day.yml` (download, check, upload) and
+`lakehouse-transform.yml` (bronze, freshness, dbt build).

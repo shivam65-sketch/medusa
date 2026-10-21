@@ -7,17 +7,19 @@ Every dataset and table, with what the data really looks like. Numbers come from
 
 ## Source: Binance's public archive
 
-Base address: `https://data.binance.vision/data/futures/um/daily/`
+Base address: `https://data.binance.vision/data/futures/um/`, then `daily/` for the daily files or
+`monthly/` for the hourly history
 
 | Dataset | File path under the base address | Rows per coin per day |
 |---|---|---|
-| 1-minute candles | `klines/{SYMBOL}/1m/{SYMBOL}-1m-{YYYY-MM-DD}.zip` | 1,440 |
-| Market metrics | `metrics/{SYMBOL}/{SYMBOL}-metrics-{YYYY-MM-DD}.zip` | 288 (one per 5 minutes) |
+| 1-minute candles | `daily/klines/{SYMBOL}/1m/{SYMBOL}-1m-{YYYY-MM-DD}.zip` | 1,440 |
+| Market metrics | `daily/metrics/{SYMBOL}/{SYMBOL}-metrics-{YYYY-MM-DD}.zip` | 288 (one per 5 minutes) |
+| 1-hour candles (history) | `monthly/klines/{SYMBOL}/1h/{SYMBOL}-1h-{YYYY-MM}.zip` | 24 (about 720 per monthly file) |
 
 Every file has a `.CHECKSUM` file next to it, containing its SHA-256 fingerprint. The list of coins
 comes from the archive's folder listing
-(`https://s3-ap-northeast-1.amazonaws.com/data.binance.vision?delimiter=/&prefix=data/futures/um/daily/klines/`),
-which returns up to 1,000 entries per page. Only USDT perpetuals are kept: names matching
+(`https://s3-ap-northeast-1.amazonaws.com/data.binance.vision?delimiter=/&prefix=data/futures/um/daily/klines/`,
+or `monthly/klines/` for the history), which returns up to 1,000 entries per page. Only USDT perpetuals are kept: names matching
 `^[A-Z0-9]+USDT$`, which excludes USDC and BUSD pairs and dated futures such as `BTCUSDT_250926`.
 
 ## Landing: `market.landing.binance` (volume)
@@ -25,10 +27,12 @@ which returns up to 1,000 entries per page. Only USDT perpetuals are kept: names
 ```
 /Volumes/market/landing/binance/
 ├─ klines_1m/date=2026-10-19/BTCUSDT-1m-2026-10-19.csv.gz
-└─ metrics/date=2026-10-19/BTCUSDT-metrics-2026-10-19.csv.gz
+├─ metrics/date=2026-10-19/BTCUSDT-metrics-2026-10-19.csv.gz
+└─ klines_1h/month=2024-03/BTCUSDT-1h-2024-03.csv.gz
 ```
 
-The files are Binance's CSVs, unchanged apart from being unzipped and gzipped. Each has a header row.
+The files are Binance's CSVs, unchanged apart from being unzipped and gzipped. The daily files have
+a header row; the monthly hourly files have one only from 2022.
 
 ## Bronze: `market.bronze.klines_1m`
 
@@ -78,6 +82,20 @@ One row per line of a metrics file. Built by [`pipelines/bronze/metrics.sql`](..
 - A full day should have 288 rows per coin, but many coins have fewer: on 2026-10-19, 135 of the
   744 files were incomplete, some with a single row. The day had 208,453 rows instead of 214,272.
 - Rows inside a file are **not in time order**. Never rely on file order; silver sorts and checks.
+
+## Bronze: `market.bronze.klines_1h`
+
+One row per line of a monthly 1-hour candle file (January 2020 onward, loaded once by the history
+workflow). Same columns as `klines_1m`, with `month` (from the folder `month=YYYY-MM`) instead of
+`date`. Built by [`pipelines/bronze/klines_1h.sql`](../pipelines/bronze/klines_1h.sql).
+
+The files are read **without a header**: Binance's files before 2022 have none, newer ones do. The
+header lines of the newer files arrive as rows whose `open_time` is the text `open_time`; the
+`is_data_row` expectation counts them and silver drops them.
+
+**What the data looks like:** 22,221 files, 15,907,630 rows (20,245 of them header lines), 895
+coins, 2020-01 to 2026-09; nothing rescued. Coins per year: 81 (2020), 139, 163, 253, 384, 611,
+868 (2026).
 
 ## Silver: `market.silver.fct_candle_1m`
 
@@ -133,8 +151,8 @@ the minute table.
 | `symbol` | STRING | Binance symbol |
 | `hour_start` | TIMESTAMP | Start of the hour, UTC |
 | `candle_date` | DATE | Day of the hour, UTC |
-| `open`, `close` | DOUBLE | First minute's open, last minute's close |
-| `high`, `low` | DOUBLE | Highest and lowest price in the hour |
+| `open`, `close` | DOUBLE | First trade's price, last minute's close (minutes without trades are skipped for open, high and low; ADR-019) |
+| `high`, `low` | DOUBLE | Highest and lowest traded price in the hour |
 | `volume`, `quote_volume` | DOUBLE | Traded amount in the coin and in USDT |
 | `trades` | BIGINT | Number of trades |
 | `taker_buy_volume`, `taker_buy_quote_volume` | DOUBLE | Aggressive buying |
@@ -146,6 +164,35 @@ the minute table.
 
 **What the data looks like:** 20,928 hours per day, all complete; about 3,175 hours a day with no
 trades at all, mostly thinly traded coins and the stock perpetuals.
+
+## Silver: `market.silver.fct_candle_1h_archive`
+
+One row per coin per hour from Binance's monthly 1-hour files, typed and de-duplicated; incremental
+on bronze load time ([model](../dbt/models/silver/fct_candle_1h_archive.sql)); clustered by
+`symbol`, `candle_date`. Key (`symbol`, `hour_start`), tested unique.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `symbol`, `hour_start`, `candle_date` | STRING, TIMESTAMP, DATE | Coin, start of the hour (UTC), day |
+| `open`, `high`, `low`, `close` | DOUBLE | First trade, highest and lowest traded price, last trade (Binance's definition) |
+| `volume`, `quote_volume`, `trades` | DOUBLE, DOUBLE, BIGINT | Traded in the coin, in USDT, number of trades |
+| `taker_buy_volume`, `taker_buy_quote_volume` | DOUBLE | Aggressive buying |
+| `source_file`, `bronze_loaded_at` | | Lineage |
+
+**What the data looks like:** 15,887,385 hours (bronze's rows minus the 20,245 header lines), 895
+coins, 2020-01-01 00:00 to 2026-09-30 23:00 UTC; 1,360,716 hours without a trade.
+
+## Silver: `market.silver.int_candle_1h_all` (view)
+
+One continuous hourly series per coin from January 2020 ([model](../dbt/models/silver/int_candle_1h_all.sql)):
+`fct_candle_1h_archive` before the first day built from 1-minute candles, `fct_candle_1h` from then
+on. Columns: `symbol`, `hour_start`, `candle_date`, `open`, `high`, `low`, `close`, `volume`,
+`quote_volume`, `trades`, `taker_buy_volume`, `taker_buy_quote_volume`, and `source`
+(`monthly_archive` or `minute_candles`). Tested: no hour twice; on the days both sources cover,
+`assert_hourly_sources_agree` requires every hour in both with identical prices, volume and trades.
+
+**What the data looks like (2026-10-21):** 15,621,354 archive hours (2020-01-01 to 2026-09-17) and
+683,264 minute-built hours (2026-09-18 to 2026-10-20), 873 coins each.
 
 ## Silver: `market.silver.dim_coin` (snapshot)
 
@@ -186,7 +233,7 @@ One row per coin per UTC day ([model](../dbt/models/gold/coin_daily.sql)); clust
 | Column | Meaning |
 |---|---|
 | `symbol`, `trade_date` | Coin and UTC day |
-| `open`, `high`, `low`, `close` | The day's prices (USDT) |
+| `open`, `high`, `low`, `close` | The day's prices (USDT); open, high and low come from the hours that traded, and a day without trades keeps its flat price (ADR-019) |
 | `return_1d` | close / previous day's close − 1; empty on a coin's first day and after a gap |
 | `range_1d` | (high − low) / open |
 | `volume`, `quote_volume`, `trades` | Traded in the coin, in USDT, number of trades |

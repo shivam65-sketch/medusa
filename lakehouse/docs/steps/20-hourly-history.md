@@ -1,6 +1,6 @@
 # Step 20: Hourly history from Binance's monthly files
 
-[← Lakehouse home](../../README.md) · [← Step 19](19-coin-baseline.md)
+[← Lakehouse home](../../README.md) · [← Step 19](19-coin-baseline.md) · Next: [Step 21 →](21-silver-hourly-history.md)
 
 | | |
 |---|---|

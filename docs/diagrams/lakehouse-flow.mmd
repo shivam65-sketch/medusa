@@ -4,21 +4,25 @@ flowchart TB
   subgraph GH["GitHub Actions"]
     direction LR
     LD["Load one day (reusable workflow)<br>list coins, download, SHA-256 check,<br>unzip, gzip, upload with retries"]
+    HI["History (run once)<br>monthly 1-hour files since 2020,<br>one job per year"]
     TR["Transform<br>bronze pipeline, dbt source freshness,<br>dbt build"]
     LD --> TR
+    HI --> TR
   end
   subgraph DBX["Databricks Free Edition: catalog market"]
     direction LR
-    L[("landing<br>volume binance<br>date=YYYY-MM-DD folders")]
-    BR[("bronze<br>klines_1m, metrics<br>streaming tables")]
-    SI[("silver<br>fct_candle_1m, fct_metrics_5m<br>fct_candle_1h, dim_coin")]
-    GO[("gold<br>coin_daily, market_daily, data_health<br>unusual_moves, hour_profile")]
+    L[("landing<br>volume binance<br>date=YYYY-MM-DD and<br>month=YYYY-MM folders")]
+    BR[("bronze<br>klines_1m, metrics, klines_1h<br>streaming tables")]
+    SI[("silver<br>fct_candle_1m, fct_metrics_5m,<br>fct_candle_1h, hourly archive,<br>one hourly series since 2020, dim_coin")]
+    GO[("gold<br>coin_daily, market_daily, data_health,<br>unusual_moves, hour_profile, coin_baseline")]
     L -->|"Auto Loader"| BR
     BR -->|"dbt incremental MERGE"| SI
     SI -->|"dbt"| GO
   end
   BIN --> LD
+  BIN --> HI
   LD -->|"databricks fs cp"| L
+  HI -->|"databricks fs cp"| L
   TR -.->|"runs"| BR
   TR -.->|"runs"| SI
   GO -.->|"daily copy (planned)"| WEB["MEDUSA live scanner (planned)<br>D1 copy of gold + live Binance stream in the browser"]

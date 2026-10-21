@@ -26,6 +26,8 @@ entry replaces it and the old one is marked *Superseded*.
 | 016 | [Coin history from the candles, with a grace period](#adr-016-coin-history-from-the-candles-with-a-grace-period) | Accepted; status rule superseded by ADR-018 |
 | 017 | [Orchestrate the daily chain in GitHub Actions](#adr-017-orchestrate-the-daily-chain-in-github-actions) | Accepted |
 | 018 | [A coin trades only if it has trades](#adr-018-a-coin-trades-only-if-it-has-trades) | Accepted |
+| 019 | [Hourly candles follow the exchange's definition](#adr-019-hourly-candles-follow-the-exchanges-definition) | Accepted |
+| 020 | [Long history from Binance's monthly hourly files](#adr-020-long-history-from-binances-monthly-hourly-files) | Accepted |
 
 ---
 
@@ -302,4 +304,41 @@ loaded: they are what the source publishes.
 **Consequences:** `dim_coin` recorded 132 corrections as new versions, dated when the warehouse
 learned of them, not when the coins stopped trading. Market medians and counts are now real. A test
 checks the status against the last 3 days of trades in `coin_daily`.
+
+## ADR-019: Hourly candles follow the exchange's definition
+
+**Status:** Accepted, 2026-10-21
+
+**Context:** Binance fills a minute without trades with a flat candle at the previous price.
+Rolling minutes up into hours counted those flat candles, so about 10,600 hours opened at the
+previous hour's close and about 2,200 had a slightly wider range than Binance's own hourly candle,
+mostly TradFi perpetuals that pause between sessions. The difference only showed when the
+minute-built hours were reconciled with Binance's hourly files.
+
+**Decision:** Hourly (and daily) open, high and low come from the minutes (hours) that traded: open
+is the first trade, high and low are traded prices. A period with no trades at all keeps its flat
+price. A test compares the minute-built hours with Binance's hourly files wherever both exist.
+
+**Consequences:** Every overlapping hour matches the exchange exactly (266,031 of 266,031).
+`fct_candle_1h` and `coin_daily` were rebuilt once with a full refresh so the rule applies to all
+past days.
+
+## ADR-020: Long history from Binance's monthly hourly files
+
+**Status:** Accepted, 2026-10-21
+
+**Context:** The scanner's evidence needs many past examples; 32 days of 1-minute data gave 296.
+Loading years of 1-minute candles would be about 460 million rows a year. Binance also publishes
+monthly 1-hour files for every USDT perpetual since January 2020, delisted coins included: 22,221
+files, 651 MB zipped, about 16 million rows.
+
+**Decision:** Load the monthly hourly files once (a history workflow, one job per year) into
+`bronze.klines_1h` and `silver.fct_candle_1h_archive`, and serve one continuous hourly series,
+`int_candle_1h_all`: archive hours before the first minute-built day, minute-built hours after.
+Long-horizon analysis reads hours; minute detail stays limited to the recent period (ADR-011).
+
+**Consequences:** Six years of survivorship-free history at hourly grain for a small cost. Files
+before 2022 have no header row, so bronze reads every file without a header and silver drops the
+header lines. The archive stops at the last published month; the daily 1-minute load extends the
+series from there, so the history workflow doesn't need to run again.
 

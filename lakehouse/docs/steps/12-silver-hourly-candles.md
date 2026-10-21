@@ -8,9 +8,6 @@
 | **Commit** | `2ba41c7` Lakehouse: silver fct_candle_1h (hourly roll-up, incremental by day) with reconciliation tests |
 | **Files** | [`dbt/models/silver/fct_candle_1h.sql`](../../dbt/models/silver/fct_candle_1h.sql) · [`dbt/models/silver/_silver_candle_1h.yml`](../../dbt/models/silver/_silver_candle_1h.yml) · [`dbt/tests/assert_candle_1h_*.sql`](../../dbt/tests/) |
 
-From this step on, Claude writes the files straight into the project; the owner reads them, runs
-every command and commits.
-
 ## Goal
 
 Roll the 1-minute candles up into hourly ones: the first aggregation model, and the base for

@@ -3,11 +3,14 @@ flowchart LR
   subgraph BRZ["Bronze (Lakeflow pipeline)"]
     bk[("klines_1m")]
     bm[("metrics")]
+    bh[("klines_1h<br>monthly history")]
   end
   subgraph SLV["Silver (dbt)"]
     c1["fct_candle_1m<br>coin x minute"]
     m5["fct_metrics_5m<br>coin x 5 minutes"]
     c1h["fct_candle_1h<br>coin x hour"]
+    arc["fct_candle_1h_archive<br>coin x hour, since 2020"]
+    all["int_candle_1h_all<br>view, one series since 2020"]
     ics["int_coin_status<br>view"]
     dc["dim_coin<br>snapshot, SCD Type 2"]
   end
@@ -17,11 +20,15 @@ flowchart LR
     dh["data_health<br>day"]
     um["unusual_moves<br>coin x day, flagged"]
     hp["hour_profile<br>coin x UTC hour"]
+    cb["coin_baseline<br>coin, its normal"]
   end
   bk --> c1
   bm --> m5
+  bh --> arc
   c1 --> c1h
   c1h --> ics --> dc
+  c1h --> all
+  arc --> all
   c1h --> cd
   c1 --> cd
   m5 --> cd
@@ -29,3 +36,6 @@ flowchart LR
   cd --> dh
   cd --> um
   c1h --> hp
+  cd --> cb
+  c1h --> cb
+  dc --> cb
