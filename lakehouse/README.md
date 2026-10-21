@@ -62,7 +62,8 @@ flowchart LR
 | [17. Daily chain](docs/steps/17-daily-chain.md) | Every morning: download → landing → bronze → dbt, all from GitHub Actions | Done |
 | [18. Active coins](docs/steps/18-active-coins.md) | Count only coins that trade: delisted contracts still get flat candles | Done |
 | [19. Coin baseline](docs/steps/19-coin-baseline.md) | Each coin's "normal" (yesterday's close, 30-day spread of returns and volume) for the live scanner | Done |
-| 20. Hourly history | Two years of hourly candles from Binance's monthly files, reconciled with the hours built from 1-minute candles | Next |
+| [20. Hourly history](docs/steps/20-hourly-history.md) | Every USDT perpetual's hourly candles since January 2020 from Binance's monthly files (22,221 files, 15.9 million rows) | Done |
+| 21. Silver hourly history | Typed archive hours, one continuous series, and a test that the two hourly sources agree | Next |
 
 ## Folder layout
 

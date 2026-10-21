@@ -1,6 +1,6 @@
 # Step 19: Each coin's normal (`coin_baseline`)
 
-[← Lakehouse home](../../README.md) · [← Step 18](18-active-coins.md)
+[← Lakehouse home](../../README.md) · [← Step 18](18-active-coins.md) · Next: [Step 20 →](20-hourly-history.md)
 
 | | |
 |---|---|
