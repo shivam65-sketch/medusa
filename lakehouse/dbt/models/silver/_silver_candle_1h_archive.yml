@@ -1,0 +1,65 @@
+version: 2
+
+models:
+  - name: fct_candle_1h_archive
+    description: >
+      One row per coin per hour from Binance's monthly 1-hour files: January 2020 onward, every USDT
+      perpetual, delisted ones included. Times are UTC. Typed and de-duplicated; incremental on
+      bronze load time. Header lines from the newer files are dropped (their time isn't a number).
+    columns:
+      - name: symbol
+        description: Binance symbol, e.g. BTCUSDT.
+        data_tests: [not_null]
+      - name: hour_start
+        description: Start of the hour (UTC).
+        data_tests: [not_null]
+      - name: candle_date
+        description: Day of the hour (UTC); used with symbol to cluster the table.
+        data_tests: [not_null]
+      - name: open
+        description: Price of the hour's first trade, USDT.
+        data_tests: [not_null]
+      - name: high
+        description: Highest traded price in the hour, USDT.
+        data_tests: [not_null]
+      - name: low
+        description: Lowest traded price in the hour, USDT.
+        data_tests: [not_null]
+      - name: close
+        description: Price of the hour's last trade, USDT.
+        data_tests: [not_null]
+      - name: volume
+        description: Amount traded in the hour, in the coin.
+        data_tests: [not_null]
+      - name: quote_volume
+        description: Amount traded in the hour, in USDT.
+      - name: trades
+        description: Number of trades in the hour.
+        data_tests: [not_null]
+      - name: taker_buy_volume
+        description: Aggressive buying in the hour, in the coin.
+      - name: taker_buy_quote_volume
+        description: Aggressive buying in the hour, in USDT.
+      - name: source_file
+        description: The monthly landing file the row came from.
+      - name: bronze_loaded_at
+        description: When bronze loaded the row; incremental runs start from the newest one.
+
+  - name: int_candle_1h_all
+    description: >
+      View: one continuous hourly series per coin from January 2020. Binance's monthly hourly files
+      before the first day built from 1-minute candles, the minute-built hours (fct_candle_1h) from
+      then on. Where both exist they agree exactly (assert_hourly_sources_agree).
+    columns:
+      - name: symbol
+        description: Binance symbol.
+      - name: hour_start
+        description: Start of the hour (UTC).
+      - name: candle_date
+        description: Day of the hour (UTC).
+      - name: source
+        description: monthly_archive or minute_candles.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['monthly_archive', 'minute_candles']

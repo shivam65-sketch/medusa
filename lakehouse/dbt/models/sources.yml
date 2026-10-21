@@ -15,3 +15,9 @@ sources:
         description: One row per line of a 1-minute candle file; every column is text.
       - name: metrics
         description: One row per line of a 5-minute metrics file; every column is text.
+      - name: klines_1h
+        description: >
+          One row per line of a monthly 1-hour candle file (header lines included); every column is
+          text. Loaded once for history (January 2020 onward), so it isn't checked for freshness.
+        config:
+          freshness: null

@@ -41,9 +41,10 @@ daily as (
     select
         symbol,
         candle_date                     as trade_date,
-        min_by(open, hour_start)        as open,
-        max(high)                       as high,
-        min(low)                        as low,
+        -- Like the hourly candles: open, high and low from the hours that traded.
+        coalesce(min_by(open, hour_start) filter (where trades > 0), min_by(open, hour_start)) as open,
+        coalesce(max(high) filter (where trades > 0), max(high))                             as high,
+        coalesce(min(low) filter (where trades > 0), min(low))                               as low,
         max_by(close, hour_start)       as close,
         sum(volume)                     as volume,
         sum(quote_volume)               as quote_volume,

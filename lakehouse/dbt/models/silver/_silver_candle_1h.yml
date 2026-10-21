@@ -16,13 +16,13 @@ models:
         description: Day of the hour (UTC); used with symbol to cluster the table.
         data_tests: [not_null]
       - name: open
-        description: The first minute's open, USDT.
+        description: The first trade's price in the hour, USDT (minutes without trades are skipped; an hour with no trades keeps its flat price).
         data_tests: [not_null]
       - name: high
-        description: Highest price in the hour, USDT.
+        description: Highest traded price in the hour, USDT.
         data_tests: [not_null]
       - name: low
-        description: Lowest price in the hour, USDT.
+        description: Lowest traded price in the hour, USDT.
         data_tests: [not_null]
       - name: close
         description: The last minute's close, USDT.
