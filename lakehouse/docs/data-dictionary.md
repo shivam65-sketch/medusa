@@ -78,7 +78,8 @@ One row per line of a metrics file. Built by [`pipelines/bronze/metrics.sql`](..
 | `_rescued_data`, `source_file`, `source_file_modified_at`, `loaded_at` | | As in `klines_1m` |
 
 **What the data looks like:**
-- 744 coins per day, fewer than the 872 with candles.
+- 744 coins per day, fewer than the 872 with candles. On 2026-10-20 all 128 coins with candles but
+  no metrics had no trades: delisted ("settling") contracts get flat candle files but no metrics.
 - A full day should have 288 rows per coin, but many coins have fewer: on 2026-10-19, 135 of the
   744 files were incomplete, some with a single row. The day had 208,453 rows instead of 214,272.
 - Rows inside a file are **not in time order**. Never rely on file order; silver sorts and checks.

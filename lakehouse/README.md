@@ -33,6 +33,7 @@ flowchart LR
 
 | Page | What's in it |
 |---|---|
+| [Questions and answers](docs/faq.md) | How the daily pipeline works, in short: workflows, schedule, what is re-read, where data is kept |
 | [Architecture](docs/architecture.md) | Components, data flow, where each part runs, free-plan limits |
 | [Decisions](docs/decisions.md) | Why each tool and design was chosen (and what was left out) |
 | [Data dictionary](docs/data-dictionary.md) | Every table and column, with what the data really looks like |
