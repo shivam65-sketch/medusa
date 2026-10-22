@@ -64,7 +64,8 @@ flowchart LR
 | [19. Coin baseline](docs/steps/19-coin-baseline.md) | Each coin's "normal" (yesterday's close, 30-day spread of returns and volume) for the live scanner | Done |
 | [20. Hourly history](docs/steps/20-hourly-history.md) | Every USDT perpetual's hourly candles since January 2020 from Binance's monthly files (22,221 files, 15.9 million rows) | Done |
 | [21. Silver hourly history](docs/steps/21-silver-hourly-history.md) | Typed archive hours, one continuous series since 2020, the two hourly sources reconciled (and an open/high/low fix it found) | Done |
-| 22. Evidence | What moves like today's did over the next 1, 4 and 24 hours, after fees, over six years | Next |
+| [22. Evidence](docs/steps/22-evidence.md) | Every unusual intraday move since 2020 and what followed over 1, 4 and 24 hours, judged by days and on held-back years | Done |
+| 23. Serving tables | `coin_baseline` and `event_evidence` copied into MEDUSA's database for the live scanner | Next |
 
 ## Folder layout
 

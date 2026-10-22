@@ -335,3 +335,55 @@ Today's move = live price / `last_close` − 1. Today's z-score = (today's move 
 **What the data looks like (2026-10-19):** 744 coins (740 trading); 731 with at least 20 days of
 history. Bitcoin: daily spread 1.70%, typical hour move 0.23%. Median trading coin: typical hour move
 0.66%; 5 trading coins move less than 0.1% an hour.
+
+## Gold: `market.gold.intraday_events`
+
+Every time a coin's move so far that day became unusual for it, from January 2020 on, delisted coins
+included; at most one row per coin-day, the first hour that crossed the line
+([model](../dbt/models/gold/intraday_events.sql)). Rebuilt on every run from `int_candle_1h_all`.
+
+The rule is the live scanner's: move so far = hour's close / previous day's close − 1; z = (move so
+far − `avg_return_30d`) / `sd_return_30d` over the coin's previous 30 days with trades (at least 20);
+an event at |z| ≥ `event_z` (3).
+
+| Column | Meaning |
+|---|---|
+| `symbol`, `event_date` | The coin and the UTC day (one row per pair) |
+| `event_hour`, `hour_of_day` | Start of the first unusual hour, and its UTC hour (0–23) |
+| `direction` | `up` or `down`: the sign of z |
+| `z`, `z_band` | The z-score at `event_hour`, and its size: `3-4`, `4-6` or `6+` |
+| `liquidity` | From `avg_quote_volume_30d`: `large` (≥ 100 million USDT a day), `mid` (≥ 10 million), `small` |
+| `move_so_far`, `prev_close`, `entry_price` | The move, the previous day's close, and `event_hour`'s close |
+| `history_days`, `avg_return_30d`, `sd_return_30d`, `avg_quote_volume_30d` | The coin's normal before the day |
+| `fwd_return_1h`, `fwd_return_4h`, `fwd_return_24h` | Close 1, 4 or 24 hours later / `entry_price` − 1; empty if that hour doesn't exist |
+| `period` | `in_sample` before `held_back_from` (2025-01-01), `held_back` from then on |
+
+**What the data looks like (2026-10-22):** 21,110 events (13,488 up, 7,622 down) on 866 coins,
+2020-02-07 to 2026-10-20; 9,618 in-sample, 11,492 held back. They crowd onto crash days: in 2021,
+552 down events fell on 25 days.
+
+## Gold: `market.gold.event_evidence`
+
+What moves like today's did next ([model](../dbt/models/gold/event_evidence.sql)). One row per
+`direction`, `z_band`, `liquidity` and `horizon_hours` (1, 4 or 24), plus a row per direction and
+horizon with `z_band` and `liquidity` set to `all`: 60 rows. Rebuilt on every run.
+
+Continuation is the forward return in the direction of the move (negative: it turned back). Averages,
+spreads and t-statistics are over days, not events: each day's events are averaged first
+([ADR-022](decisions.md#adr-022-judge-the-evidence-by-days-and-on-held-back-years)).
+
+| Column | Meaning |
+|---|---|
+| `direction`, `z_band`, `liquidity`, `horizon_hours` | The kind of move and the horizon (the key) |
+| `events`, `days` | Events with a return at this horizon, and the days they fell on, all years |
+| `avg_continuation`, `median_continuation`, `hit_rate` | Day-weighted average, median over events, share that kept going |
+| `in_sample_events`, `in_sample_days`, `in_sample_avg_continuation`, `in_sample_t`, `in_sample_hit_rate` | The same for 2020–2024 |
+| `held_back_events`, `held_back_days`, `held_back_avg_continuation`, `held_back_t`, `held_back_hit_rate` | The same for 2025 on |
+| `side` | `follow` or `fade`: the sign of the in-sample average |
+| `in_sample_net_after_cost`, `held_back_net_after_cost` | The chosen side's average return minus `round_trip_cost` |
+| `verdict` | `too few`, `no pattern`, `did not hold` or `held up` |
+| `round_trip_cost` | The cost used (0.001 = 0.10%) |
+
+**What the data looks like (2026-10-22):** 35 *no pattern*, 15 *too few*, 6 *did not hold*, 4 *held
+up*, all fades: down 4–6σ on mid-sized coins over 1 hour (held back: +4.11% after cost), up 6σ+ on
+mid-sized coins over 24 hours (+12.20%), and every up move over 1 hour (+0.23%) and 4 hours (+0.66%).

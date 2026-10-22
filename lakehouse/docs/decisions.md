@@ -29,6 +29,7 @@ entry replaces it and the old one is marked *Superseded*.
 | 019 | [Hourly candles follow the exchange's definition](#adr-019-hourly-candles-follow-the-exchanges-definition) | Accepted |
 | 020 | [Long history from Binance's monthly hourly files](#adr-020-long-history-from-binances-monthly-hourly-files) | Accepted |
 | 021 | [Load a day only after Binance has finished publishing it](#adr-021-load-a-day-only-after-binance-has-finished-publishing-it) | Accepted; replaces the 06:00 UTC time in ADR-003 |
+| 022 | [Judge the evidence by days and on held-back years](#adr-022-judge-the-evidence-by-days-and-on-held-back-years) | Accepted |
 
 ---
 
@@ -369,4 +370,32 @@ run only fetches its own day, so they would never have been loaded.
 A late day fails loudly, with a failure email, instead of loading part of the day; re-running the
 failed job later loads it. Binance's publishing time isn't guaranteed, so this can still happen
 occasionally.
+
+## ADR-022: Judge the evidence by days and on held-back years
+
+**Status:** Accepted, 2026-10-22
+
+**Context:** The live scanner will show what moves like today's did next. Measured naively,
+almost anything looks significant. Coins move together, so events bunch on a few days: in 2021, 552
+down events fell on 25 days. Counting them as 552 independent observations overstates the
+evidence many times over. And 60 kinds of move and horizon are tested at once, so some will look
+good by luck. A pattern also has to pay for trading.
+
+**Decision:**
+- Events use exactly the scanner's rule (`coin_baseline`'s 30-day normal, |z| ≥ 3), from the
+  continuous hourly series with delisted coins, entering at the close of the hour the move crossed
+  the line.
+- Statistics are clustered by day: each day's events are averaged first; the average, spread and
+  t-statistic are taken over days.
+- 2020–2024 chooses the side (follow or fade); 2025 onward only checks it. *Held up* needs
+  in-sample |t| ≥ 2, held-back t ≥ 2 on the same side, and a profit after a 0.10% round trip in both
+  periods. Fewer than 20 days in either period is *too few*.
+- The thresholds and the cost are dbt variables, and the evidence table shows every number behind
+  each verdict, not just the verdict.
+
+**Consequences:** Most kinds of move get *no pattern* or *did not hold* (56 of 60 on 2026-10-22),
+which is the honest answer. The four that held up all fade the move. The 0.10% cost is optimistic
+for small coins and funding isn't counted, so the scanner presents the evidence alongside each flag,
+not as a trading signal. The held-back years stay useful only while they aren't used to tune the
+rules; changing a threshold after looking at them would turn them into in-sample data.
 

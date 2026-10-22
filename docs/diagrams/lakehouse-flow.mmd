@@ -14,7 +14,7 @@ flowchart TB
     L[("landing<br>volume binance<br>date=YYYY-MM-DD and<br>month=YYYY-MM folders")]
     BR[("bronze<br>klines_1m, metrics, klines_1h<br>streaming tables")]
     SI[("silver<br>fct_candle_1m, fct_metrics_5m,<br>fct_candle_1h, hourly archive,<br>one hourly series since 2020, dim_coin")]
-    GO[("gold<br>coin_daily, market_daily, data_health,<br>unusual_moves, hour_profile, coin_baseline")]
+    GO[("gold<br>coin_daily, market_daily, data_health,<br>unusual_moves, hour_profile, coin_baseline,<br>intraday_events, event_evidence")]
     L -->|"Auto Loader"| BR
     BR -->|"dbt incremental MERGE"| SI
     SI -->|"dbt"| GO

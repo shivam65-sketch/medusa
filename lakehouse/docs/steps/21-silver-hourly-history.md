@@ -1,6 +1,6 @@
 # Step 21: Silver hourly history, and the two hourly sources reconciled
 
-[← Lakehouse home](../../README.md) · [← Step 20](20-hourly-history.md)
+[← Lakehouse home](../../README.md) · [← Step 20](20-hourly-history.md) · Next: [Step 22 →](22-evidence.md)
 
 | | |
 |---|---|

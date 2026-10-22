@@ -21,6 +21,8 @@ flowchart LR
     um["unusual_moves<br>coin x day, flagged"]
     hp["hour_profile<br>coin x UTC hour"]
     cb["coin_baseline<br>coin, its normal"]
+    ie["intraday_events<br>coin x day, unusual moves since 2020"]
+    ee["event_evidence<br>kind of move x horizon"]
   end
   bk --> c1
   bm --> m5
@@ -39,3 +41,4 @@ flowchart LR
   cd --> cb
   c1h --> cb
   dc --> cb
+  all --> ie --> ee

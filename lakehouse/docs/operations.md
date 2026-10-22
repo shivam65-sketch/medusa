@@ -33,6 +33,7 @@ All `databricks` commands run from the `lakehouse/` folder.
 | Check bronze is fresh | From `lakehouse/dbt/`: `../.venv/Scripts/dbt source freshness` (warns after 36 h, errors after 72 h) |
 | Build silver and run its tests | From `lakehouse/dbt/`: `../.venv/Scripts/dbt build` (incremental: only new bronze rows) |
 | Rebuild a silver table from scratch | `../.venv/Scripts/dbt build --select <model> --full-refresh` |
+| Rebuild the scanner's evidence | From `lakehouse/dbt/`: `../.venv/Scripts/dbt build --select intraday_events+` (about 1.5 minutes). Its settings (the 3σ line, the 0.10% cost, the held-back date, the thresholds) are `vars` in `dbt_project.yml`. Don't tune them after looking at the held-back results ([ADR-022](decisions.md#adr-022-judge-the-evidence-by-days-and-on-held-back-years)). |
 | Test the downloader locally | `cd lakehouse/ingest` then `python download_binance.py --symbols BTCUSDT --date 2026-10-19` |
 
 ## Checking a day is complete

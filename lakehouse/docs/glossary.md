@@ -17,13 +17,17 @@ The data engineering terms used in this project, in plain words.
 | **Catalog** | Top level of Unity Catalog's `catalog.schema.table` names, roughly a database in SQL Server | `market` |
 | **Checksum (SHA-256)** | A fingerprint of a file's bytes. If the fingerprint doesn't match the published one, the file is damaged | The downloader |
 | **CI/CD** | Automatically checking and deploying code when it changes | Planned |
+| **Clustering by day** | Averaging each day's events first and doing the statistics over days, because events on the same day (coins moving together) aren't independent | `event_evidence` |
+| **Continuation** | The return after a move, in the move's direction: positive means it kept going, negative means it turned back | `event_evidence` |
 | **Data observability** | A pipeline reporting on its own data: completeness, freshness, unexpected changes | `data_health` |
 | **Declarative** | Describing what should exist and letting the tool work out how | Bundles, pipelines |
 | **Dimension / fact** | Kimball's split: facts are measurements (candles), dimensions describe what is measured (coins) | `dim_coin`, `fct_candle_1m` |
+| **Event study** | Finding every moment something specific happened and measuring what followed it | `intraday_events` |
 | **Exactly once** | Each input is processed one time: never skipped, never twice | Auto Loader |
 | **Expectation** | A data-quality rule in a Lakeflow pipeline that counts, drops or fails on bad rows | Bronze (count only) |
 | **Generic / singular test** | dbt tests: a generic test is one line of YAML (`not_null`); a singular test is a SQL file returning bad rows (0 rows = pass) | `dbt/tests/` |
 | **Grain** | What one row of a table means, e.g. one coin per hour | `fct_candle_1h` |
+| **Held-back test (out-of-sample)** | Choosing a rule on one period and checking it on another that played no part in choosing it | `event_evidence` (2025 on) |
 | **Hive-style partition** | A folder named `column=value`, read as a column | `date=2026-10-19` |
 | **Idempotent** | Running something again gives the same result and does no harm | DDL, downloader, uploads |
 | **Incremental model** | A dbt model that, after its first full build, processes only new data and merges it in | `fct_candle_1m` |
@@ -32,9 +36,11 @@ The data engineering terms used in this project, in plain words.
 | **Landing zone** | Where raw files arrive, unchanged, before any processing | `market.landing.binance` |
 | **Lineage** | Knowing where each piece of data came from | `source_file`, `loaded_at` |
 | **Liquid clustering** | Delta's way of keeping data files grouped by chosen columns as data arrives, replacing partitions and Z-ordering | Silver tables |
+| **Look-ahead bias** | Using information that wasn't available at the time, which makes history look better than live results | Avoided: each day's normal uses only earlier days |
 | **Matrix job** | GitHub Actions running the same job once per value in a list, several at a time | The backfill |
 | **Medallion architecture** | Organising data into bronze, silver and gold layers | The schemas |
 | **MERGE (upsert)** | Insert new rows and update existing ones by a key, in one statement | Incremental models |
+| **Multiple testing** | Testing many ideas at once: some pass by luck, so each needs a stricter check | 60 rows in `event_evidence` |
 | **Reconciliation test** | A check that two layers add up to the same totals | `assert_candle_1h_reconciles_with_1m` |
 | **Rescued data** | A column that catches values that didn't fit the expected file layout, instead of losing them | `_rescued_data` |
 | **Retention** | How long each kind of data is kept | [ADR-011](decisions.md#adr-011-keep-1-minute-candles-for-a-limited-time) |
