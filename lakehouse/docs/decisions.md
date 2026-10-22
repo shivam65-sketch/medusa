@@ -30,6 +30,7 @@ entry replaces it and the old one is marked *Superseded*.
 | 020 | [Long history from Binance's monthly hourly files](#adr-020-long-history-from-binances-monthly-hourly-files) | Accepted |
 | 021 | [Load a day only after Binance has finished publishing it](#adr-021-load-a-day-only-after-binance-has-finished-publishing-it) | Accepted; replaces the 06:00 UTC time in ADR-003 |
 | 022 | [Judge the evidence by days and on held-back years](#adr-022-judge-the-evidence-by-days-and-on-held-back-years) | Accepted |
+| 023 | [Re-check loaded days against Binance for a week](#adr-023-re-check-loaded-days-against-binance-for-a-week) | Accepted |
 
 ---
 
@@ -398,4 +399,35 @@ which is the honest answer. The four that held up all fade the move. The 0.10% c
 for small coins and funding isn't counted, so the scanner presents the evidence alongside each flag,
 not as a trading signal. The held-back years stay useful only while they aren't used to tune the
 rules; changing a threshold after looking at them would turn them into in-sample data.
+
+## ADR-023: Re-check loaded days against Binance for a week
+
+**Status:** Accepted, 2026-10-23
+
+**Context:** Binance can rewrite a day's files after first publishing them: on 2026-10-21 it rewrote
+every 1-minute candle file of 2026-10-20 at 11:55, after some of them had been published earlier.
+The checksum check proves a file wasn't damaged in transfer, not that Binance won't replace it
+later. A day loaded before such a rewrite would keep the old version, and a file that appears late
+(for a coin whose candles exist but whose metrics came later) would never be loaded. Two more facts
+shape the fix: bronze's Auto Loader never re-reads a file name it has already loaded, and the
+landing files are gzipped CSV, so their original fingerprint can't be recomputed later.
+
+**Decision:**
+- Every complete daily load writes a manifest next to its files
+  (`manifests/date=YYYY-MM-DD/manifest.csv`): for each coin and dataset, saved or missing, the file
+  name, and Binance's SHA-256 fingerprint.
+- After each daily load, a `recheck` job compares the manifests of the 7 days before yesterday with
+  Binance's current `.CHECKSUM` files. A file that changed is downloaded, checked, and saved under a
+  new name ending in the start of its new fingerprint (`BTCUSDT-1m-2026-10-20.r3f9a1c2e.csv.gz`), so
+  Auto Loader loads it as a new file. A file that appeared is loaded under its usual name. The day's
+  manifest is updated, and a warning appears on the run's page. A file that disappeared is only
+  reported.
+- Silver already keeps the newest row for each coin and minute (or 5 minutes), so corrected values
+  replace the old ones, and the incremental hourly and daily models rebuild the days touched.
+
+**Consequences:** A rewrite within a week is picked up automatically on the next daily run, at the
+cost of about 12,700 small checksum requests a day (one to two minutes). Older days are not
+re-checked. Rows that a rewrite removes would stay in silver (MERGE adds and updates, it doesn't
+delete); none have been seen. A failed recheck fails the run (failure email) but doesn't hold back
+the new day's transform. Days loaded before 2026-10-23 have no manifest and are skipped.
 

@@ -34,6 +34,23 @@ or `monthly/klines/` for the history), which returns up to 1,000 entries per pag
 The files are Binance's CSVs, unchanged apart from being unzipped and gzipped. The daily files have
 a header row; the monthly hourly files have one only from 2022.
 
+A file Binance changed after its day was loaded is loaded again under a new name ending in the start
+of its new fingerprint, for example `BTCUSDT-1m-2026-10-20.r3f9a1c2e.csv.gz`
+([ADR-023](decisions.md#adr-023-re-check-loaded-days-against-binance-for-a-week)).
+
+**Manifests** (`manifests/date=YYYY-MM-DD/manifest.csv`, from 2026-10-23): one row per coin and
+daily dataset of the day's load.
+
+| Column | Meaning |
+|---|---|
+| `dataset` | `klines_1m` or `metrics` |
+| `symbol` | Binance symbol |
+| `status` | `saved` or `missing` (Binance had no file) |
+| `file` | The file's name in the landing folder |
+| `sha256` | Binance's SHA-256 fingerprint of the zip; empty when missing |
+
+On 2026-10-21: 1,814 rows (907 coins × 2 datasets), 1,624 saved, 190 missing.
+
 ## Bronze: `market.bronze.klines_1m`
 
 One row per line of a candle file. Every source column is text, exactly as written in the file.

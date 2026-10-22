@@ -12,7 +12,7 @@ dashboards analyse: yesterday on its own, and yesterday against the past.
 
 ```mermaid
 flowchart TB
-  subgraph GH["GitHub Actions · daily 13:00 UTC"]
+  subgraph GH["GitHub Actions · daily 13:23 UTC"]
     D1["download_binance.py<br>list coins · download · SHA-256 check · unzip · gzip"]
     D2["databricks fs cp<br>upload to the landing volume"]
     D1 --> D2
@@ -61,7 +61,8 @@ SQL Server.
 |---|---|
 | ~06:40–07:40 | Binance publishes the previous day's metrics files |
 | ~08:00–12:00 | Binance publishes the previous day's 1-minute candle files (measured 14–20 October 2026) |
-| 13:00 | GitHub Actions downloads every coin's files (~1 minute), checks they are all published and match their checksums, and uploads them (~2.5 minutes in total); a day that isn't fully published stops here ([ADR-021](decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)) |
+| 13:23 | GitHub Actions downloads every coin's files (~1 minute), checks they are all published and match their checksums, and uploads them with the day's manifest (~2.5 minutes in total); a day that isn't fully published stops here ([ADR-021](decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)) |
+| Right after | Recheck: the previous 7 days' manifests are compared with Binance's fingerprints, and changed or new files are loaded under new names ([ADR-023](decisions.md#adr-023-re-check-loaded-days-against-binance-for-a-week)) |
 | Right after | The same run's `transform` job: bronze pipeline, `dbt source freshness`, `dbt build` (silver and gold, with tests) |
 
 ## Volumes of data

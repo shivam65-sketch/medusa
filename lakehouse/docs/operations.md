@@ -8,7 +8,8 @@ How the platform runs day to day, and what to do when something goes wrong.
 
 | What | When | Where to look |
 |---|---|---|
-| Download + upload (`Lakehouse daily load`, job `load`) | 13:00 UTC (18:30 India time), after Binance has published the previous day ([ADR-021](decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)). GitHub can start scheduled runs late, by minutes or even hours. | GitHub → **Actions** → Lakehouse daily load |
+| Download + upload (`Lakehouse daily load`, job `load`) | 13:23 UTC (18:53 India time), after Binance has published the previous day ([ADR-021](decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)). GitHub can start scheduled runs late, by minutes or even hours; the odd minute avoids the busiest start of the hour. | GitHub → **Actions** → Lakehouse daily load |
+| Re-check the previous 7 days (job `recheck`) | Right after the load | The same run's `recheck` job: one line per day ("1814 files checked, 0 changed, 0 new, 0 removed"); a yellow warning on the run's page when Binance changed a file ([ADR-023](decisions.md#adr-023-re-check-loaded-days-against-binance-for-a-week)) |
 | Bronze, freshness check, `dbt build` (job `transform`) | Right after a successful upload, in the same run | The same run's `transform` job; Databricks → **Jobs & Pipelines** → lakehouse-bronze for the pipeline |
 | Check the result | After the run | The last line of `dbt build` in the log; `market.gold.data_health` for the new day |
 
@@ -56,6 +57,8 @@ A complete day has about 872 coins × 1,440 rows. A data-health table will autom
 | Download step: `NOT READY ... no files yet` or `NOT READY ... coins have metrics but no candles yet` | Binance hasn't finished publishing the day. Nothing was uploaded. | Later the same day: open the run → **Re-run failed jobs**. The whole load runs again from the start. |
 | Download step: `FAILED ... Connection reset by peer` or a timeout | The network dropped 4 times in a row for one file (each file is tried 4 times) | **Re-run failed jobs** |
 | Download step: `FAILED ... checksum mismatch` | A file was damaged in transfer | Re-run; if it repeats, the file on Binance's side is broken: report and skip the day |
+| Warning "Binance changed files" on the run's page | Binance rewrote or added files after their day was loaded | Nothing to do: the recheck job loaded them and the transform rebuilt those days. The `recheck` log lists the files. |
+| `recheck` job failed (`FAILED ...` or an upload error); the transform still ran | A network problem while re-checking | **Re-run failed jobs**, or wait: the next day's run checks the same days again |
 | The workflow doesn't appear under Actions | The workflow file isn't in `.github/workflows/` at the repository root | Move it there (`git mv`) |
 | Scheduled runs stopped | GitHub pauses schedules in public repositories after 60 days without commits | Actions → the workflow → **Enable workflow** |
 

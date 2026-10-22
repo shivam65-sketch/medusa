@@ -1,15 +1,17 @@
 # MEDUSA lakehouse: daily load.
-# Every day at 13:00 UTC: loads yesterday's Binance futures files into the Databricks landing
-# volume (lakehouse-load-day.yml), then refreshes bronze, silver and gold
-# (lakehouse-transform.yml). Runs on GitHub's servers.
+# Every day at 13:23 UTC: loads yesterday's Binance futures files into the Databricks landing
+# volume (lakehouse-load-day.yml), re-checks the days before it against Binance (recheck), then
+# refreshes bronze, silver and gold (lakehouse-transform.yml). Runs on GitHub's servers.
 name: Lakehouse daily load
 
 on:
   schedule:
-    # 13:00 UTC (18:30 India time). Binance publishes yesterday's metrics around 06:40-07:40 UTC
+    # 13:23 UTC (18:53 India time). Binance publishes yesterday's metrics around 06:40-07:40 UTC
     # and its 1-minute candles around 08:00-12:00 UTC (measured 14-20 Oct 2026). If a day still
     # isn't complete, the download step stops before uploading anything; run it again later.
-    - cron: "0 13 * * *"
+    # Not on the hour: GitHub delays scheduled runs most at the start of each hour (the 06:00 and
+    # 13:00 runs of 21 and 22 Oct started 5h18m and 4h43m late).
+    - cron: "23 13 * * *"
   workflow_dispatch:       # adds a "Run workflow" button on GitHub
     inputs:
       date:
@@ -33,8 +35,67 @@ jobs:
       date: ${{ inputs.date || '' }}
     secrets: inherit
 
-  # Only after the upload succeeded: bronze, then dbt (silver and gold).
-  transform:
+  # Binance sometimes rewrites a day's files after publishing them. Compare the previous 7 days'
+  # manifests (each file's fingerprint when it was loaded) with Binance now, and load any file that
+  # changed or appeared since (ADR-023).
+  recheck:
     needs: load
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: lakehouse/ingest
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install the Databricks CLI
+        uses: databricks/setup-cli@v1.21.0
+
+      # Yesterday was just loaded, so the days checked are 2 to 8 days ago. Days loaded before
+      # manifests existed (up to 2026-10-22) have none and are skipped.
+      - name: Get the manifests of the previous 7 days
+        run: |
+          for i in $(seq 2 8); do
+            day=$(date -u -d "-$i days" +%F)
+            mkdir -p "../data/manifests/date=$day"
+            databricks fs cp "dbfs:/Volumes/market/landing/binance/manifests/date=$day/manifest.csv" \
+              "../data/manifests/date=$day/manifest.csv" || echo "No manifest for $day"
+          done
+
+      - name: Compare with Binance and download changed files
+        run: python recheck_binance.py
+
+      - name: Upload changed files
+        run: |
+          if [ ! -d ../data/landing ]; then
+            echo "Nothing changed; nothing to upload."
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            if databricks fs cp -r ../data/landing dbfs:/Volumes/market/landing/binance --overwrite --concurrency 16; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Upload attempt $attempt failed; trying again in $((attempt * 30)) seconds."
+              sleep $((attempt * 30))
+            fi
+          done
+          echo "Upload failed 3 times."
+          exit 1
+
+  # Only after the upload succeeded: bronze, then dbt (silver and gold). A failed recheck doesn't
+  # hold back the new day; it still fails the run, so GitHub's failure email goes out.
+  transform:
+    needs: [load, recheck]
+    if: ${{ !cancelled() && needs.load.result == 'success' }}
     uses: ./.github/workflows/lakehouse-transform.yml
     secrets: inherit

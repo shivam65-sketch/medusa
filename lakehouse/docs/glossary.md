@@ -37,6 +37,7 @@ The data engineering terms used in this project, in plain words.
 | **Lineage** | Knowing where each piece of data came from | `source_file`, `loaded_at` |
 | **Liquid clustering** | Delta's way of keeping data files grouped by chosen columns as data arrives, replacing partitions and Z-ordering | Silver tables |
 | **Look-ahead bias** | Using information that wasn't available at the time, which makes history look better than live results | Avoided: each day's normal uses only earlier days |
+| **Manifest** | A list of the files a load produced, with each file's fingerprint, kept so the load can be checked against the source later | `manifests/date=…/manifest.csv` ([ADR-023](decisions.md#adr-023-re-check-loaded-days-against-binance-for-a-week)) |
 | **Matrix job** | GitHub Actions running the same job once per value in a list, several at a time | The backfill |
 | **Medallion architecture** | Organising data into bronze, silver and gold layers | The schemas |
 | **MERGE (upsert)** | Insert new rows and update existing ones by a key, in one statement | Incremental models |

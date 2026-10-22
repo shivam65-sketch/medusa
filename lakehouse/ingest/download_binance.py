@@ -26,6 +26,7 @@ Standard library only: nothing to install.
 """
 import argparse
 import concurrent.futures
+import csv
 import datetime as dt
 import gzip
 import hashlib
@@ -117,19 +118,22 @@ def month_range(text):
     return months
 
 
-def download_one(dataset, symbol, period):
-    """Download, check and save one file. Returns 'saved', 'skipped' or 'missing'."""
+def download_one(dataset, symbol, period, suffix=""):
+    """Download, check and save one file. Returns (result, sha256, file name) with result
+    'saved', 'skipped' or 'missing'; the SHA-256 is Binance's fingerprint of the zip, known only
+    when the file was saved. `suffix` goes before ".csv.gz" (recheck_binance.py uses it to save a
+    file Binance changed under a new name)."""
     kind, path = DATASETS[dataset]
     zip_path = path.format(symbol=symbol, period=period)
     out_dir = LANDING / dataset / f"{PARTITION[kind]}={period}"
-    out_file = out_dir / (pathlib.PurePosixPath(zip_path).stem + ".csv.gz")
+    out_file = out_dir / (pathlib.PurePosixPath(zip_path).stem + suffix + ".csv.gz")
     if out_file.exists():
-        return "skipped"
+        return "skipped", "", out_file.name
 
     url = f"{BASE_URL}/{kind}/{zip_path}"
     data = fetch(url)
     if data is None:
-        return "missing"
+        return "missing", "", ""
 
     # The .CHECKSUM file looks like "<sha256>  <file name>".
     checksum = fetch(url + ".CHECKSUM")
@@ -149,7 +153,22 @@ def download_one(dataset, symbol, period):
     tmp = out_dir / (out_file.name + ".tmp")
     tmp.write_bytes(gzip.compress(csv_bytes))
     tmp.replace(out_file)
-    return "saved"
+    return "saved", expected, out_file.name
+
+
+def write_manifest(period, rows):
+    """Save the day's manifest: for every coin and dataset, whether the file was saved or missing,
+    its name in the landing folder, and Binance's SHA-256 fingerprint of the zip. It is uploaded
+    with the day's files (landing/binance/manifests/date=.../manifest.csv), so recheck_binance.py
+    can later tell whether Binance changed or added files after the day was loaded."""
+    out_dir = LANDING / "manifests" / f"date={period}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tmp = out_dir / "manifest.csv.tmp"
+    with open(tmp, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["dataset", "symbol", "status", "file", "sha256"])
+        writer.writerows(sorted(rows))
+    tmp.replace(out_dir / "manifest.csv")
 
 
 def not_published_yet(found, datasets, symbols, period):
@@ -212,16 +231,18 @@ def main():
     jobs = [(dataset, symbol, period) for dataset in datasets for symbol in symbols for period in periods]
     counts = {"saved": 0, "skipped": 0, "missing": 0, "failed": 0}
     found = set()  # (dataset, symbol, period) of every file Binance has published
+    manifest = {p: [] for p in periods}  # each day's rows: dataset, symbol, status, file, sha256
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {pool.submit(download_one, d, s, p): (d, s, p) for d, s, p in jobs}
         for future in concurrent.futures.as_completed(futures):
             dataset, symbol, period = futures[future]
             try:
-                result = future.result()
+                result, sha256, file_name = future.result()
             except Exception as e:
-                result = "failed"
+                result, sha256, file_name = "failed", "", ""
                 print(f"FAILED   {dataset:<10} {symbol} {period}: {e}", file=sys.stderr)
             counts[result] += 1
+            manifest[period].append((dataset, symbol, result, file_name, sha256))
             if result in ("saved", "skipped"):
                 found.add((dataset, symbol, period))
             if result != "failed" and len(jobs) <= 40:  # a full run would print thousands of lines
@@ -239,7 +260,14 @@ def main():
     if problems:
         print("Binance hasn't finished publishing this day, so nothing is uploaded. "
               "Run the load again later.", file=sys.stderr)
-    return 1 if counts["failed"] or problems else 0
+    if counts["failed"] or problems:
+        return 1
+
+    # A complete daily load over every coin leaves a manifest next to its files (see write_manifest).
+    if kind == "daily" and args.symbols.strip().upper() == "ALL":
+        for period in periods:
+            write_manifest(period, manifest[period])
+    return 0
 
 
 if __name__ == "__main__":

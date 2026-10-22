@@ -1,10 +1,11 @@
 %%{init: {"theme": "neutral"}}%%
 sequenceDiagram
   autonumber
-  participant S as GitHub schedule (13:00 UTC)
+  participant S as GitHub schedule (13:23 UTC)
   participant L as Load one day job
   participant B as Binance archive
   participant V as Landing volume
+  participant R as Recheck job
   participant T as Transform job
   participant P as Bronze pipeline
   participant W as SQL warehouse (dbt)
@@ -12,8 +13,12 @@ sequenceDiagram
   L->>B: list USDT perpetuals, download zip + .CHECKSUM
   L->>L: verify SHA-256, unzip, gzip, atomic rename
   L->>L: stop if the day isn't fully published (nothing uploaded)
-  L->>V: databricks fs cp --overwrite (up to 3 attempts)
-  L-->>T: upload succeeded (needs: load)
+  L->>V: databricks fs cp --overwrite (up to 3 attempts), files + manifest
+  L-->>R: upload succeeded (needs: load)
+  R->>V: manifests of the 7 days before yesterday
+  R->>B: fingerprints now (.CHECKSUM)
+  R->>V: changed or new files, under new names
+  R-->>T: recheck done (needs: load, recheck)
   T->>P: databricks bundle run bronze
   P->>V: Auto Loader reads only new files
   T->>W: dbt source freshness (warn 36 h, error 72 h)
