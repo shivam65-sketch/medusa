@@ -1,6 +1,7 @@
 # MEDUSA lakehouse: transform (a reusable workflow, also runnable by hand).
-# Loads new landing files into bronze (the Lakeflow pipeline), checks bronze is fresh, then builds
-# and tests silver and gold with dbt. The daily load and the backfill run it after their uploads.
+# Loads new landing files into bronze (the Lakeflow pipeline), checks bronze is fresh, builds and
+# tests silver and gold with dbt, then copies the live scanner's gold tables into MEDUSA. The daily
+# load and the backfill run it after their uploads.
 name: Lakehouse transform
 
 on:
@@ -21,6 +22,7 @@ jobs:
     env:
       DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
       DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      MEDUSA_URL: ${{ secrets.MEDUSA_URL }}
     steps:
       - name: Get the code
         uses: actions/checkout@v7
@@ -67,3 +69,12 @@ jobs:
         env:
           DBT_ENV_SECRET_DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: dbt build
+
+      # Only after every test passed: copy coin_baseline and event_evidence into MEDUSA through its
+      # write-only endpoint, then check MEDUSA holds exactly as many rows as gold (ADR-024). Skipped
+      # where MEDUSA isn't set up (no MEDUSA_URL secret).
+      - name: Publish to MEDUSA
+        if: ${{ env.MEDUSA_URL != '' }}
+        env:
+          MEDUSA_INGEST_TOKEN: ${{ secrets.MEDUSA_INGEST_TOKEN }}
+        run: python serving/publish_to_medusa.py
