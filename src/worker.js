@@ -10,6 +10,7 @@ import { loadCreds, saveCreds, credsInfo, deleteCreds, canStore } from './vault.
 import { json, fail, readBody } from './http.js';
 import { labRoute, bodyLimit } from './lab.js';
 import { logsRoute } from './logs.js';
+import { marketIngest } from './market.js';
 import {
   currentUser, accountInfo, confirmPassword, signup, login, recover, logout, changePassword, newRecovery,
   twoStepSetup, twoStepEnable, twoStepDisable, signOutOthers, deleteAccount,
@@ -267,6 +268,10 @@ async function usdtInr() {
 async function route(req, env, url) {
   const { pathname: path } = url;
   const method = req.method;
+
+  // The lakehouse's daily publish job (server to server, no browser and no cookie): its own token,
+  // checked in market.js, and it can only replace the market tables.
+  if (path === '/api/market/ingest' && method === 'POST') return marketIngest(req, env);
 
   if (method !== 'GET' && method !== 'HEAD') {
     // Only this app's own pages may change anything (blocks cross-site form posts).
