@@ -1,12 +1,15 @@
 # MEDUSA lakehouse: daily load.
-# Every day at 06:00 UTC: loads yesterday's Binance futures files into the Databricks landing
+# Every day at 13:00 UTC: loads yesterday's Binance futures files into the Databricks landing
 # volume (lakehouse-load-day.yml), then refreshes bronze, silver and gold
 # (lakehouse-transform.yml). Runs on GitHub's servers.
 name: Lakehouse daily load
 
 on:
   schedule:
-    - cron: "0 6 * * *"   # every day at 06:00 UTC, after Binance has published yesterday's files
+    # 13:00 UTC (18:30 India time). Binance publishes yesterday's metrics around 06:40-07:40 UTC
+    # and its 1-minute candles around 08:00-12:00 UTC (measured 14-20 Oct 2026). If a day still
+    # isn't complete, the download step stops before uploading anything; run it again later.
+    - cron: "0 13 * * *"
   workflow_dispatch:       # adds a "Run workflow" button on GitHub
     inputs:
       date:

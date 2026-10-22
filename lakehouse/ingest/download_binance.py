@@ -15,6 +15,8 @@ A file that is already saved is skipped, so running it twice is safe.
 A day or month Binance hasn't published, or a coin that wasn't trading then, is reported as missing.
 With --symbols ALL, the list of coins comes from Binance's archive itself: every USDT
 perpetual it has ever published (coins delisted long ago simply come back as missing).
+A daily run over every coin also checks that Binance has finished publishing the day, and fails
+if it hasn't, so a half-published day is never loaded.
 
 Standard library only: nothing to install.
 
@@ -27,6 +29,7 @@ import concurrent.futures
 import datetime as dt
 import gzip
 import hashlib
+import http.client
 import io
 import pathlib
 import re
@@ -61,8 +64,8 @@ LANDING = pathlib.Path(__file__).resolve().parent.parent / "data" / "landing"
 
 def fetch(url):
     """Return the file at `url` as bytes, or None if it doesn't exist (HTTP 404).
-    Network hiccups are retried twice before giving up."""
-    for attempt in range(1, 4):
+    Network hiccups are retried three times (after 5, 10 and 15 seconds) before giving up."""
+    for attempt in range(1, 5):
         try:
             request = urllib.request.Request(url, headers={"User-Agent": "medusa-lakehouse"})
             with urllib.request.urlopen(request, timeout=60) as response:
@@ -70,12 +73,16 @@ def fetch(url):
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return None
-            if attempt == 3:
+            if attempt == 4:
                 raise
-        except urllib.error.URLError:
-            if attempt == 3:
+        except (OSError, http.client.HTTPException):
+            # Covers failing to connect (URLError) and also the connection dropping in the
+            # middle of a download: "Connection reset by peer", a timeout, a cut-off file.
+            # Those happen inside response.read(), so they aren't URLErrors. Downloading the
+            # file again from the start is safe.
+            if attempt == 4:
                 raise
-        time.sleep(2 * attempt)
+        time.sleep(5 * attempt)
 
 
 def all_perpetuals(kind):
@@ -145,6 +152,27 @@ def download_one(dataset, symbol, period):
     return "saved"
 
 
+def not_published_yet(found, datasets, symbols, period):
+    """Signs that Binance is still publishing a day, for a daily run over every coin.
+
+    Binance publishes a day's metrics files first and its 1-minute candle files one to five
+    hours later, and not all at once. Loading in between would leave some coins out of that
+    day for good, because the next run only fetches its own day. Two signs:
+      - a dataset with no files at all for the day,
+      - a coin with a metrics file but no candle file. On complete days this never happens
+        (checked on 2026-10-14 to 2026-10-20), while the reverse is normal: about 120 coins
+        have candles but no metrics.
+    `found` holds (dataset, symbol, period) for every file Binance has published."""
+    have = {d: {s for s in symbols if (d, s, period) in found} for d in datasets}
+    problems = [f"{d} {period}: no files yet" for d in datasets if not have[d]]
+    if have.get("klines_1m") and have.get("metrics"):
+        waiting = sorted(have["metrics"] - have["klines_1m"])
+        if waiting:
+            problems.append(f"klines_1m {period}: {len(waiting)} coins have metrics but no candles yet "
+                            f"({', '.join(waiting[:5])}{', ...' if len(waiting) > 5 else ''})")
+    return problems
+
+
 def main():
     parser = argparse.ArgumentParser(description="Download Binance USD-M futures files.")
     parser.add_argument("--symbols", required=True, help="ALL, or comma-separated, e.g. BTCUSDT,ETHUSDT")
@@ -153,6 +181,8 @@ def main():
     parser.add_argument("--datasets", help="default: the daily datasets, or the monthly ones with --months")
     parser.add_argument("--workers", type=int, default=16, help="downloads at the same time (default: 16)")
     args = parser.parse_args()
+    # Print each line as it happens, so the log keeps messages and errors in order.
+    sys.stdout.reconfigure(line_buffering=True)
 
     if args.months and args.date:
         parser.error("use --date or --months, not both")
@@ -181,6 +211,7 @@ def main():
     # Downloads wait on the network, not the CPU, so running several at once is much faster.
     jobs = [(dataset, symbol, period) for dataset in datasets for symbol in symbols for period in periods]
     counts = {"saved": 0, "skipped": 0, "missing": 0, "failed": 0}
+    found = set()  # (dataset, symbol, period) of every file Binance has published
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {pool.submit(download_one, d, s, p): (d, s, p) for d, s, p in jobs}
         for future in concurrent.futures.as_completed(futures):
@@ -191,12 +222,24 @@ def main():
                 result = "failed"
                 print(f"FAILED   {dataset:<10} {symbol} {period}: {e}", file=sys.stderr)
             counts[result] += 1
+            if result in ("saved", "skipped"):
+                found.add((dataset, symbol, period))
             if result != "failed" and len(jobs) <= 40:  # a full run would print thousands of lines
                 print(f"{result:<8} {dataset:<10} {symbol} {period}")
 
     span = periods[0] if len(periods) == 1 else f"{periods[0]} to {periods[-1]}"
     print(f"\n{span}: " + ", ".join(f"{n} {name}" for name, n in counts.items()))
-    return 1 if counts["failed"] else 0
+
+    problems = []
+    if kind == "daily" and args.symbols.strip().upper() == "ALL":
+        for period in periods:
+            problems += not_published_yet(found, datasets, symbols, period)
+    for problem in problems:
+        print(f"NOT READY {problem}", file=sys.stderr)
+    if problems:
+        print("Binance hasn't finished publishing this day, so nothing is uploaded. "
+              "Run the load again later.", file=sys.stderr)
+    return 1 if counts["failed"] or problems else 0
 
 
 if __name__ == "__main__":

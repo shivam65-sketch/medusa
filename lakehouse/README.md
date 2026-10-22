@@ -48,7 +48,7 @@ flowchart LR
 | [3. Setup job](docs/steps/03-setup-job.md) | Asset Bundle that deploys and runs the DDL | Done |
 | [4. Downloader](docs/steps/04-downloader.md) | Download + checksum check for one coin | Done |
 | [5. Every coin + upload](docs/steps/05-every-coin-and-upload.md) | All USDT perpetuals, uploaded to the landing volume | Done |
-| [6. Daily automation](docs/steps/06-daily-github-action.md) | GitHub Actions load at 06:00 UTC | Done |
+| [6. Daily automation](docs/steps/06-daily-github-action.md) | Daily load with GitHub Actions (now 13:00 UTC, [ADR-021](docs/decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)) | Done |
 | [7. Bronze layer](docs/steps/07-bronze-pipeline.md) | First tables, loaded with Auto Loader | Done |
 | [8. dbt setup](docs/steps/08-dbt-setup.md) | dbt installed in a venv and connected to the SQL warehouse | Done |
 | [9. Silver candles](docs/steps/09-silver-candles.md) | Typed, incremental `fct_candle_1m` with tests and source freshness | Done |
@@ -81,7 +81,7 @@ lakehouse/
 ```
 
 The workflows live at the repository root in [`.github/workflows/`](../.github/workflows/), because
-that is the only place GitHub looks for them: `lakehouse-daily.yml` (every day at 06:00 UTC),
+that is the only place GitHub looks for them: `lakehouse-daily.yml` (every day at 13:00 UTC),
 `lakehouse-backfill.yml` (past days), `lakehouse-history.yml` (Binance's monthly hourly files, one
 year per job), and the two they share, `lakehouse-load-day.yml` (download, check, upload) and
 `lakehouse-transform.yml` (bronze, freshness, dbt build).

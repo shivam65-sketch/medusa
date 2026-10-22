@@ -28,6 +28,7 @@ entry replaces it and the old one is marked *Superseded*.
 | 018 | [A coin trades only if it has trades](#adr-018-a-coin-trades-only-if-it-has-trades) | Accepted |
 | 019 | [Hourly candles follow the exchange's definition](#adr-019-hourly-candles-follow-the-exchanges-definition) | Accepted |
 | 020 | [Long history from Binance's monthly hourly files](#adr-020-long-history-from-binances-monthly-hourly-files) | Accepted |
+| 021 | [Load a day only after Binance has finished publishing it](#adr-021-load-a-day-only-after-binance-has-finished-publishing-it) | Accepted; replaces the 06:00 UTC time in ADR-003 |
 
 ---
 
@@ -341,4 +342,31 @@ Long-horizon analysis reads hours; minute detail stays limited to the recent per
 before 2022 have no header row, so bronze reads every file without a header and silver drops the
 header lines. The archive stops at the last published month; the daily 1-minute load extends the
 series from there, so the history workflow doesn't need to run again.
+
+## ADR-021: Load a day only after Binance has finished publishing it
+
+**Status:** Accepted, 2026-10-22. Replaces the 06:00 UTC run time of ADR-003.
+
+**Context:** The first scheduled daily load (2026-10-21, for 2026-10-20) failed when one download
+lost its connection ("Connection reset by peer"). Looking into it showed a bigger problem. Binance
+publishes a day's metrics files around 06:40–07:40 UTC the next day and its 1-minute candles
+around 08:00–12:00 UTC (measured 14–20 October), all after the 06:00 schedule. GitHub had started
+that run late, at 11:19, when 88 coins' candle files were still missing; they appeared at 11:55.
+The downloader counts an unpublished file as *missing*, which is normal for delisted coins, so
+without the network error the run would have loaded the day without those 88 coins. The next
+run only fetches its own day, so they would never have been loaded.
+
+**Decision:**
+- The daily load runs at 13:00 UTC.
+- A daily run over every coin refuses a day that isn't fully published, and nothing is uploaded.
+  It counts as unpublished when a dataset has no files at all, or when a coin has a metrics file
+  but no candle file. That pattern was checked on 14–20 October and never occurs on a complete
+  day; the reverse (candles but no metrics, about 120 coins a day) is normal.
+- The downloader retries a connection that drops in the middle of a download, as well as one
+  that fails to open: 4 tries, 5, 10 and 15 seconds apart.
+
+**Consequences:** Yesterday's data arrives in the afternoon (18:30 India time), not the morning.
+A late day fails loudly, with a failure email, instead of loading part of the day; re-running the
+failed job later loads it. Binance's publishing time isn't guaranteed, so this can still happen
+occasionally.
 

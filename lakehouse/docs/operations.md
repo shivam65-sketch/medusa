@@ -8,7 +8,7 @@ How the platform runs day to day, and what to do when something goes wrong.
 
 | What | When | Where to look |
 |---|---|---|
-| Download + upload (`Lakehouse daily load`, job `load`) | 06:00 UTC (11:30 India time). GitHub may start it a few minutes late. | GitHub → **Actions** → Lakehouse daily load |
+| Download + upload (`Lakehouse daily load`, job `load`) | 13:00 UTC (18:30 India time), after Binance has published the previous day ([ADR-021](decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)). GitHub can start scheduled runs late, by minutes or even hours. | GitHub → **Actions** → Lakehouse daily load |
 | Bronze, freshness check, `dbt build` (job `transform`) | Right after a successful upload, in the same run | The same run's `transform` job; Databricks → **Jobs & Pipelines** → lakehouse-bronze for the pipeline |
 | Check the result | After the run | The last line of `dbt build` in the log; `market.gold.data_health` for the new day |
 
@@ -52,10 +52,17 @@ A complete day has about 872 coins × 1,440 rows. A data-health table will autom
 |---|---|---|
 | `default auth: cannot configure default credentials`, and the `env:` section shows `DATABRICKS_HOST:` with nothing after it | The secrets are missing or saved in the wrong place | Settings → Secrets and variables → **Actions** → **Secrets** tab → *Repository secrets* must list `DATABRICKS_HOST` and `DATABRICKS_TOKEN` |
 | `403` / invalid access token on upload | The GitHub token expired or was revoked | Create a new token, update the `DATABRICKS_TOKEN` secret (see below), re-run |
-| Download step: every file `missing` | Binance hasn't published the day yet | Re-run later with **Run workflow** |
+| Download step: `NOT READY ... no files yet` or `NOT READY ... coins have metrics but no candles yet` | Binance hasn't finished publishing the day. Nothing was uploaded. | Later the same day: open the run → **Re-run failed jobs**. The whole load runs again from the start. |
+| Download step: `FAILED ... Connection reset by peer` or a timeout | The network dropped 4 times in a row for one file (each file is tried 4 times) | **Re-run failed jobs** |
 | Download step: `FAILED ... checksum mismatch` | A file was damaged in transfer | Re-run; if it repeats, the file on Binance's side is broken: report and skip the day |
 | The workflow doesn't appear under Actions | The workflow file isn't in `.github/workflows/` at the repository root | Move it there (`git mv`) |
 | Scheduled runs stopped | GitHub pauses schedules in public repositories after 60 days without commits | Actions → the workflow → **Enable workflow** |
+
+## Incidents
+
+| Date | What happened | Cause | Fix |
+|---|---|---|---|
+| 2026-10-21 | The first scheduled daily load (for 2026-10-20) failed in the download step: `FAILED metrics ATHUSDT 2026-10-20: [Errno 104] Connection reset by peer` (1,527 saved, 280 missing, 1 failed). Re-run at 21:51 UTC: all 872 coins loaded and every test passed; no data was lost. | 1. The downloader retried a connection that failed to open, but not one that dropped mid-download. 2. GitHub started the 06:00 schedule at 11:19, before Binance had finished publishing: 88 coins' candle files appeared only at 11:55. Without the network error, the day would have loaded without those coins. | Mid-download errors are retried; the schedule moved to 13:00 UTC; the download step refuses a day that isn't fully published ([ADR-021](decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)). |
 
 ## Secrets and renewals
 
