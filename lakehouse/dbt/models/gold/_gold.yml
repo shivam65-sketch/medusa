@@ -258,3 +258,158 @@ models:
         description: Standard deviation of ln(USDT traded per day).
       - name: avg_abs_hour_return_30d
         description: Average size of a one-hour move on the same days, to compare with a round trip's fees.
+
+  - name: intraday_events
+    description: >
+      Gold: every time a coin's move so far that day became unusual for it (|z| >= event_z), from
+      January 2020 on, delisted coins included, with the price 1, 4 and 24 hours later. At most one
+      row per coin-day: the first hour that crossed the line. Same rule as the live scanner:
+      z = (close / previous day's close - 1 - avg_return_30d) / sd_return_30d over the coin's previous
+      30 days with trades (at least 20). Rebuilt every run from int_candle_1h_all.
+    columns:
+      - name: symbol
+        description: Binance symbol.
+        data_tests: [not_null]
+      - name: event_date
+        description: The UTC day of the event.
+        data_tests: [not_null]
+      - name: event_hour
+        description: Start of the first hour whose close was unusual (UTC).
+        data_tests: [not_null]
+      - name: hour_of_day
+        description: 0 to 23, the UTC hour of event_hour.
+      - name: direction
+        description: up or down, the sign of z.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['up', 'down']
+      - name: z
+        description: (move_so_far - avg_return_30d) / sd_return_30d at event_hour.
+        data_tests: [not_null]
+      - name: z_band
+        description: "Size of the move, from |z|: 3-4, 4-6 or 6+."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['3-4', '4-6', '6+']
+      - name: liquidity
+        description: From avg_quote_volume_30d. large is 100 million USDT a day or more, mid is 10 million or more, small is less.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['large', 'mid', 'small']
+      - name: move_so_far
+        description: Close of event_hour / prev_close - 1.
+      - name: prev_close
+        description: The coin's close the day before.
+      - name: entry_price
+        description: Close of event_hour, the price the forward returns start from.
+        data_tests: [not_null]
+      - name: history_days
+        description: Daily returns behind the averages (20 to 30).
+      - name: avg_return_30d
+        description: Average daily return over the coin's previous 30 days with trades.
+      - name: sd_return_30d
+        description: Standard deviation of those daily returns.
+      - name: avg_quote_volume_30d
+        description: Average USDT traded per day over the same days.
+      - name: fwd_return_1h
+        description: Close 1 hour after event_hour / entry_price - 1; empty if that hour doesn't exist.
+      - name: fwd_return_4h
+        description: The same, 4 hours later.
+      - name: fwd_return_24h
+        description: The same, 24 hours later.
+      - name: period
+        description: in_sample before held_back_from (2025-01-01), held_back from then on.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['in_sample', 'held_back']
+
+  - name: event_evidence
+    description: >
+      Gold: what moves like today's did next. One row per direction, z_band, liquidity and horizon
+      (1, 4 or 24 hours), plus a row per direction and horizon with z_band and liquidity 'all'.
+      Continuation is the forward return in the direction of the move (negative means it turned
+      back). Averages, spreads and t-statistics are taken over days, not events, because coins
+      move together. The side (follow or fade) is chosen on the in-sample years only and checked on
+      the held-back years. Rebuilt every run from intraday_events.
+    columns:
+      - name: direction
+        description: up or down.
+        data_tests: [not_null]
+      - name: z_band
+        description: 3-4, 4-6, 6+, or all.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['3-4', '4-6', '6+', 'all']
+      - name: liquidity
+        description: large, mid, small, or all.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['large', 'mid', 'small', 'all']
+      - name: horizon_hours
+        description: 1, 4 or 24.
+        data_tests: [not_null]
+      - name: events
+        description: Events with a forward return at this horizon, all years.
+        data_tests: [not_null]
+      - name: days
+        description: Distinct days those events fell on.
+      - name: avg_continuation
+        description: Average over days of each day's average continuation, all years.
+      - name: median_continuation
+        description: Median continuation over events, all years.
+      - name: hit_rate
+        description: Share of events that kept going (continuation > 0), all years.
+      - name: in_sample_events
+        description: Events before held_back_from.
+      - name: in_sample_days
+        description: Days those events fell on.
+      - name: in_sample_avg_continuation
+        description: Day-weighted average continuation in-sample.
+      - name: in_sample_t
+        description: In-sample average / (standard deviation of day averages / sqrt(days)).
+      - name: in_sample_hit_rate
+        description: Share of in-sample events that kept going.
+      - name: held_back_events
+        description: Events from held_back_from on.
+      - name: held_back_days
+        description: Days those events fell on.
+      - name: held_back_avg_continuation
+        description: Day-weighted average continuation in the held-back years.
+      - name: held_back_t
+        description: The held-back t-statistic, computed the same way.
+      - name: held_back_hit_rate
+        description: Share of held-back events that kept going.
+      - name: side
+        description: follow if the in-sample average continuation is positive, fade if negative.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['follow', 'fade']
+      - name: in_sample_net_after_cost
+        description: The chosen side's in-sample average return minus round_trip_cost.
+      - name: held_back_net_after_cost
+        description: The chosen side's held-back average return minus round_trip_cost.
+      - name: verdict
+        description: >
+          too few (under evidence_min_days days in either period), no pattern (in-sample |t| under
+          evidence_min_t), held up (the chosen side has t >= evidence_min_t in the held-back years and
+          beats the cost in both periods), or did not hold.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['too few', 'no pattern', 'did not hold', 'held up']
+      - name: round_trip_cost
+        description: The cost used, from the dbt var round_trip_cost.
