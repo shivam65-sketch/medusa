@@ -10,7 +10,7 @@ import { loadCreds, saveCreds, credsInfo, deleteCreds, canStore } from './vault.
 import { json, fail, readBody } from './http.js';
 import { labRoute, bodyLimit } from './lab.js';
 import { logsRoute } from './logs.js';
-import { marketIngest } from './market.js';
+import { marketIngest, marketScanner } from './market.js';
 import {
   currentUser, accountInfo, confirmPassword, signup, login, recover, logout, changePassword, newRecovery,
   twoStepSetup, twoStepEnable, twoStepDisable, signOutOthers, deleteAccount,
@@ -315,6 +315,7 @@ async function route(req, env, url) {
   if (path.startsWith('/api/lab/')) return labRoute(req, env, url, uid);
   if (path === '/api/logs') return logsRoute(req, env, url, uid);
   if (path === '/api/fx' && method === 'GET') return usdtInr();
+  if (path === '/api/market/scanner' && method === 'GET') return marketScanner(env);   // the live scanner's data, the same for every account
 
   // Dev tools: how far the server is (and which Cloudflare data centre answered), and clearing what this
   // browser keeps for MEDUSA. Only the site's own response can ask a browser to clear that (Clear-Site-Data);

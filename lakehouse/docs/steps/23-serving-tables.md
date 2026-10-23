@@ -12,7 +12,7 @@
 ## Goal
 
 The live scanner runs in MEDUSA on Cloudflare, but each coin's normal and the evidence live in
-Databricks, where visitors can't sign in. MEDUSA keeps its own small copy of those two tables in its
+Databricks, which MEDUSA's users can't reach. MEDUSA keeps its own small copy of those two tables in its
 database (D1), and gets a single, narrow way in for the daily copy.
 
 ## Concepts

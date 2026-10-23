@@ -20,7 +20,7 @@ entry replaces it and the old one is marked *Superseded*.
 | 010 | [Lakeflow pipeline for bronze, dbt for silver and gold](#adr-010-lakeflow-pipeline-for-bronze-dbt-for-silver-and-gold) | Accepted |
 | 011 | [Keep 1-minute candles for a limited time](#adr-011-keep-1-minute-candles-for-a-limited-time) | Accepted |
 | 012 | [Tools left out on purpose](#adr-012-tools-left-out-on-purpose) | Accepted |
-| 013 | [Serve the public dashboard from a daily copy](#adr-013-serve-the-public-dashboard-from-a-daily-copy) | Accepted |
+| 013 | [Serve the public dashboard from a daily copy](#adr-013-serve-the-public-dashboard-from-a-daily-copy) | Accepted; "public" superseded by ADR-025 |
 | 014 | [DOUBLE, not DECIMAL, for prices and volumes](#adr-014-double-not-decimal-for-prices-and-volumes) | Accepted |
 | 015 | [Liquid clustering instead of partitions](#adr-015-liquid-clustering-instead-of-partitions) | Accepted |
 | 016 | [Coin history from the candles, with a grace period](#adr-016-coin-history-from-the-candles-with-a-grace-period) | Accepted; status rule superseded by ADR-018 |
@@ -32,6 +32,7 @@ entry replaces it and the old one is marked *Superseded*.
 | 022 | [Judge the evidence by days and on held-back years](#adr-022-judge-the-evidence-by-days-and-on-held-back-years) | Accepted |
 | 023 | [Re-check loaded days against Binance for a week](#adr-023-re-check-loaded-days-against-binance-for-a-week) | Accepted |
 | 024 | [A write-only endpoint for the serving copy](#adr-024-a-write-only-endpoint-for-the-serving-copy) | Accepted; builds ADR-013 |
+| 025 | [The scanner is for signed-in accounts](#adr-025-the-scanner-is-for-signed-in-accounts) | Accepted; replaces "public" in ADR-013 |
 
 ---
 
@@ -214,7 +215,8 @@ tables.
 
 ## ADR-013: Serve the public dashboard from a daily copy
 
-**Status:** Accepted, 2026-10-20 (not built yet)
+**Status:** Accepted, 2026-10-20. The daily copy stands (built in steps 23 and 24, ADR-024); serving
+it on a *public* page was replaced by [ADR-025](#adr-025-the-scanner-is-for-signed-in-accounts).
 
 **Context:** Recruiters can't sign in to a Databricks workspace, so the analysis needs a public page.
 A public page that queried Databricks directly would wake the warehouse on every visit, use up the
@@ -456,3 +458,22 @@ endpoint is public, so it is a little more attack surface than a private databas
 token and validation cover. The payload is limited to 2 MB and the request to Cloudflare's free CPU
 budget, so a much larger table would need to be sent in parts.
 
+
+## ADR-025: The scanner is for signed-in accounts
+
+**Status:** Accepted, 2026-10-23. Replaces the "public page" in ADR-013; the daily copy stays.
+
+**Context:** ADR-013 planned a public Markets page, so that anyone, recruiters included, could see
+the analysis without an account. When the scanner was built (step 25), the owner decided against a
+public page: MEDUSA is an app for its account holders, and every other page and API needs a sign-in.
+
+**Decision:** The scanner is a page inside MEDUSA, and its data, `GET /api/market/scanner`, is
+behind the same session check as the journal. The answer holds no one's own data, so it is the same
+for every account: Cloudflare's cache keeps one copy for everyone (under an internal key no outside
+request can reach, and only after the session is checked) and each browser its own
+(`Cache-Control: private`, never a shared proxy), each for 5 minutes. Live prices still come straight
+from Binance to the browser.
+
+**Consequences:** There is no anonymous traffic on the market tables or the Worker, and no public
+address to protect besides the sign-in. Seeing the scanner needs an account (anyone can create one),
+so the README shows it with screenshots instead of a public link.

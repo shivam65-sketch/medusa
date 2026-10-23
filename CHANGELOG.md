@@ -3,9 +3,12 @@
 Every release of MEDUSA, newest first. The current version is in `public/version.json` (shown in the
 app's menu and on the sign-in page); each release adds a section here with the same number.
 
-## Unreleased
+## Unreleased (planned as 1.6.0, with the live scanner)
+
+Changes already live on the server but not yet part of a numbered release.
 
 - Server: a daily copy of the market data lakehouse's tables for the coming live scanner: each coin's normal (`market_baseline`) and what similar moves did next (`market_evidence`), with `market_publish` recording each copy. They arrive through `POST /api/market/ingest`, which needs its own token (`MARKET_INGEST_TOKEN`), checks every row, can only replace these tables, and swaps a table in one transaction. Nothing changes in the app yet.
+- Server: `GET /api/market/scanner` gives the live scanner page that copy: read-only and, like the rest of MEDUSA, only for signed-in accounts; both tables read in one transaction together with when each was published, rows sent as lists in a fixed column order (about 160 KB, 67 KB compressed). The answer is the same for every account, so Cloudflare's cache keeps one copy for 5 minutes (and each browser its own), and most visits never reach the database.
 
 ## 1.5.0 (2026-10-20)
 

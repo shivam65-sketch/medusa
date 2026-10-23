@@ -149,7 +149,9 @@ arrives through `POST /api/market/ingest`, which only accepts requests carrying 
 `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`, save it with
 `npx wrangler@4 secret put MARKET_INGEST_TOKEN`, and save the same value as the GitHub Actions secret
 `MEDUSA_INGEST_TOKEN` (with the app's address as `MEDUSA_URL`). Without the secret, the endpoint
-answers 503 and nothing else changes.
+answers 503 and nothing else changes. The scanner page reads the copy back through
+`GET /api/market/scanner`, which, like the rest of MEDUSA, needs a signed-in account; the answer is
+the same for every account and is kept by Cloudflare's cache and each browser for 5 minutes.
 
 **Release version:** it is kept in one place, `public/version.json` (the number, the date and what changed), and shown at the bottom of the menu on the left and on the sign-in page. When you publish a new release, raise the number there (for example 1.2.0 → 1.3.0) and add a section with the same number to `CHANGELOG.md`, which keeps every version and what changed in it.
 
@@ -242,7 +244,7 @@ The Lab's folders use Workers KV: 1 GB in total, 100,000 reads and 1,000 writes 
 - `src/sync.js`: the import (small steps, only new data)
 - `src/trades.js`: turns orders into closed trades, and finds each trade's stop loss and take profit
 - `src/logos.js`: coin logos
-- `src/market.js`: the market copy for the live scanner: `POST /api/market/ingest`, write-only, with its own token
+- `src/market.js`: the market copy for the live scanner: `POST /api/market/ingest`, write-only, with its own token; `GET /api/market/scanner`, read-only, for signed-in accounts
 - `schema.sql`: the database tables (for a new install)
 - `migrations/`: upgrading a single-password database to accounts (`001_accounts.sql`, then `claim.sql`); the Lab's tables (`002_lab.sql`, optional); the market copy for the live scanner (`003_market.sql`)
 - `wrangler.example.toml`: the Cloudflare settings, without anyone's ids; copy it to `wrangler.toml` (step 4)
