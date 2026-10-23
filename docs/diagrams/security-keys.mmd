@@ -5,3 +5,4 @@ flowchart LR
   EK --> HK["HKDF key derivation"] --> AES["CoinDCX key and secret<br>AES-256-GCM<br>account number as associated data"]
   EK --> TOTP["Two-step login secret<br>stored encrypted"]
   C["Session cookie<br>random 256-bit token"] --> SH["SHA-256 in D1<br>token itself never stored"]
+  MT["MARKET_INGEST_TOKEN<br>Cloudflare secret, and GitHub secret<br>for the publish job"] --> ING["POST /api/market/ingest<br>compared as SHA-256, constant time;<br>can only replace the market tables"]

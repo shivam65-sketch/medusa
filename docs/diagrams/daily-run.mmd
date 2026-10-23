@@ -9,6 +9,7 @@ sequenceDiagram
   participant T as Transform job
   participant P as Bronze pipeline
   participant W as SQL warehouse (dbt)
+  participant M as MEDUSA (Worker + D1)
   S->>L: start, date = yesterday (UTC)
   L->>B: list USDT perpetuals, download zip + .CHECKSUM
   L->>L: verify SHA-256, unzip, gzip, atomic rename
@@ -23,3 +24,6 @@ sequenceDiagram
   P->>V: Auto Loader reads only new files
   T->>W: dbt source freshness (warn 36 h, error 72 h)
   T->>W: dbt build (models, snapshot, tests)
+  T->>W: read gold coin_baseline, event_evidence
+  T->>M: POST /api/market/ingest (write-only token), one table at a time
+  M-->>T: rows stored, must equal gold's rows

@@ -35,6 +35,12 @@ flowchart LR
     LO["logos<br>coin images"]
     AT["attempts<br>rate-limit counters"]
   end
+  subgraph MK["Market copy, shared, no user_id"]
+    direction TB
+    mb["market_baseline<br>each coin's normal"]
+    me["market_evidence<br>what similar moves did next"]
+    mp["market_publish<br>last publish per table"]
+  end
   U --> ACC
   U --> JRN
   U --> LABG

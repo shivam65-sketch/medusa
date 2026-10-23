@@ -11,11 +11,11 @@ flowchart TB
   subgraph CF["Cloudflare free plan: storage and the API"]
     direction LR
     A["Static files<br>public/: page, Lab, Pyodide"]
-    S["Secret<br>ENCRYPTION_KEY"]
-    W["Worker: src/worker.js<br>auth, vault, sync, trades<br>coindcx, lab, logs, logos"]
-    D[("D1 (SQLite)<br>accounts, orders, trades<br>notes, Lab lists, logs")]
+    S["Secrets<br>ENCRYPTION_KEY<br>MARKET_INGEST_TOKEN"]
+    W["Worker: src/worker.js<br>auth, vault, sync, trades<br>coindcx, lab, logs, logos, market"]
+    D[("D1 (SQLite)<br>accounts, orders, trades<br>notes, Lab lists, logs<br>market copy")]
     K[("Workers KV: LAB<br>downloads/ uploads/ results/")]
-    S -.->|"encrypts"| W
+    S -.->|"encryption, ingest token"| W
     W --> D
     W --> K
   end
@@ -25,7 +25,9 @@ flowchart TB
     CP["CoinDCX public data<br>candles, USDT/INR"]
     LG["Coin logos<br>CoinCap, CoinGecko"]
     BN["Binance public data<br>candles, funding, archives"]
+    PJ["Lakehouse publish job<br>GitHub Actions, daily"]
   end
+  PJ -->|"POST /api/market/ingest, its own token,<br>can only replace the market tables"| W
   B ==>|"pages and scripts, /api/* with the session cookie"| CF
   CF ==>|"import with the decrypted key, trade candles, USDT/INR, logos"| X
   B ==>|"Lab candles, straight from the browser to Binance"| X

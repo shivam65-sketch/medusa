@@ -141,6 +141,16 @@ node -e "process.stdout.write(require('crypto').randomBytes(32).toString('base64
 
 To publish changes later, run `npx wrangler@4 deploy` again.
 
+**Market data from the lakehouse (optional).** The live scanner reads a daily copy of the market data
+lakehouse's tables (`lakehouse/README.md`). The tables are in `schema.sql`; an older install creates
+them with `npx wrangler@4 d1 execute medusa --remote --file=migrations/003_market.sql`. The copy
+arrives through `POST /api/market/ingest`, which only accepts requests carrying the
+`MARKET_INGEST_TOKEN` secret and can only replace those tables. Generate a token with
+`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`, save it with
+`npx wrangler@4 secret put MARKET_INGEST_TOKEN`, and save the same value as the GitHub Actions secret
+`MEDUSA_INGEST_TOKEN` (with the app's address as `MEDUSA_URL`). Without the secret, the endpoint
+answers 503 and nothing else changes.
+
 **Release version:** it is kept in one place, `public/version.json` (the number, the date and what changed), and shown at the bottom of the menu on the left and on the sign-in page. When you publish a new release, raise the number there (for example 1.2.0 → 1.3.0) and add a section with the same number to `CHANGELOG.md`, which keeps every version and what changed in it.
 
 ## Your CoinDCX key and how it's protected
@@ -232,8 +242,9 @@ The Lab's folders use Workers KV: 1 GB in total, 100,000 reads and 1,000 writes 
 - `src/sync.js`: the import (small steps, only new data)
 - `src/trades.js`: turns orders into closed trades, and finds each trade's stop loss and take profit
 - `src/logos.js`: coin logos
+- `src/market.js`: the market copy for the live scanner: `POST /api/market/ingest`, write-only, with its own token
 - `schema.sql`: the database tables (for a new install)
-- `migrations/`: upgrading a single-password database to accounts (`001_accounts.sql`, then `claim.sql`); the Lab's tables (`002_lab.sql`, optional)
+- `migrations/`: upgrading a single-password database to accounts (`001_accounts.sql`, then `claim.sql`); the Lab's tables (`002_lab.sql`, optional); the market copy for the live scanner (`003_market.sql`)
 - `wrangler.example.toml`: the Cloudflare settings, without anyone's ids; copy it to `wrangler.toml` (step 4)
 - `CHANGELOG.md`: every release and what changed in it (the current version is in `public/version.json`)
 - `docs/images/`: the screenshots in this README

@@ -1,6 +1,6 @@
 # Step 22: Evidence: what moves like today's did next
 
-[← Lakehouse home](../../README.md) · [← Step 21](21-silver-hourly-history.md)
+[← Lakehouse home](../../README.md) · [← Step 21](21-silver-hourly-history.md) · Next: [Step 23 →](23-serving-tables.md)
 
 | | |
 |---|---|

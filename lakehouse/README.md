@@ -66,7 +66,9 @@ flowchart LR
 | [20. Hourly history](docs/steps/20-hourly-history.md) | Every USDT perpetual's hourly candles since January 2020 from Binance's monthly files (22,221 files, 15.9 million rows) | Done |
 | [21. Silver hourly history](docs/steps/21-silver-hourly-history.md) | Typed archive hours, one continuous series since 2020, the two hourly sources reconciled (and an open/high/low fix it found) | Done |
 | [22. Evidence](docs/steps/22-evidence.md) | Every unusual intraday move since 2020 and what followed over 1, 4 and 24 hours, judged by days and on held-back years | Done |
-| 23. Serving tables | `coin_baseline` and `event_evidence` copied into MEDUSA's database for the live scanner | Next |
+| [23. Serving tables](docs/steps/23-serving-tables.md) | MEDUSA's copy of `coin_baseline` and `event_evidence` in D1, filled through a write-only endpoint with its own token | Done |
+| [24. Publish job](docs/steps/24-publish-job.md) | After every transform, gold is copied into MEDUSA and the row counts reconciled | Done |
+| 25. Scanner page | The live scanner in MEDUSA: live Binance prices against each coin's normal, with the evidence | Next |
 
 ## Folder layout
 

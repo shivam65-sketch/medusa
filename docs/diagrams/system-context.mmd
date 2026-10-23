@@ -5,7 +5,7 @@ flowchart LR
     direction TB
     FE["Single-page app<br>Journal, Lab, Dev tools"]
     API["Worker API<br>accounts, import, Lab files, logs"]
-    DB[("D1 (SQLite)<br>accounts, trades, lists, logs")]
+    DB[("D1 (SQLite)<br>accounts, trades, lists, logs,<br>market copy")]
     KV[("Workers KV<br>candle files, results")]
     FE --> API
     API --> DB
@@ -23,4 +23,4 @@ flowchart LR
   API -->|"import (read-only key)"| CDX
   FE -->|"candles for the Lab"| BIN
   GA -->|"daily archive files"| BIN
-  DBX -.->|"gold copy (planned)"| DB
+  GA -->|"daily gold copy<br>(write-only endpoint)"| API

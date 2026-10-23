@@ -36,6 +36,7 @@ The data engineering terms used in this project, in plain words.
 | **Landing zone** | Where raw files arrive, unchanged, before any processing | `market.landing.binance` |
 | **Lineage** | Knowing where each piece of data came from | `source_file`, `loaded_at` |
 | **Liquid clustering** | Delta's way of keeping data files grouped by chosen columns as data arrives, replacing partitions and Z-ordering | Silver tables |
+| **Least privilege** | Giving each credential only the access its job needs, so a leak does as little harm as possible | MEDUSA's ingest token can only replace two market tables ([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)) |
 | **Look-ahead bias** | Using information that wasn't available at the time, which makes history look better than live results | Avoided: each day's normal uses only earlier days |
 | **Manifest** | A list of the files a load produced, with each file's fingerprint, kept so the load can be checked against the source later | `manifests/date=…/manifest.csv` ([ADR-023](decisions.md#adr-023-re-check-loaded-days-against-binance-for-a-week)) |
 | **Matrix job** | GitHub Actions running the same job once per value in a list, several at a time | The backfill |
@@ -46,7 +47,7 @@ The data engineering terms used in this project, in plain words.
 | **Rescued data** | A column that catches values that didn't fit the expected file layout, instead of losing them | `_rescued_data` |
 | **Retention** | How long each kind of data is kept | [ADR-011](decisions.md#adr-011-keep-1-minute-candles-for-a-limited-time) |
 | **Reusable workflow** | A GitHub Actions workflow other workflows call, so shared steps live in one place | `lakehouse-load-day.yml` |
-| **Reverse ETL / serving layer** | Copying finished warehouse tables to where an app can serve them | The planned live scanner in MEDUSA |
+| **Reverse ETL / serving layer** | Copying finished warehouse tables to where an app can serve them | `market_baseline` and `market_evidence` in MEDUSA's D1, published after each transform |
 | **SCD Type 2** | Keeping the full history of a dimension's changes, one row per version | `dim_coin` |
 | **Schema drift** | A source changing its columns or format over time | Caught by `_rescued_data` |
 | **Schema-on-read** | Applying column names and types when reading files, not when storing them | `read_files` in bronze |

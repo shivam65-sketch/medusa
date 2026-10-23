@@ -31,6 +31,7 @@ entry replaces it and the old one is marked *Superseded*.
 | 021 | [Load a day only after Binance has finished publishing it](#adr-021-load-a-day-only-after-binance-has-finished-publishing-it) | Accepted; replaces the 06:00 UTC time in ADR-003 |
 | 022 | [Judge the evidence by days and on held-back years](#adr-022-judge-the-evidence-by-days-and-on-held-back-years) | Accepted |
 | 023 | [Re-check loaded days against Binance for a week](#adr-023-re-check-loaded-days-against-binance-for-a-week) | Accepted |
+| 024 | [A write-only endpoint for the serving copy](#adr-024-a-write-only-endpoint-for-the-serving-copy) | Accepted; builds ADR-013 |
 
 ---
 
@@ -430,4 +431,28 @@ cost of about 12,700 small checksum requests a day (one to two minutes). Older d
 re-checked. Rows that a rewrite removes would stay in silver (MERGE adds and updates, it doesn't
 delete); none have been seen. A failed recheck fails the run (failure email) but doesn't hold back
 the new day's transform. Days loaded before 2026-10-23 have no manifest and are skipped.
+
+## ADR-024: A write-only endpoint for the serving copy
+
+**Status:** Accepted, 2026-10-23. How ADR-013's daily copy is built.
+
+**Context:** The live scanner needs `coin_baseline` and `event_evidence` in MEDUSA's database (D1).
+The publish job runs in GitHub Actions. It could write to D1 with a Cloudflare API token, but a token
+that can write D1 can read and change every table: accounts, password hashes, encrypted exchange
+keys. Such a token stored outside Cloudflare would be the most valuable secret in the project.
+
+**Decision:**
+- MEDUSA exposes `POST /api/market/ingest`, protected by its own secret (`MARKET_INGEST_TOKEN`,
+  compared in constant time). It can only replace the tables in its own list (`market_baseline`,
+  `market_evidence`); table and column names never come from the request.
+- Every row is validated (columns, types, required values, unique keys, size) before anything is
+  written. Each table is replaced in one D1 batch, a single transaction, together with a
+  `market_publish` row (day, rows, time).
+- The publish job runs after `dbt build` and fails unless MEDUSA reports exactly gold's row count.
+
+**Consequences:** A leaked ingest token could overwrite public market numbers until the next daily
+publish, and nothing else; rotating it means saving a new value in Cloudflare and GitHub. The
+endpoint is public, so it is a little more attack surface than a private database API, which the
+token and validation cover. The payload is limited to 2 MB and the request to Cloudflare's free CPU
+budget, so a much larger table would need to be sent in parts.
 

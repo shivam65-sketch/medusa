@@ -3,6 +3,10 @@
 Every release of MEDUSA, newest first. The current version is in `public/version.json` (shown in the
 app's menu and on the sign-in page); each release adds a section here with the same number.
 
+## Unreleased
+
+- Server: a daily copy of the market data lakehouse's tables for the coming live scanner: each coin's normal (`market_baseline`) and what similar moves did next (`market_evidence`), with `market_publish` recording each copy. They arrive through `POST /api/market/ingest`, which needs its own token (`MARKET_INGEST_TOKEN`), checks every row, can only replace these tables, and swaps a table in one transaction. Nothing changes in the app yet.
+
 ## 1.5.0 (2026-10-20)
 
 - Chart: **Long position** and **Short position** drawing tools. Click the entry, then the stop loss, then the take profit (clicking it 3 or more candles to the right sets where the box ends; otherwise the box is 30 candles long). The box shows the take profit (green) and stop loss (red) zones, the risk/reward, and what the candles after it did: the entry filled (a market entry when it is the close of its candle, else a limit or a stop order at the entry price), then the take profit, the stop loss or the box's end. Click a position to choose it: drag its handles (entry, stop loss, take profit, the box's end) or the whole box, or type its prices in its panel, which also shows the risk, reward and size in money. **To short** / **To long** turns it around; **Delete** removes it (Ctrl+Z brings it back). Positions are kept with the coin's other drawings.

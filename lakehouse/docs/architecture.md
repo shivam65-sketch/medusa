@@ -26,7 +26,7 @@ flowchart TB
     L --> BR --> SI --> GO
   end
   D2 --> L
-  GO -.->|"daily copy (planned)"| CF["MEDUSA live scanner<br>Cloudflare D1 + live Binance stream"]
+  GO -.->|"daily copy: publish job, write-only endpoint"| CF["MEDUSA on Cloudflare D1<br>market_baseline · market_evidence<br>(live scanner page next)"]
 ```
 
 ## Where each part runs
@@ -39,7 +39,8 @@ flowchart TB
 | Silver and gold | dbt Core on the SQL warehouse | SQL models with tests, snapshots, documentation and lineage. |
 | Orchestration | GitHub Actions: load, then transform ([ADR-017](decisions.md#adr-017-orchestrate-the-daily-chain-in-github-actions)) | One place for the whole chain, one set of secrets and one failure email. |
 | Deploying Databricks resources | Databricks Asset Bundle ([`databricks.yml`](../databricks.yml)) | Jobs and pipelines are defined as code and deployed with one command. |
-| Live scanner (planned) | MEDUSA on Cloudflare, with live prices streamed from Binance to the browser | Readers can't sign in to a Databricks workspace, and day trading needs today's prices: a daily copy of the small gold tables in MEDUSA's database gives each coin's normal, and the browser compares the live market with it. |
+| Serving copy | MEDUSA's database (Cloudflare D1): `market_baseline`, `market_evidence`, filled by the publish job through `POST /api/market/ingest` ([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)) | Readers can't sign in to a Databricks workspace, and a public page querying Databricks would wake the warehouse on every visit. The endpoint's own token can only replace these tables. |
+| Live scanner (next) | MEDUSA on Cloudflare, with live prices streamed from Binance to the browser | Day trading needs today's prices: the browser compares the live market with the serving copy. |
 
 ## Catalog layout
 
@@ -64,6 +65,7 @@ SQL Server.
 | 13:23 | GitHub Actions downloads every coin's files (~1 minute), checks they are all published and match their checksums, and uploads them with the day's manifest (~2.5 minutes in total); a day that isn't fully published stops here ([ADR-021](decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)) |
 | Right after | Recheck: the previous 7 days' manifests are compared with Binance's fingerprints, and changed or new files are loaded under new names ([ADR-023](decisions.md#adr-023-re-check-loaded-days-against-binance-for-a-week)) |
 | Right after | The same run's `transform` job: bronze pipeline, `dbt source freshness`, `dbt build` (silver and gold, with tests) |
+| Right after | Publish to MEDUSA: `coin_baseline` and `event_evidence` copied through the write-only endpoint, row counts reconciled (5 seconds) |
 
 ## Volumes of data
 

@@ -10,7 +10,7 @@ Short answers to the questions people ask first, with links to the detailed page
 |---|---|---|
 | **Lakehouse daily load** (`lakehouse-daily.yml`) | Automatically every day at 13:23 UTC (18:53 India time); GitHub can start it late. Also a **Run workflow** button with an optional date. | The main job: "load one day" for yesterday, re-check the 7 days before against Binance, then "transform" if the load succeeded |
 | **Lakehouse load one day** (`lakehouse-load-day.yml`) | Never on its own: the daily load and the backfill call it | Download one day for every coin, check it, upload it to Databricks |
-| **Lakehouse transform** (`lakehouse-transform.yml`) | After every successful load, or by hand | Bronze pipeline, source freshness, `dbt build` of silver and gold with all tests |
+| **Lakehouse transform** (`lakehouse-transform.yml`) | After every successful load, or by hand | Bronze pipeline, source freshness, `dbt build` of silver and gold with all tests, then publish the scanner's tables to MEDUSA |
 | **Lakehouse backfill** (`lakehouse-backfill.yml`) | Only by hand, with a first and last day (up to 60) | Loads past days, 4 at a time, then runs the transform once |
 | **Lakehouse history** (`lakehouse-history.yml`) | Only by hand, with a first and last year | Loads Binance's monthly hourly files, one job per year, then the transform. Ran once, on 2026-10-20 |
 
@@ -24,6 +24,9 @@ Short answers to the questions people ask first, with links to the detailed page
    Binance's fingerprints now, and load any file Binance changed or added since.
 3. **Transform (about 5 minutes)**: the bronze pipeline loads only the new files; `dbt source
    freshness` checks bronze is recent; `dbt build` updates silver and gold and runs 111 tests.
+4. **Publish to MEDUSA (about 5 seconds)**: `coin_baseline` and `event_evidence` are copied into
+   MEDUSA's database through its write-only endpoint, and MEDUSA must report the same row counts as
+   gold.
 
 A failure at any point stops the rest and sends GitHub's failure email.
 

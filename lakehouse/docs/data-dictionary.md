@@ -405,3 +405,22 @@ spreads and t-statistics are over days, not events: each day's events are averag
 **What the data looks like (2026-10-22):** 35 *no pattern*, 15 *too few*, 6 *did not hold*, 4 *held
 up*, all fades: down 4–6σ on mid-sized coins over 1 hour (held back: +4.11% after cost), up 6σ+ on
 mid-sized coins over 24 hours (+12.20%), and every up move over 1 hour (+0.23%) and 4 hours (+0.66%).
+
+## Serving: MEDUSA's copy (Cloudflare D1)
+
+After every transform, the publish job ([step 24](steps/24-publish-job.md)) copies two gold tables
+into MEDUSA's database through `POST /api/market/ingest`
+([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)). Each table is replaced as
+a whole in one transaction. They are shared by every account and have no `user_id`
+([`migrations/003_market.sql`](../../migrations/003_market.sql)).
+
+| D1 table | Key | From | Columns |
+|---|---|---|---|
+| `market_baseline` | `symbol` | `gold.coin_baseline` | `symbol`, `base_asset`, `status`, `as_of_date`, `last_close`, `history_days`, `avg_return_30d`, `sd_return_30d`, `avg_abs_return_30d`, `avg_quote_volume_30d`, `avg_log_volume_30d`, `sd_log_volume_30d`, `avg_abs_hour_return_30d` |
+| `market_evidence` | `direction`, `z_band`, `liquidity`, `horizon_hours` | `gold.event_evidence` | The key, `events`, `days`, `avg_continuation`, `median_continuation`, `hit_rate`, `in_sample_days`, `in_sample_avg_continuation`, `in_sample_t`, `held_back_days`, `held_back_avg_continuation`, `held_back_t`, `held_back_hit_rate`, `side`, `held_back_net_after_cost`, `verdict`, `round_trip_cost` |
+| `market_publish` | `tbl` | Written by the endpoint | `tbl`, `as_of` (the lakehouse day), `rows`, `published_at` (ms) |
+
+Types follow SQLite: text, `REAL` for numbers, `INTEGER` for counts; dates are `YYYY-MM-DD` text.
+
+**What the data looks like (2026-10-22 23:46 UTC):** `market_baseline` 748 rows and `market_evidence`
+60 rows, lakehouse day 2026-10-21, matching gold exactly.
