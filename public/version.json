@@ -1,11 +1,11 @@
 {
-  "version": "1.5.0",
-  "date": "2026-10-20",
+  "version": "1.6.0",
+  "date": "2026-10-24",
   "changes": [
-    "Chart: Long and Short position tools: click the entry, the stop loss and the take profit; each shows what the candles after it did",
-    "Chart: Simulate, a trading simulation: one account with an optional starting amount, leverage, size, fees and slippage trades your positions",
-    "Chart replay: an order ticket with market, limit and stop orders, take profit, stop loss and trailing stop; Buy and Sell trade the simulation's account",
-    "Chart: picking a file no longer leaves Replay, Full screen and other toolbar buttons greyed out",
-    "Get data: months missing from Binance's archive files are downloaded from its API instead"
+    "Markets: a live scanner of every Binance USDT perpetual (crypto, stocks, commodities and more): each market's move today against its own normal from the market data lakehouse, with prices streamed live from Binance",
+    "Markets: unusual moves (3 or more of a market's usual daily moves) with what similar moves did over the next 1, 4 and 24 hours since 2020, checked on held-back years and after costs",
+    "Markets: Patterns, every kind of move and its verdict, with the patterns that held up and the markets in them right now",
+    "Markets: a filter by type (crypto, stocks, commodities, other), the day's movers, and every market with search and sorting",
+    "Markets: how each number is calculated, as one SQL query you can copy and run in MEDUSA's database or in Databricks for the same result, with where each input comes from and the inputs as a CSV file"
   ]
 }

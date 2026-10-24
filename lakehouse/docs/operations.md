@@ -68,6 +68,23 @@ A complete day has about 872 coins × 1,440 rows. A data-health table will autom
 | The workflow doesn't appear under Actions | The workflow file isn't in `.github/workflows/` at the repository root | Move it there (`git mv`) |
 | Scheduled runs stopped | GitHub pauses schedules in public repositories after 60 days without commits | Actions → the workflow → **Enable workflow** |
 
+## When a number on MEDUSA's Markets page looks wrong
+
+Every summary card and table on the Markets page has a **‹›** button, and every market's details have a
+section, showing the number as one SQL query with the live prices written in. Copy it for MEDUSA's D1 or
+for Databricks and run it: if the database returns the same numbers, the page calculated correctly and
+any surprise is in the data. Start there.
+
+| Symptom | Check | Likely cause and fix |
+|---|---|---|
+| A market's move or z looks wrong | Its details: run its query in D1 and in Databricks; the Binance message behind its price is under the query | A wrong close: compare it with `SELECT last_close, as_of_date FROM market.gold.coin_baseline WHERE symbol = '…'` (Databricks) and the same in D1 (`market_baseline`). If gold is right and D1 isn't, re-run **Lakehouse transform** (it republishes) |
+| Its normal (σ, average) looks wrong | The details' first query, run in the Databricks SQL editor | A bad day in `coin_daily`: check `data_health` for that day, reload the day if incomplete, then `dbt build` |
+| A verdict looks wrong | The details' verdict and past-move queries | Run `SELECT * FROM market.gold.intraday_events WHERE …` and check the moves behind it; the rules are `vars` in `dbt_project.yml` (don't tune them after looking at held-back years, ADR-022) |
+| "Lakehouse day" is two days old after 14:00 UTC | `SELECT * FROM market_publish` in D1 (see Common tasks) | The daily run or its publish step failed or is late: see the run on GitHub |
+| "Binance's live prices can't be reached from here" | The status line | Binance refuses some regions and networks; the daily numbers still show |
+| A price differs from TradingView | The Bitcoin card's panel | TradingView's `BINANCE:BTCUSDT` is spot; the page shows the perpetual, `BTCUSDT.P` |
+| A total (breadth, unusual count) needs checking | **Download the inputs (CSV)** in its panel | One line per market with every input and its source, exactly as used at that moment |
+
 ## Incidents
 
 | Date | What happened | Cause | Fix |

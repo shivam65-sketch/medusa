@@ -1837,7 +1837,7 @@
     const host = $('#markets');
     if (!mktLoad) {
       host.innerHTML = '<div class="loading">Opening Markets…</div>';
-      mktLoad = import('/markets.js?v=1').catch((e) => {
+      mktLoad = import('/markets.js?v=4').catch((e) => {
         mktLoad = null;
         log('markets', `Markets couldn't be opened: ${e.message}`, null, 'error');
         host.innerHTML = `<div class="banner"><div><b>Markets couldn’t be opened.</b> ${esc(e.message)} Reload the page to try again.</div></div>`;
@@ -1846,7 +1846,7 @@
     }
     mktLoad.then((m) => { if (m && view === 'markets') m.render(host, mktApi); });
   }
-  const mktApi = { call, log, store };
+  const mktApi = { call, log, store, toast: showToast };
 
   /* ---------- Dev tools (devtools.js, downloaded only when the page is opened) ---------- */
   let devLoad = null;
@@ -1858,7 +1858,7 @@
     const host = $('#dev-tools');
     if (!devLoad) {
       host.innerHTML = '<div class="loading">Opening Dev tools…</div>';
-      devLoad = import('/devtools.js?v=2').catch((e) => {
+      devLoad = import('/devtools.js?v=3').catch((e) => {
         devLoad = null;
         host.innerHTML = `<div class="banner"><div><b>Dev tools couldn’t be opened.</b> ${esc(e.message)} Reload the page to try again.</div></div>`;
         return null;

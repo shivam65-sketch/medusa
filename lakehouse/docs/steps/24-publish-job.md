@@ -1,6 +1,6 @@
 # Step 24: Publish job: gold into MEDUSA after every transform
 
-[← Lakehouse home](../../README.md) · [← Step 23](23-serving-tables.md)
+[← Lakehouse home](../../README.md) · [← Step 23](23-serving-tables.md) · Next: [Step 25 →](25-scanner-page.md)
 
 | | |
 |---|---|

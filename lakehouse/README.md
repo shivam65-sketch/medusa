@@ -2,8 +2,8 @@
 
 A daily data pipeline for crypto futures market data. Every morning it loads the previous day's
 1-minute candles and market metrics for every Binance USDⓈ-M perpetual into a Databricks
-lakehouse, where the history is kept and analysed. A live scanner in MEDUSA (planned) compares
-each coin's move today with its own history from these tables.
+lakehouse, where the history is kept and analysed. MEDUSA's **Markets** page, a live scanner, compares
+each market's move today with its own history from these tables ([step 25](docs/steps/25-scanner-page.md)).
 
 It lives inside the [MEDUSA](../README.md) repository: MEDUSA is the trading journal and backtesting
 app; this folder is its market data platform.
@@ -19,7 +19,7 @@ flowchart LR
     E --> F["Silver<br>dbt models"]
     F --> G["Gold<br>dbt models"]
   end
-  G -.->|daily copy, planned| I["MEDUSA live scanner<br>Cloudflare D1 + live Binance stream"]
+  G -.->|daily copy, publish job| I["MEDUSA Markets page (live scanner)<br>Cloudflare D1 + live Binance stream"]
 ```
 
 | Layer | Holds | Built by |
@@ -68,7 +68,8 @@ flowchart LR
 | [22. Evidence](docs/steps/22-evidence.md) | Every unusual intraday move since 2020 and what followed over 1, 4 and 24 hours, judged by days and on held-back years | Done |
 | [23. Serving tables](docs/steps/23-serving-tables.md) | MEDUSA's copy of `coin_baseline` and `event_evidence` in D1, filled through a write-only endpoint with its own token | Done |
 | [24. Publish job](docs/steps/24-publish-job.md) | After every transform, gold is copied into MEDUSA and the row counts reconciled | Done |
-| 25. Scanner page | The live scanner in MEDUSA's Markets page, for signed-in accounts: live Binance prices against each coin's normal, with the evidence. Done: the read endpoint (25.1) and the Today view (25.2); next: Patterns (25.3) and release 1.6.0 | In progress |
+| [25. Scanner page](docs/steps/25-scanner-page.md) | The live scanner, MEDUSA's Markets page (release 1.6.0, signed-in accounts): live Binance prices against each market's normal, the evidence, Patterns, and where every number comes from | Done |
+| 26. Decisions and lineage | Decision records for the live layer in the browser and per-number lineage; a dbt exposure that ties the scanner to its gold models | Next |
 
 ## Folder layout
 
