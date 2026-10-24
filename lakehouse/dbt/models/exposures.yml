@@ -1,0 +1,30 @@
+version: 2
+
+# Exposures: where the lakehouse's tables are used outside dbt. The lineage starts at the sources
+# (sources.yml) and ends here. dbt doesn't build or run an exposure; declaring one lets dbt select
+# everything a consumer depends on (`dbt ls --select +exposure:markets_page`) and draws the consumer
+# at the end of the lineage graph in dbt docs.
+
+exposures:
+  - name: markets_page
+    label: MEDUSA Markets page (live scanner)
+    type: application
+    maturity: medium
+    url: https://github.com/shivam65-sketch/medusa/blob/main/public/markets.js
+    description: >
+      MEDUSA's Markets page, for signed-in accounts (ADR-025). After every dbt build the publish
+      job copies coin_baseline and event_evidence to MEDUSA's D1 as market_baseline and
+      market_evidence (ADR-024). The page compares Binance's live prices with each market's normal
+      from coin_baseline, flags the unusual moves and looks up what similar moves did next in
+      event_evidence. Its calculation panels show each number as one SQL query over these two
+      tables that runs in D1 or in Databricks.
+    depends_on:
+      - ref('coin_baseline')
+      - ref('event_evidence')
+    owner:
+      name: Shivam
+    config:
+      tags: [serving]
+      meta:
+        served_as: [market_baseline, market_evidence]
+        refreshed: daily, by the publish step after the transform (about 13:30 UTC)

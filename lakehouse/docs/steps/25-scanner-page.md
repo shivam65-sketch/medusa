@@ -1,11 +1,11 @@
 # Step 25: The live scanner: MEDUSA's Markets page
 
-[← Lakehouse home](../../README.md) · [← Step 24](24-publish-job.md)
+[← Lakehouse home](../../README.md) · [← Step 24](24-publish-job.md) · Next: [Step 26 →](26-numbers-built-by-sql.md)
 
 | | |
 |---|---|
 | **Built** | 2026-10-23 to 2026-10-24, released with MEDUSA 1.6.0 |
-| **Commits** | `62e4697` read endpoint (25.1) · `58c66a8` the page with Today (25.2) · the 1.6.0 release: types, clearer evidence, Patterns, where each number comes from (25.3) |
+| **Commits** | `62e4697` read endpoint (25.1) · `58c66a8` the page with Today (25.2) · `260261c` the 1.6.0 release: types, clearer evidence, Patterns, where each number comes from (25.3) |
 | **Files** | [`public/markets.js`](../../../public/markets.js) · [`src/market.js`](../../../src/market.js) (`GET /api/market/scanner`) · [`public/app.js`](../../../public/app.js) and [`public/index.html`](../../../public/index.html) (menu, page) · [`public/_headers`](../../../public/_headers) (security policy) |
 | **Decisions** | [ADR-013](../decisions.md#adr-013-serve-the-public-dashboard-from-a-daily-copy), [ADR-022](../decisions.md#adr-022-judge-the-evidence-by-days-and-on-held-back-years), [ADR-024](../decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy), [ADR-025](../decisions.md#adr-025-the-scanner-is-for-signed-in-accounts) |
 
@@ -24,8 +24,8 @@ shows what similar moves did next, after costs, with the source of every number 
 | **Snapshot plus changes** | Stream messages carry only the markets that changed, so the page first takes one snapshot of every price (`GET /fapi/v1/ticker/price`) and applies the stream on top. |
 | **One rule, two places, proved equal** | The page applies `intraday_events.sql`'s rule in JavaScript. A parity check recomputed 300 recent lakehouse events with the page's own code: 300 of 300 identical (z difference 0). |
 | **Late reference data** | Today's move needs yesterday's close, which the lakehouse publishes only at about 13:30 UTC. Before that, the page takes yesterday's daily candle from Binance, once a day per browser, and says so on the page. |
-| **Caching behind a sign-in** | The read endpoint answers only signed-in accounts (ADR-025), but its answer is the same for all of them: Cloudflare keeps one copy for 5 minutes, handed out after the session check; browsers get `Cache-Control: private`. |
-| **Data lineage per number** | Every summary card and table, and every market's details, show how the number is calculated as **one SQL query** with a comment on each column, over three inputs: `live_prices` (Binance's live prices as on screen, written in as `VALUES`), `market_baseline` and `market_evidence` (MEDUSA's copies of the lakehouse's gold tables). Live prices have no table, so the query carries them; that makes it run as it is, in MEDUSA's D1 or, with the lakehouse's table names, in Databricks, and return the numbers on screen. A table of the inputs, the result on screen and a CSV of the inputs go with it. |
+| **Caching behind a sign-in** | The read endpoint answers only signed-in accounts (ADR-025), but its answer is the same for all of them: Cloudflare keeps one copy for 5 minutes, handed out after the session check; browsers get `Cache-Control: private`. (In production this cache turned out to do nothing on a `workers.dev` address; [step 26](26-numbers-built-by-sql.md) keeps the answer ready-made in Workers KV instead, ADR-026.) |
+| **Data lineage per number** | (Here the page still calculated in JavaScript and wrote the query to match; [step 26](26-numbers-built-by-sql.md) made the queries do the calculating.) Every summary card and table, and every market's details, show how the number is calculated as **one SQL query** with a comment on each column, over three inputs: `live_prices` (Binance's live prices as on screen, written in as `VALUES`), `market_baseline` and `market_evidence` (MEDUSA's copies of the lakehouse's gold tables). Live prices have no table, so the query carries them; that makes it run as it is, in MEDUSA's D1 or, with the lakehouse's table names, in Databricks, and return the numbers on screen. A table of the inputs, the result on screen and a CSV of the inputs go with it. |
 | **Honest evidence** | Every row is a market (a USDT perpetual on crypto, a stock, a commodity, a currency or an index). Only about 650 of the evidence's 21,137 moves are non-crypto and 19 of those are in 2020–2024, the years that choose each verdict, so a non-crypto market's details say the evidence is almost all crypto. |
 
 ## Code

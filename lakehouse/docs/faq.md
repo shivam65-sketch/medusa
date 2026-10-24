@@ -113,7 +113,7 @@ When the downloader runs on a developer's computer for testing, files go to
 
 Once a day, at the end of the daily run, and whenever the transform or `dbt build` is run by hand.
 Nothing runs hourly: Binance publishes its files once a day. The live part of the scanner (today's
-prices) will come straight from Binance to the browser and be compared with these daily tables.
+prices) comes straight from Binance to the browser and is compared with these daily tables there.
 
 ## What if Binance publishes late, or changes a file later?
 
@@ -126,3 +126,34 @@ previous 7 days with Binance. A changed file is loaded again under a new name (b
 never re-reads a name it has loaded), silver keeps the newest version of each row, and the hourly and
 daily tables rebuild that day. The run's page shows a warning when this happens
 ([ADR-023](decisions.md#adr-023-re-check-loaded-days-against-binance-for-a-week)).
+
+## How do live prices get into the Markets page's SQL? Does Binance write into a table?
+
+No. Binance only broadcasts: while the Markets page is open, the browser keeps one connection (a
+WebSocket) to Binance's public stream, and about once a second Binance sends a message listing the
+markets whose price changed. Binance doesn't know any table exists.
+
+The page itself does the writing. Every number on it is calculated by SQL in a small SQLite database
+inside the browser tab ([ADR-028](decisions.md#adr-028-every-number-is-a-sql-query-run-in-the-browser)).
+About once a second, a timer in the page:
+
+1. upserts the markets that changed into `live_prices` (`INSERT ... ON CONFLICT (symbol) DO UPDATE`,
+   SQLite's `MERGE`), one row per market with its latest price;
+2. runs the view's queries (9 on Today, about 50 ms in all);
+3. redraws the numbers that changed.
+
+There is no server in this loop and the page doesn't reload. MEDUSA's server only hands over the
+lakehouse's daily tables when the page opens and every 30 minutes. Each viewer has their own database,
+fed straight from Binance; closing the tab deletes it. In SQL Server terms: a database on your own
+laptop, a small program running `MERGE` for every message from a feed, and a SQL Agent job re-running
+the report's queries every second.
+
+## Won't many people reading the same tables in MEDUSA cause locks?
+
+No. The per-second queries run on each viewer's own copy in their browser, never on MEDUSA's
+database. A page load reads the scanner's answer from Workers KV, where it is kept ready-made and
+rebuilt by every publish ([ADR-026](decisions.md#adr-026-the-scanners-answer-is-kept-ready-made-in-workers-kv)).
+D1 itself runs one query at a time per database, so requests queue instead of competing for locks, and
+the only write is the daily publish: one transaction per table, so a reader gets the whole old copy or
+the whole new one. What a free plan does limit is volume: D1 allows 5 million rows read a day, which is
+why the answer moved to KV (100,000 reads a day).

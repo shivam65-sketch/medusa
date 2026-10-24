@@ -32,7 +32,10 @@ entry replaces it and the old one is marked *Superseded*.
 | 022 | [Judge the evidence by days and on held-back years](#adr-022-judge-the-evidence-by-days-and-on-held-back-years) | Accepted |
 | 023 | [Re-check loaded days against Binance for a week](#adr-023-re-check-loaded-days-against-binance-for-a-week) | Accepted |
 | 024 | [A write-only endpoint for the serving copy](#adr-024-a-write-only-endpoint-for-the-serving-copy) | Accepted; builds ADR-013 |
-| 025 | [The scanner is for signed-in accounts](#adr-025-the-scanner-is-for-signed-in-accounts) | Accepted; replaces "public" in ADR-013 |
+| 025 | [The scanner is for signed-in accounts](#adr-025-the-scanner-is-for-signed-in-accounts) | Accepted; replaces "public" in ADR-013; caching superseded by ADR-026 |
+| 026 | [The scanner's answer is kept ready-made in Workers KV](#adr-026-the-scanners-answer-is-kept-ready-made-in-workers-kv) | Accepted; replaces the caching in ADR-025 |
+| 027 | [The live layer runs in each browser](#adr-027-the-live-layer-runs-in-each-browser) | Accepted |
+| 028 | [Every number is a SQL query, run in the browser](#adr-028-every-number-is-a-sql-query-run-in-the-browser) | Accepted |
 
 ---
 
@@ -461,7 +464,9 @@ budget, so a much larger table would need to be sent in parts.
 
 ## ADR-025: The scanner is for signed-in accounts
 
-**Status:** Accepted, 2026-10-23. Replaces the "public page" in ADR-013; the daily copy stays.
+**Status:** Accepted, 2026-10-23. Replaces the "public page" in ADR-013; the daily copy stays. The
+caching described below was replaced by [ADR-026](#adr-026-the-scanners-answer-is-kept-ready-made-in-workers-kv)
+on 2026-10-25: Cloudflare's cache does nothing on a `workers.dev` address.
 
 **Context:** ADR-013 planned a public Markets page, so that anyone, recruiters included, could see
 the analysis without an account. When the scanner was built (step 25), the owner decided against a
@@ -477,3 +482,83 @@ from Binance to the browser.
 **Consequences:** There is no anonymous traffic on the market tables or the Worker, and no public
 address to protect besides the sign-in. Seeing the scanner needs an account (anyone can create one),
 so the README shows it with screenshots instead of a public link.
+
+## ADR-026: The scanner's answer is kept ready-made in Workers KV
+
+**Status:** Accepted, 2026-10-25. Replaces the caching in ADR-025.
+
+**Context:** ADR-025 kept one copy of the scanner's answer in Cloudflare's cache for 5 minutes. In
+production every answer said `x-cache: MISS`: Cloudflare's Cache API works for Workers on a custom
+domain, and MEDUSA runs on a `workers.dev` address. So every page load read both tables from D1,
+about 810 rows. The free plan allows 5 million rows read a day, shared with the journal: about 6,000
+page loads. Locks were not the issue: D1 runs one query at a time, the read takes about a millisecond,
+and the only write is the daily publish, one transaction per table.
+
+**Decision:**
+- The ingest rebuilds the answer after every publish and saves it in Workers KV, under
+  `market/scanner.json` in the Lab's namespace. The Lab finds its own keys through D1 and never lists
+  the namespace, so the two don't meet.
+- `GET /api/market/scanner` returns the KV value. When it is missing (before the first publish, or
+  after a failed rebuild, which deletes the old value instead of leaving it stale), it reads D1 and
+  keeps that answer for 10 minutes. `x-cache` says `KV` or `D1`; the publish job's summary shows
+  whether MEDUSA rebuilt the answer.
+
+**Consequences:** Page loads read no D1 rows; KV allows 100,000 reads and 1,000 writes a day, and a
+publish uses 2 writes. The answer changes when the data is published (write-through) instead of up
+to 5 minutes later. KV can take up to a minute to show a new value everywhere and remembers a missing
+key for up to a minute. A failed rebuild costs D1 reads until the next publish, not stale data; a
+fallback copy that raced a publish lasts at most 10 minutes. It works the same on a custom domain.
+
+## ADR-027: The live layer runs in each browser
+
+**Status:** Accepted, 2026-10-25. Records how the live layer was built in step 25.
+
+**Context:** Day trading needs today's prices, about once a second, for about 740 markets. A server
+could subscribe to Binance and pass prices on, but that needs a process that stays running (Kafka, a
+streaming service, or Cloudflare Durable Objects), and keeping live prices in D1 would mean about 64
+million row writes a day against a free allowance of 100,000. Binance publishes the same stream to
+anyone, without a key.
+
+**Decision:** While the Markets page is open, each browser holds one WebSocket to Binance's public
+stream (`wss://fstream.binance.com/market/ws/!miniTicker@arr`), after one REST snapshot of every price
+(messages carry only the markets that changed). Prices live only in the tab's memory. MEDUSA's server
+never sees them. Until the lakehouse publishes yesterday (about 13:30 UTC), yesterday's closes come
+from Binance's daily candles, once a day per browser.
+
+**Consequences:** No server and no cost, and it scales with users: each browser is its own consumer.
+Live numbers are unchecked and belong to each browser (two people can see prices a second apart);
+nothing live is stored, so there is no live history and no alert while the page is closed. Both
+would need a server-side stream (for example Kafka) later. Binance refuses some regions; the page then
+shows only the daily numbers.
+
+## ADR-028: Every number is a SQL query, run in the browser
+
+**Status:** Accepted, 2026-10-25.
+
+**Context:** Release 1.6.0 showed every number on the Markets page as a SQL query, but JavaScript
+did the calculating and wrote the query to match, with the prices on screen pasted in. The rule
+lived in two places, and editing the query would have changed nothing. The owner wants the SQL to
+build the numbers, and the definitions to be stored in Databricks and editable on the page (steps 27
+and 28). The queries can't run in D1 (no live prices there, and edited SQL on the shared database
+could read the accounts) or in Databricks (seconds per query, quota, and a token the browser can't
+hold).
+
+**Decision:**
+- SQLite runs in the browser: sql.js 1.14.2 (WebAssembly, MIT), kept in the repository under
+  `public/vendor/`, in a background worker that alone may run WebAssembly and reaches only MEDUSA.
+- It holds `market_baseline` and `market_evidence` with D1's schema, and two browser-only tables:
+  `live_prices` (upserted from the stream) and `binance_markets` (type and Binance's close).
+- Every Today number is defined once in `public/markets-metrics.js`: shared steps (`market_now` →
+  `today` → `flagged`, and `verdicts`) put in front of a query as `WITH ... AS (...)`, and one query
+  per card or table, with parameters `:kind`, `:yesterday` and `:symbol`.
+- About once a second the page writes the changed prices and runs the queries in read-only mode; a
+  run longer than 15 seconds restarts the engine.
+- Copies add the browser-only tables as `VALUES`, as they were for the result on screen, and fill in
+  the parameters, so they run in D1, or in Databricks with its table names, and return that result.
+
+**Consequences:** Each rule is written once (the 3σ line only in `flagged`), and the SQL on screen
+is the SQL that ran. Every query matched the previous JavaScript rule, and 34 copies gave the same
+answers in SQLite and Databricks. It costs a 700 KB download the first time (cached for a year) and
+about 50 ms of work a second. Queries must stay portable between SQLite and Databricks: no
+SQLite-only functions, `CAST` where SQLite divides whole numbers, `NULLIF` against division by zero.
+Search, sorting and pages in Every market stay in the page: they don't change any number.

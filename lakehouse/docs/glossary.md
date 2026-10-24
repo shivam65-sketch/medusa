@@ -25,6 +25,7 @@ The data engineering terms used in this project, in plain words.
 | **Event study** | Finding every moment something specific happened and measuring what followed it | `intraday_events` |
 | **Exactly once** | Each input is processed one time: never skipped, never twice | Auto Loader |
 | **Expectation** | A data-quality rule in a Lakeflow pipeline that counts, drops or fails on bad rows | Bronze (count only) |
+| **Exposure (dbt)** | A declaration that something outside dbt (a dashboard, an app) uses certain models, so the lineage reaches it and dbt can select everything it depends on | `markets_page` in [`exposures.yml`](../dbt/models/exposures.yml) |
 | **Generic / singular test** | dbt tests: a generic test is one line of YAML (`not_null`); a singular test is a SQL file returning bad rows (0 rows = pass) | `dbt/tests/` |
 | **Grain** | What one row of a table means, e.g. one coin per hour | `fct_candle_1h` |
 | **Held-back test (out-of-sample)** | Choosing a rule on one period and checking it on another that played no part in choosing it | `event_evidence` (2025 on) |
@@ -32,17 +33,20 @@ The data engineering terms used in this project, in plain words.
 | **Idempotent** | Running something again gives the same result and does no harm | DDL, downloader, uploads |
 | **Incremental model** | A dbt model that, after its first full build, processes only new data and merges it in | `fct_candle_1m` |
 | **Lakehouse** | Data stored as open-format files in cheap storage, with warehouse features (tables, SQL, transactions) on top | The whole platform |
-| **Lambda architecture** | A slow, complete and checked batch layer plus a fast, approximate live layer, combined where the data is served; the batch layer later replaces the live numbers | The planned live scanner: this lakehouse plus Binance's live stream |
+| **Lambda architecture** | A slow, complete and checked batch layer plus a fast, approximate live layer, combined where the data is served; the batch layer later replaces the live numbers | The live scanner: this lakehouse plus Binance's live stream, combined in each browser ([ADR-027](decisions.md#adr-027-the-live-layer-runs-in-each-browser)) |
 | **Landing zone** | Where raw files arrive, unchanged, before any processing | `market.landing.binance` |
-| **Lineage** | Knowing where each piece of data came from | `source_file`, `loaded_at` |
+| **Lineage** | Knowing where each piece of data came from, and what uses it | `source_file`, `loaded_at`; each Markets number's query; the `markets_page` exposure |
 | **Liquid clustering** | Delta's way of keeping data files grouped by chosen columns as data arrives, replacing partitions and Z-ordering | Silver tables |
 | **Least privilege** | Giving each credential only the access its job needs, so a leak does as little harm as possible | MEDUSA's ingest token can only replace two market tables ([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)) |
 | **Look-ahead bias** | Using information that wasn't available at the time, which makes history look better than live results | Avoided: each day's normal uses only earlier days |
 | **Manifest** | A list of the files a load produced, with each file's fingerprint, kept so the load can be checked against the source later | `manifests/date=…/manifest.csv` ([ADR-023](decisions.md#adr-023-re-check-loaded-days-against-binance-for-a-week)) |
 | **Matrix job** | GitHub Actions running the same job once per value in a list, several at a time | The backfill |
 | **Medallion architecture** | Organising data into bronze, silver and gold layers | The schemas |
-| **MERGE (upsert)** | Insert new rows and update existing ones by a key, in one statement | Incremental models |
+| **MERGE (upsert)** | Insert new rows and update existing ones by a key, in one statement | Incremental models; `live_prices` on the Markets page (`INSERT ... ON CONFLICT DO UPDATE`) |
+| **Metrics layer (semantic layer)** | Defining each business number once, as data (name, definition, SQL), on shared steps (models), so every report computes it the same way | `public/markets-metrics.js`; Databricks in step 27 ([ADR-028](decisions.md#adr-028-every-number-is-a-sql-query-run-in-the-browser)) |
 | **Multiple testing** | Testing many ideas at once: some pass by luck, so each needs a stricter check | 60 rows in `event_evidence` |
+| **Push and pull** | Push: the source sends data as it happens (streaming). Pull: the reader asks for data when it wants it (batch) | Binance pushes live prices; the Markets page pulls the daily tables |
+| **Query parameter** | A named value a query takes when it runs (`:kind`), like a report parameter in SSRS | The Markets page's type filter, yesterday's date, one market |
 | **Reconciliation test** | A check that two layers add up to the same totals | `assert_candle_1h_reconciles_with_1m` |
 | **Rescued data** | A column that catches values that didn't fit the expected file layout, instead of losing them | `_rescued_data` |
 | **Retention** | How long each kind of data is kept | [ADR-011](decisions.md#adr-011-keep-1-minute-candles-for-a-limited-time) |
@@ -60,7 +64,11 @@ The data engineering terms used in this project, in plain words.
 | **Survivorship bias** | Results that look better than reality because failed items (here, delisted coins) were left out | Why `dim_coin` keeps history |
 | **t-statistic** | average ÷ (standard deviation ÷ √n): whether a pattern is bigger than chance | `hour_profile.t_stat_return` |
 | **Unity Catalog** | Databricks' governance layer: names, permissions and lineage for all data | `market` catalog |
+| **Vendoring** | Keeping a pinned copy of a third-party library in your own repository instead of loading it from elsewhere at run time | sql.js in `public/vendor/sqljs-1.14.2/` (its fingerprints checked against the publisher's) |
 | **Volume** | A Unity Catalog folder for files (not rows) | `market.landing.binance` |
 | **VWAP** | Volume-weighted average price: total USDT traded ÷ total coins traded | `fct_candle_1h.vwap` |
+| **WebAssembly** | A compact program format browsers run at near-native speed, which lets software written for computers (like SQLite) run in a web page | The Markets page's SQL engine |
+| **WebSocket** | A connection that stays open so the server can send messages whenever it has something new, instead of the browser asking again and again | Binance's live stream to the Markets page |
 | **Window frame** | The rows a window function looks at, e.g. the 30 rows before the current one | `unusual_moves` |
+| **Write-through cache** | A ready-made copy that is rebuilt whenever the data is written, so readers never get an old one | The scanner's answer in Workers KV ([ADR-026](decisions.md#adr-026-the-scanners-answer-is-kept-ready-made-in-workers-kv)) |
 | **z-score** | How many standard deviations a value is from the average | `unusual_moves` |

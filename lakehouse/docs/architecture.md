@@ -26,7 +26,9 @@ flowchart TB
     L --> BR --> SI --> GO
   end
   D2 --> L
-  GO -.->|"daily copy: publish job, write-only endpoint"| CF["MEDUSA on Cloudflare D1<br>market_baseline · market_evidence<br>(live scanner page next)"]
+  GO -.->|"daily copy: publish job, write-only endpoint"| CF["MEDUSA on Cloudflare<br>D1: market_baseline · market_evidence<br>KV: the scanner's ready-made answer"]
+  CF --> MK["Markets page, in each browser<br>SQLite: the daily tables + live_prices<br>every number calculated by SQL"]
+  BWS["Binance live stream<br>wss://fstream.binance.com"] --> MK
 ```
 
 ## Where each part runs
@@ -39,8 +41,8 @@ flowchart TB
 | Silver and gold | dbt Core on the SQL warehouse | SQL models with tests, snapshots, documentation and lineage. |
 | Orchestration | GitHub Actions: load, then transform ([ADR-017](decisions.md#adr-017-orchestrate-the-daily-chain-in-github-actions)) | One place for the whole chain, one set of secrets and one failure email. |
 | Deploying Databricks resources | Databricks Asset Bundle ([`databricks.yml`](../databricks.yml)) | Jobs and pipelines are defined as code and deployed with one command. |
-| Serving copy | MEDUSA's database (Cloudflare D1): `market_baseline`, `market_evidence`, filled by the publish job through `POST /api/market/ingest` ([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)) | MEDUSA's users have no Databricks access, and a page querying Databricks would wake the warehouse on every visit. The endpoint's own token can only replace these tables. |
-| Live scanner | MEDUSA's Markets page (`public/markets.js`) on Cloudflare, for signed-in accounts ([ADR-025](decisions.md#adr-025-the-scanner-is-for-signed-in-accounts)), with live prices streamed from Binance (`wss://fstream.binance.com/market/ws/!miniTicker@arr`) to the browser | Day trading needs today's prices: the browser compares the live market with the serving copy, read through `GET /api/market/scanner`, using the same rule as `intraday_events` (it reproduces the lakehouse's events exactly). |
+| Serving copy | MEDUSA's database (Cloudflare D1): `market_baseline`, `market_evidence`, filled by the publish job through `POST /api/market/ingest` ([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)). After each publish the endpoint also saves the scanner's answer, ready-made, in Workers KV ([ADR-026](decisions.md#adr-026-the-scanners-answer-is-kept-ready-made-in-workers-kv)) | MEDUSA's users have no Databricks access, and a page querying Databricks would wake the warehouse on every visit. The endpoint's own token can only replace these tables. Page loads read KV, not D1. |
+| Live scanner | MEDUSA's Markets page (`public/markets.js`) on Cloudflare, for signed-in accounts ([ADR-025](decisions.md#adr-025-the-scanner-is-for-signed-in-accounts)), with live prices streamed from Binance (`wss://fstream.binance.com/market/ws/!miniTicker@arr`) to the browser ([ADR-027](decisions.md#adr-027-the-live-layer-runs-in-each-browser)) | Day trading needs today's prices. The browser keeps the serving copy (read through `GET /api/market/scanner`) and the live prices in a SQLite database of its own and calculates every number with SQL ([ADR-028](decisions.md#adr-028-every-number-is-a-sql-query-run-in-the-browser)), using the same rule as `intraday_events` (it reproduces the lakehouse's events exactly). |
 
 ## Catalog layout
 

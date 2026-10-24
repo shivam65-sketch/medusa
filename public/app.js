@@ -1830,14 +1830,14 @@
   }
 
   /* ---------- Markets, the live scanner (markets.js, downloaded only when the page is opened) ---------- */
-  // Every coin's move today against its normal from the market data lakehouse, with live prices
-  // streamed from Binance to this browser while the page is open.
+  // Every market's move today against its normal from the market data lakehouse, with live prices
+  // streamed from Binance to this browser while the page is open, calculated by SQL in the browser.
   let mktLoad = null;
   function openMarkets() {
     const host = $('#markets');
     if (!mktLoad) {
       host.innerHTML = '<div class="loading">Opening Markets…</div>';
-      mktLoad = import('/markets.js?v=4').catch((e) => {
+      mktLoad = import('/markets.js?v=5').catch((e) => {
         mktLoad = null;
         log('markets', `Markets couldn't be opened: ${e.message}`, null, 'error');
         host.innerHTML = `<div class="banner"><div><b>Markets couldn’t be opened.</b> ${esc(e.message)} Reload the page to try again.</div></div>`;

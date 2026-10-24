@@ -8,44 +8,29 @@
 //          (GET /api/market/scanner: market_baseline and market_evidence; ADR-024, ADR-025)
 //   live   prices straight from Binance to this browser: one stream with every market that changed,
 //          about once a second. MEDUSA's server never sees them.
-// The rule is the lakehouse's own (lakehouse/dbt/models/gold/intraday_events.sql), so the evidence
-// describes exactly the moves flagged here:
-//   move today = price now / yesterday's close - 1
-//   z          = (move today - the market's average daily return) / the spread of its daily returns (σ),
-//                over its last 30 days with trades (scored from 20 of them)
-//   unusual    = |z| >= 3; size bands 3-4, 4-6, 6+; liquidity by average daily volume in USDT
-// Live numbers are unchecked: the next day's batch run replaces them with checked ones.
+//
+// Every number on the Today view is calculated by SQL: the queries in markets-metrics.js run in a
+// SQLite database inside the browser (markets-sql.js, a background worker) that holds the lakehouse's
+// two tables, the live prices and Binance's contract list. This file only feeds those tables, runs the
+// queries about once a second and draws what they return; each number's query is shown under it,
+// exactly as it runs. The rule is the lakehouse's own (intraday_events.sql), so the evidence describes
+// exactly the moves flagged here. Live numbers are unchecked: the next daily run replaces them.
 //
 // Two views: Today (the live scan) and Patterns (every kind of move and what it did next).
 
-const RULE = { z: 3, bands: [4, 6], large: 1e8, mid: 1e7, minDays: 20 };
+import { DEFINITIONS } from './markets-metrics.js?v=1';
+
+const RULE = { z: 3 };
 const STREAM = 'wss://fstream.binance.com/market/ws/!miniTicker@arr';
 const REST = 'https://fapi.binance.com/fapi/v1';
+const ENGINE = '/markets-sql.js?v=1';
 const DAY = 86_400_000;
 const HORIZONS = [1, 4, 24];
 const BANDS = ['3-4', '4-6', '6+'], LIQS = ['large', 'mid', 'small'];
 
-/* ---------- the rule (no page code: testable on its own) ---------- */
-
 export const utcDay = (ms) => new Date(ms).toISOString().slice(0, 10);
-export const zBand = (z) => (Math.abs(z) < RULE.bands[0] ? '3-4' : Math.abs(z) < RULE.bands[1] ? '4-6' : '6+');
-export const liquidity = (usdtPerDay) => (usdtPerDay >= RULE.large ? 'large' : usdtPerDay >= RULE.mid ? 'mid' : 'small');
 export const evKey = (direction, band, liq, hours) => `${direction}|${band}|${liq}|${hours}`;
-
-/** A market's move today and its z, or null without a price and a reference close. z is null when the
- * market has too little history to have a normal. */
-export function score(b, price, close) {
-  if (!(price > 0) || !(close > 0)) return null;
-  const move = price / close - 1;
-  const z = b.history_days >= RULE.minDays && b.sd_return_30d > 0 ? (move - (b.avg_return_30d || 0)) / b.sd_return_30d : null;
-  return { move, z, unusual: z != null && Math.abs(z) >= RULE.z };
-}
-
-/** The evidence rows (1, 4 and 24 hours) for a scored move. */
-export function evidenceFor(ev, z, liq) {
-  const dir = z > 0 ? 'up' : 'down', band = zBand(z);
-  return HORIZONS.map((h) => ev.get(evKey(dir, band, liq, h)) || null);
-}
+const yesterday = () => utcDay(Date.now() - DAY);
 
 /** What a market is, from Binance's contract list: its group for the filter and a short label. */
 const TYPES = {
@@ -59,15 +44,77 @@ export function marketType(underlyingType, subTypes) {
   return { group, label: sector ? `${label} · ${sector}` : label };
 }
 
+/* ---------- the queries: a definition plus the shared steps (models) it reads ---------- */
+
+const DEFS = new Map(DEFINITIONS.map((d) => [d.id, d]));
+const BROWSER_TABLES = {   // column -> type, for an empty value in the first row of VALUES
+  live_prices: { symbol: 'STRING', price: 'DOUBLE', quote_volume_24h: 'DOUBLE' },
+  binance_markets: { symbol: 'STRING', market_type: 'STRING', yesterday_close: 'DOUBLE' },
+};
+
+const noComments = (sql) => sql.replace(/--[^\n]*/g, '');
+/** The tables and models a query reads (whatever follows FROM or JOIN). */
+export const reads = (sql) => [...noComments(sql).matchAll(/\b(?:FROM|JOIN)\s+([A-Za-z_][\w.]*)/gi)].map((m) => m[1].toLowerCase());
+
+/** The models a query reads, directly or through other models, each after the ones it needs. */
+function modelsOf(sql, out = []) {
+  for (const t of reads(sql)) {
+    const d = DEFS.get(t);
+    if (d && d.kind === 'model' && !out.includes(t)) { modelsOf(d.sql, out); out.push(t); }
+  }
+  return out;
+}
+
+const literal = (v) => (v == null ? 'NULL' : typeof v === 'number' ? (Number.isFinite(v) ? String(v) : 'NULL') : `'${String(v).replace(/'/g, "''")}'`);
+const tidy = (s) => s.replace(/ {3,}--/g, '  --');   // each comment right after its code, so it fits a phone
+const toDbx = (sql) => sql.replace(/\bmarket_baseline\b/g, 'market.gold.coin_baseline').replace(/\bmarket_evidence\b/g, 'market.gold.event_evidence');
+
+/** One complete query: the models it reads go in front as WITH ... AS (...), so it runs as it is.
+ * With `inputs` (the browser-only tables' rows) it is made to run elsewhere too: those tables are
+ * written in as VALUES and the parameters are filled in. */
+export function assemble(def, { inputs = null, params = {} } = {}) {
+  const models = modelsOf(def.sql);
+  const steps = [];
+  if (inputs) {
+    const used = new Set(reads([def.sql, ...models.map((m) => DEFS.get(m).sql)].join('\n')));
+    for (const [t, types] of Object.entries(BROWSER_TABLES)) {
+      if (!used.has(t)) continue;
+      const cols = Object.keys(types);
+      const rows = (inputs[t] || []).length ? inputs[t] : [['', ...cols.slice(1).map(() => null)]];   // an empty table: one row that joins nothing
+      // An empty value in the first row gets its column's type, so Databricks knows the type of the column.
+      const vals = rows.map((r, i) => `(${r.map((v, j) => (v == null && i === 0 ? `CAST(NULL AS ${types[cols[j]]})` : literal(v))).join(', ')})`);
+      steps.push(`${t}(${cols.join(', ')}) AS (VALUES   -- ${inputs.note[t]}\n  ${vals.join(',\n  ')}\n)`);
+    }
+  }
+  for (const m of models) steps.push(`${m} AS (   -- ${DEFS.get(m).name}\n${DEFS.get(m).sql.replace(/^/gm, '  ')}\n)`);
+  const own = def.sql.trim();
+  const head = `-- ${def.name}: ${def.description}\n`;
+  let sql = !steps.length ? own
+    : /^WITH\s/i.test(own) ? `WITH ${steps.join(',\n')},\n${own.replace(/^WITH\s+/i, '')}`
+      : `WITH ${steps.join(',\n')}\n${own}`;
+  if (inputs) sql = sql.replace(/:([a-z_]+)\b/g, (m, k) => (k in params ? literal(params[k]) : m));
+  return tidy(head + sql);
+}
+
+const PARAM_WORDS = {
+  kind: 'the type chosen at the top of the page',
+  yesterday: 'yesterday (UTC), the day today\'s move is measured from',
+  symbol: 'the market',
+};
+
 /* ---------- state ---------- */
 
 let api = null, host = null;
 const S = {
-  data: null, loadErr: null, loading: null,          // the lakehouse's copy: {published, base, ev, at}
-  live: new Map(), snapAt: 0,                        // symbol -> {price, q (USDT traded in the last 24 h), t, raw, via}
-  ref: null, refBusy: null, refDone: 0, refTotal: 0, // yesterday's closes: {day, close: Map, src}
-  types: new Map(), typesDay: null,                  // symbol -> {group, label}
+  data: null, loadErr: null, loading: null,          // the lakehouse's copy: {published, raw, base, ev, at}
+  live: new Map(), snapAt: 0, dirty: new Set(),      // symbol -> {price, q (USDT traded in the last 24 h), t, raw, via}; changed since the last run
+  ref: null, refBusy: null, refDone: 0, refTotal: 0, // yesterday's closes: {day, close: Map, binance: Map, src, missing}
+  types: new Map(), typesDay: null, marketsVer: 0,   // symbol -> {group, label}; bumped when the types or Binance closes change
   ws: null, wsState: 'off', everOpen: false, fails: 0, lastMsg: 0, retry: 0, tick: 0, stopped: true,
+  eng: { w: null, ready: null, ok: false, err: null, seq: 0, wait: new Map(), loadedAt: null, marketsVer: -1 },
+  sent: new Map(), sentMarkets: [],                  // what the engine's live_prices and binance_markets hold now
+  res: new Map(), lastRun: null, running: false, again: false, urgent: false, runErr: null,
+  frozen: null,                                      // the engine's browser-only tables as of the last run, for Copy
   seen: new Map(),                                   // symbol -> when this page first saw it unusual
   view: 'today', kind: 'all', sort: 'z', q: '', limit: 50, open: null, openAll: null, pat: null,
   src: null, sql: new Map(),                         // the open "how this is calculated" panel; its queries for Copy
@@ -89,11 +136,11 @@ function price(p) {
   return p.toFixed(Math.min(8, 3 - Math.floor(Math.log10(p))));
 }
 const shortDay = (ymd) => (ymd ? new Date(`${ymd}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '–');
-const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-const name = (sym) => esc(sym.replace(/USDT$/, ''));
+const clock = (ms) => (ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '–');
+const clockS = (ms) => (ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '–');
+const name = (sym) => esc(String(sym).replace(/USDT$/, ''));
 const typeOf = (sym) => S.types.get(sym) || null;
 const market = (sym) => { const t = typeOf(sym); return `${name(sym)}${t ? `<span class="mkt-kind">${esc(t.label)}</span>` : ''}`; };
-const volx = (x) => (x == null ? '–' : `×${x >= 10 ? x.toFixed(0) : x.toFixed(1)}`);
 const LIQ = { large: 'Large', mid: 'Mid', small: 'Small' };
 const LIQ_WORDS = { large: 'large', mid: 'mid-sized', small: 'small' };
 const KINDS = [['all', 'All'], ['crypto', 'Crypto'], ['stock', 'Stocks'], ['commodity', 'Commodities'], ['other', 'Other']];
@@ -101,16 +148,175 @@ const KIND_WORD = { all: '', crypto: 'crypto ', stock: 'stock ', commodity: 'com
 const kindName = (dir, band, liq) => (band === 'all' ? `Every ${dir} move` : `${dir === 'up' ? 'Up' : 'Down'} ${band}σ, ${LIQ_WORDS[liq]} markets`);
 const kindPhrase = (dir, band, liq) => (band === 'all' ? `every ${dir} move`
   : `${dir} moves of ${band === '6+' ? '6σ or more' : `${band.replace('-', '–')}σ`} on ${LIQ_WORDS[liq]} markets`);
-const Z_TIP = "Today's move ÷ the market's usual daily move (σ). 3σ or more is unusual.";
-const LIQ_TIP = 'Average daily volume over 30 days: large ≥ 100 million USDT, mid ≥ 10 million, small below';
-const clockS = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-/* ---------- where each number comes from (lineage) ---------- */
-// Every number on Today is shown as one SQL query that produces it, over three inputs:
-//   live_prices      Binance's live prices, as on screen now (written out as VALUES, so the query runs as it is)
-//   market_baseline  each market's normal: MEDUSA's daily copy of the lakehouse's gold.coin_baseline
-//   market_evidence  what similar moves did next: MEDUSA's copy of gold.event_evidence
-// The same query runs in MEDUSA's D1 and, with the lakehouse's table names, in Databricks.
+/** A verdict as a query returns it ("fade 4.11%", "no pattern"), for a table cell. */
+function verdictText(v, strong = true) {
+  if (v == null) return '–';
+  const m = /^(fade|follow) (-?[\d.]+)%$/.exec(String(v));
+  if (!m) return esc(v);
+  const x = Number(m[2]) / 100;
+  return strong ? `<span class="mkt-ev">${m[1] === 'fade' ? 'Fade' : 'Follow'} ${pct(x)}</span>` : `<b>${m[1]} ${pct(x)}</b>`;
+}
+
+/** How each column format is shown. Values are what the query returned: percentages are already ×100. */
+const FMT = {
+  market: (v) => (v == null ? '–' : market(v)),
+  price: (v) => price(v),
+  pct: (v) => (v == null ? '–' : `<span class="${tone(v)}">${pct(v / 100)}</span>`),
+  pct_plain: (v) => (v == null ? '–' : `${Math.abs(v).toFixed(2)}%`),
+  share: (v) => (v == null ? '–' : `${Math.round(v)}%`),
+  z: (v, row) => (row && Number(row.unusual) === 1 ? FMT.z_tag(v) : sig(v)),
+  z_tag: (v) => (v == null ? '–' : `<span class="mkt-tag ${v > 0 ? 'up' : 'down'}">${sig(v)}</span>`),
+  liquidity: (v) => (v == null ? '–' : LIQ[v] || esc(v)),
+  times: (v) => (v == null ? '–' : `×${v >= 10 ? Math.round(v) : Number(v).toFixed(1)}`),
+  int: (v) => (v == null ? '–' : Number(v).toLocaleString('en-US')),
+  int_up: (v) => `<span class="pos">${FMT.int(v)}</span>`,
+  int_down: (v) => `<span class="neg">${FMT.int(v)}</span>`,
+  verdict: (v, row, col) => {
+    const sub = col && col.sub && row && col.sub in row
+      ? `<span class="mkt-ev-all">all ${row.z > 0 ? 'up' : row.z < 0 ? 'down' : ''}: ${verdictText(row[col.sub], false)}</span>` : '';
+    return `<div class="mkt-evc"><span class="v">${verdictText(v)}</span>${sub}</div>`;
+  },
+  auto: (v) => (v == null ? '–' : typeof v === 'number' ? v.toLocaleString('en-US', { maximumFractionDigits: 6 }) : esc(v)),
+};
+const LEFT = new Set(['market', 'liquidity', 'auto-text']);
+
+/** A query's rows as objects, by column name. */
+const objects = (res) => (res && res.rows ? res.rows.map((r) => Object.fromEntries(res.columns.map((c, i) => [c, r[i]]))) : []);
+
+/** A card's text: {column:format} filled in from the first row of its query's result. */
+function fillCard(tpl, res) {
+  const row = res && !res.error ? objects(res)[0] : null;
+  return tpl.replace(/\{(\w+)(?::(\w+))?\}/g, (m, col, f) => (row && col in row ? (FMT[f] || FMT.auto)(row[col], row) : '–'));
+}
+
+/** A query's result as a table, each column shown by its format (columns the definition doesn't list
+ * are shown as they come). `row` adds attributes to each row; `extra` adds columns kept by the page. */
+function resultTable(res, def, { row = null, extra = [] } = {}) {
+  const spec = new Map((def.columns || []).map((c) => [c.name, c]));
+  const cols = res.columns.map((n) => spec.get(n) || { name: n, label: n, format: 'auto' }).filter((c) => c.format !== 'hidden');
+  const left = (c, v) => LEFT.has(c.format) || (c.format === 'auto' && typeof v === 'string') || c.format === undefined;
+  const objs = objects(res);
+  const head = cols.map((c) => `<th${left(c, objs[0] && objs[0][c.name]) ? ' class="l"' : ''}${c.title ? ` title="${esc(c.title)}"` : ''}>${esc(c.label || c.name)}</th>`).join('')
+    + extra.map((x) => `<th${x.title ? ` title="${esc(x.title)}"` : ''}>${x.label}</th>`).join('');
+  const body = objs.map((o) => `<tr${row ? ` ${row(o)}` : ''}>${cols.map((c) => {
+    const v = o[c.name];
+    const cls = c.format === 'market' ? ' class="sym"' : left(c, v) ? ' class="l"' : '';
+    return `<td${cls}>${(FMT[c.format] || FMT.auto)(v, o, c)}</td>`;
+  }).join('')}${extra.map((x) => `<td>${x.cell(o)}</td>`).join('')}</tr>`).join('');
+  return `<div class="scroll-x"><table class="mkt-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+const failed = (res) => `<div class="mkt-empty"><b>The query failed:</b> ${esc(res.error)}</div>`;
+const pending = () => `<div class="mkt-empty">${S.eng.err ? 'The SQL engine couldn\'t start.' : 'Calculating…'}</div>`;
+
+/* ---------- the SQL engine (markets-sql.js) ---------- */
+
+function call(msg, ms) {
+  const e = S.eng, id = ++e.seq;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      e.wait.delete(id);
+      reject(new Error('The queries took too long, so the SQL engine was restarted.'));
+      restartEngine();
+    }, ms);
+    e.wait.set(id, { resolve, reject, timer });
+    e.w.postMessage({ ...msg, id });
+  });
+}
+
+function startEngine() {
+  const e = S.eng;
+  if (e.ready) return e.ready;
+  e.err = null;
+  try {
+    e.w = new Worker(ENGINE);
+  } catch (err) {
+    e.err = err.message;
+    return null;
+  }
+  const failAll = (why) => { for (const [, p] of e.wait) { clearTimeout(p.timer); p.reject(new Error(why)); } e.wait.clear(); };
+  e.w.onmessage = ({ data }) => {
+    const p = e.wait.get(data.id);
+    if (!p) return;
+    e.wait.delete(data.id);
+    clearTimeout(p.timer);
+    if (data.ok) p.resolve(data.result); else p.reject(new Error(data.error));
+  };
+  e.w.onerror = (ev) => { if (ev.preventDefault) ev.preventDefault(); failAll(ev.message || 'The SQL engine stopped.'); };
+  e.ready = call({ op: 'init' }, 30_000).then(() => {
+    e.ok = true;
+    schedule();
+  }, (err) => {
+    e.err = err.message;
+    e.ready = null;
+    if (e.w) { e.w.terminate(); e.w = null; }
+    api.log('markets', `The SQL engine couldn't start: ${err.message}`, null, 'error');
+    draw();
+  });
+  return e.ready;
+}
+
+/** A fresh engine: everything is sent again on the next run. */
+function restartEngine() {
+  const e = S.eng;
+  if (e.w) e.w.terminate();
+  for (const [, p] of e.wait) clearTimeout(p.timer);
+  S.eng = { w: null, ready: null, ok: false, err: null, seq: e.seq, wait: new Map(), loadedAt: null, marketsVer: -1 };
+  S.sent.clear();
+  for (const s of S.live.keys()) S.dirty.add(s);
+  startEngine();
+}
+
+/** binance_markets: each market's type, and yesterday's close where it came from Binance. */
+function marketRows() {
+  const bin = (S.ref && S.ref.binance) || new Map();
+  const syms = new Set([...S.types.keys(), ...bin.keys()]);
+  return [...syms].map((s) => [s, (S.types.get(s) || {}).group || null, bin.get(s) ?? null]);
+}
+
+/** The queries to run now, for the view on screen. */
+function jobs() {
+  const params = { ':kind': S.kind, ':yesterday': yesterday() };
+  const job = (id, key = id, extra = {}) => ({ id: key, sql: assemble(DEFS.get(id)), params: { ...params, ...extra } });
+  const out = [job('unusual_all_types')];
+  if (S.view === 'today') {
+    out.push(...['breadth', 'median_move', 'unusual_count', 'bitcoin', 'unusual', 'gainers', 'losers', 'markets'].map((id) => job(id)));
+    for (const sym of new Set([S.open, S.openAll])) if (sym) out.push(job('market', `market:${sym}`, { ':symbol': sym }));
+  }
+  return out;
+}
+
+/** Bring the engine's tables up to date (only what changed) and run the queries. */
+async function run() {
+  const e = S.eng;
+  const msg = { op: 'run', jobs: jobs() };
+  if (e.loadedAt !== S.data.at) msg.load = S.data.raw;
+  if (e.marketsVer !== S.marketsVer) msg.markets = marketRows();
+  msg.prices = [...S.dirty].filter((s) => S.live.has(s)).map((s) => { const l = S.live.get(s); return [s, l.price, l.q ?? null]; });
+  S.dirty.clear();
+  const t0 = performance.now();
+  let out;
+  try {
+    out = await call(msg, msg.load ? 30_000 : 15_000);   // normally about 50 ms; only a stuck engine is restarted
+  } catch (err) {
+    if (S.eng === e) restartEngine();   // its tables may be half updated: start again from scratch
+    throw err;
+  }
+  if (S.eng !== e) return;   // the engine was restarted meanwhile
+  if (msg.load) e.loadedAt = S.data.at;
+  if (msg.markets) { e.marketsVer = S.marketsVer; S.sentMarkets = msg.markets; }
+  for (const [s, p, q] of msg.prices) { const old = S.sent.get(s); S.sent.set(s, [p, q ?? (old ? old[1] : null)]); }
+  S.frozen = { prices: new Map(S.sent), markets: S.sentMarkets, at: S.lastMsg };
+  S.lastRun = { at: Date.now(), ms: Math.round(performance.now() - t0), n: msg.jobs.length };
+  S.res = new Map(Object.entries(out));
+  // When this page first saw each market unusual (kept by the page, not by a query).
+  const now = Date.now(), flagged = new Set(objects(S.res.get('unusual_all_types')).map((r) => r.market));
+  for (const s of flagged) if (!S.seen.has(s)) S.seen.set(s, now);
+  for (const s of [...S.seen.keys()]) if (!flagged.has(s)) S.seen.delete(s);
+}
+
+/* ---------- "how this is calculated": each number's query, as it runs ---------- */
 
 const GH = 'https://github.com/shivam65-sketch/medusa/blob/main/lakehouse/dbt/models/gold/';
 const ICON = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg>';
@@ -118,123 +324,71 @@ const srcBtn = (id) => `<button class="mkt-src-btn" type="button" data-mkt="src"
 const srcBox = (id, body) => (S.src === id ? `<div class="mkt-src">${body}</div>` : '');
 const sqlBlock = (title, sql) => `<div class="mkt-sql"><div class="h"><span>${title}</span><button class="btn btn-sm" type="button" data-mkt="copy">Copy</button></div><pre>${esc(sql.trim())}</pre></div>`;
 const ghLink = (file) => `<a href="${GH}${file}" target="_blank" rel="noopener">${file}</a>`;
-const csvBtn = (scope) => `<p><button class="btn btn-sm" type="button" data-mkt="csv" data-scope="${scope}">Download the inputs (CSV)</button> <span class="faint">every market behind this number, exactly as used now</span></p>`;
 const csvCell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-const num = (x) => (Number.isFinite(x) ? String(x) : 'NULL');
-const toDbx = (sql) => sql.replace(/\bmarket_baseline\b/g, 'market.gold.coin_baseline').replace(/\bmarket_evidence\b/g, 'market.gold.event_evidence');
-const closeFromBinance = (r) => !!(S.ref && S.ref.close.has(r.sym) && r.b.as_of_date !== S.ref.day);
 
-/** A query panel: the SQL as shown, with Copy buttons for MEDUSA's D1 and for Databricks (the full text). */
-function queryBlock(id, title, sql, shown = sql, dbx = toDbx(sql)) {
-  const tidy = (s) => s.replace(/ {3,}--/g, '  --');   // each comment right after its code, so it fits a phone
-  [sql, shown, dbx] = [sql, shown, dbx].map(tidy);
-  S.sql.set(id, { d1: sql, dbx });
-  return `<div class="mkt-sql"><div class="h"><span>${title}</span><span class="b">
-    <button class="btn btn-sm" type="button" data-mkt="copy" data-sql="${id}" data-db="d1">Copy for MEDUSA (D1)</button>
-    <button class="btn btn-sm" type="button" data-mkt="copy" data-sql="${id}" data-db="dbx">Copy for Databricks</button></span></div>
-    <pre>${esc(shown.trim())}</pre></div>`;
+// Copy texts are built when Copy is pressed, from the tables as they were at the last run. A panel
+// registers its queries here while it is drawn, and they are kept only if the panel was redrawn.
+let PENDING = [];
+const SOURCES = {
+  live_prices: () => `Binance's live prices, kept up to date from the stream while this page is open (last message ${clockS(S.lastMsg)}). Only in this browser.`,
+  binance_markets: () => 'Each market\'s type from Binance\'s contract list (once a day), and yesterday\'s close from Binance\'s daily candle until the lakehouse publishes yesterday (about 13:30 UTC). Only in this browser.',
+  market_baseline: () => `Each market's normal (last close, average daily return, σ, days of history, average volume): MEDUSA's copy of the lakehouse's <code>gold.coin_baseline</code>, built by ${ghLink('coin_baseline.sql')}. Lakehouse day ${shortDay((S.data.published.market_baseline || {}).as_of)}.`,
+  market_evidence: () => `What similar moves did next: MEDUSA's copy of the lakehouse's <code>gold.event_evidence</code>, built by ${ghLink('event_evidence.sql')}. Lakehouse day ${shortDay((S.data.published.market_evidence || {}).as_of)}.`,
+};
+
+/** A query's result exactly as it came back, for the panel. */
+function rawResult(res) {
+  if (!res) return '<p class="faint">Not run yet.</p>';
+  if (res.error) return `<p class="warn"><b>The query failed:</b> ${esc(res.error)}</p>`;
+  const shown = res.rows.slice(0, 6);
+  const cell = (v) => (v == null ? '<span class="faint">NULL</span>' : esc(typeof v === 'number' ? String(v) : v));
+  return `<p class="now"><b>Result now</b> <span class="faint">(${res.rows.length} row${res.rows.length === 1 ? '' : 's'}, ${res.ms} ms)</span></p>
+    <div class="scroll-x"><table class="mkt-legend mkt-result"><thead><tr>${res.columns.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+    <tbody>${shown.map((r) => `<tr>${r.map((v) => `<td>${cell(v)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${res.columns.length}" class="faint">No rows</td></tr>`}</tbody></table></div>
+    ${res.rows.length > shown.length ? `<p class="faint">… and ${res.rows.length - shown.length} more rows (download the result for all of them)</p>` : ''}`;
 }
 
-/** live_prices as VALUES: the markets behind a number with their prices on screen now. Yesterday's close
- * joins them when it came from Binance (before the lakehouse publishes yesterday), and the last 24 hours'
- * volume when the query needs it. Long lists show their first rows; Copy has them all. */
-function livePrices(rows, { volume = false, show = 3 } = {}) {
-  const bc = rows.some(closeFromBinance);
-  const cols = ['symbol', 'price', ...(bc ? ['yesterday_close'] : []), ...(volume ? ['quote_volume_24h'] : [])];
-  const vals = rows.map((r) => {
-    const l = S.live.get(r.sym);
-    return `('${r.sym}', ${num(l && l.price)}${bc ? `, ${num(S.ref.close.get(r.sym))}` : ''}${volume ? `, ${num(l && l.q)}` : ''})`;
-  });
-  const kind = S.kind === 'all' ? '' : `; ${KIND_WORD[S.kind].trim()} markets only`;
-  const head = `WITH live_prices(${cols.join(', ')}) AS (VALUES   -- Binance's live prices at ${S.lastMsg ? clockS(S.lastMsg) : 'now'}${kind}`;
-  const full = `${head}\n  ${vals.join(',\n  ')}\n)`;
-  const shown = vals.length > show ? `${head}\n  ${vals.slice(0, show).join(',\n  ')},\n  -- ... ${vals.length - show} more markets (Copy has them all)\n)` : full;
-  return { full, shown, bc };
+/** One number's panel: what it is, its query as it runs here, the parameters, the result now and
+ * where each table comes from, with copies that run in MEDUSA's D1 or in Databricks. */
+function queryPanel(id, key = id, extra = {}) {
+  const def = DEFS.get(id), res = S.res.get(key);
+  const params = { kind: S.kind, yesterday: yesterday(), ...extra };
+  const sql = assemble(def);
+  PENDING.push([key, { id, params, frozen: S.frozen }]);
+  const used = [...new Set([...sql.matchAll(/:([a-z_]+)\b/g)].map((m) => m[1]))].filter((p) => p in params);
+  const tables = [...new Set(reads(sql))].filter((t) => t in SOURCES);
+  return `<div class="mkt-q">
+    <p class="what"><b>${esc(def.name)}</b>: ${esc(def.description)}</p>
+    <div class="mkt-sql"><div class="h"><span>The query, exactly as this page runs it</span><span class="b">
+      <button class="btn btn-sm" type="button" data-mkt="copy" data-sql="${esc(key)}" data-db="d1">Copy for MEDUSA (D1)</button>
+      <button class="btn btn-sm" type="button" data-mkt="copy" data-sql="${esc(key)}" data-db="dbx">Copy for Databricks</button></span></div>
+      <pre>${esc(sql)}</pre></div>
+    ${used.length ? `<p class="mkt-params"><b>Parameters</b> ${used.map((p) => `<code>:${p}</code> = <code>${esc(literal(params[p]))}</code> <span class="faint">${PARAM_WORDS[p] || ''}</span>`).join(' · ')}</p>` : ''}
+    ${rawResult(res)}
+    <table class="mkt-legend"><thead><tr><th>Table</th><th>What it is</th></tr></thead><tbody>${tables.map((t) => `<tr><td><code>${t}</code></td><td>${SOURCES[t]()}</td></tr>`).join('')}</tbody></table>
+    <p class="faint">The steps in <code>WITH</code> are shared by every number on this view (change one and every number that reads it changes). <code>live_prices</code> and <code>binance_markets</code> exist only in this browser, so the copies write them in as <code>VALUES</code>, as they were at the last run, and fill in the parameters: they run in MEDUSA's D1 or in Databricks and return this result.</p>
+    <p><button class="btn btn-sm" type="button" data-mkt="csv" data-key="${esc(key)}" data-what="result">Download the result (CSV)</button>
+      <button class="btn btn-sm" type="button" data-mkt="csv" data-key="${esc(key)}" data-what="inputs">Download the inputs (CSV)</button></p>
+  </div>`;
 }
 
-/** The step every query shares: each market's move today, its z and its liquidity. */
-function todaySql(bc, extra = false) {
-  const c = bc ? 'p.yesterday_close' : 'b.last_close';
-  return `today AS (
-  SELECT b.symbol,
-         p.price,
-         p.price / ${c} - 1 AS move,                         -- Today: the move since yesterday's close
-         CASE WHEN b.history_days >= 20 AND b.sd_return_30d > 0
-              THEN (p.price / ${c} - 1 - b.avg_return_30d) / b.sd_return_30d
-         END AS z,                                           -- z: the move in usual daily moves (σ)
-         CASE WHEN b.avg_quote_volume_30d >= 100000000 THEN 'large'
-              WHEN b.avg_quote_volume_30d >= 10000000 THEN 'mid'
-              ELSE 'small' END AS liquidity${extra ? `,                    -- Liquidity: average USDT a day
-         b.sd_return_30d,                                    -- Usual day: σ
-         p.quote_volume_24h / b.avg_quote_volume_30d AS volume_x   -- Volume: last 24 h ÷ a usual day` : '                        -- Liquidity: average USDT a day'}
-  FROM market_baseline b                                     -- each market's normal (lakehouse)
-  JOIN live_prices p ON p.symbol = b.symbol                  -- its live price (Binance)
-)`;
-}
-
-const FLAGGED = `flagged AS (
-  SELECT *,
-         CASE WHEN z > 0 THEN 'up' ELSE 'down' END AS direction,
-         CASE WHEN ABS(z) < 4 THEN '3-4' WHEN ABS(z) < 6 THEN '4-6' ELSE '6+' END AS z_band
-  FROM today
-  WHERE ABS(z) >= 3                                          -- unusual: 3 or more usual daily moves
-)`;
-const verdict = (h) => `CASE WHEN e${h}.verdict = 'held up'
-            THEN e${h}.side || ' ' || ROUND(100 * e${h}.held_back_net_after_cost, 2) || '%'
-            ELSE e${h}.verdict END AS next_${h}h`;
-const EVIDENCE_JOINS = HORIZONS.map((h) => `LEFT JOIN market_evidence e${h} ON e${h}.direction = f.direction AND e${h}.z_band = f.z_band
-                          AND e${h}.liquidity = f.liquidity AND e${h}.horizon_hours = ${h}`).join('\n');
-
-/** What each table in a query is, where it comes from, and when it was last updated. */
-function sourcesTable({ bc = false, evidence = false, volume = false } = {}) {
-  const pub = S.data.published;
-  const rows = [
-    ['live_prices', `Binance's live prices, streamed to this browser${volume ? ', with the USDT traded in the last 24 hours' : ''}`, `every second · last ${S.lastMsg ? clockS(S.lastMsg) : '–'}`],
-    ...(bc ? [['live_prices.yesterday_close', 'Yesterday\'s close from Binance\'s daily candle, until the lakehouse publishes yesterday (about 13:30 UTC)', 'once a day']] : []),
-    ['market_baseline', `Each market's normal (last close, average daily return, σ, days of history, average volume): MEDUSA's copy of the lakehouse's <code>gold.coin_baseline</code>, built by ${ghLink('coin_baseline.sql')}`, `daily · day ${shortDay((pub.market_baseline || {}).as_of)}`],
-    ...(evidence ? [['market_evidence', `What similar moves did next: MEDUSA's copy of the lakehouse's <code>gold.event_evidence</code>, built by ${ghLink('event_evidence.sql')}`, `daily · day ${shortDay((pub.market_evidence || {}).as_of)}`]] : []),
-  ];
-  return `<table class="mkt-legend"><thead><tr><th>In the query</th><th>What it is</th><th>Updated</th></tr></thead><tbody>${rows.map(([a, b, c]) => `<tr><td><code>${a}</code></td><td>${b}</td><td>${c}</td></tr>`).join('')}</tbody></table>`;
-}
-
-/** One panel: what the number is, the query that makes it, its result now, and its sources. */
-const panelHtml = ({ what, id, title, sql, shown, dbx, now, sources, csv }) => `<p class="what">${what}</p>
-  ${queryBlock(id, title, sql, shown, dbx)}${now ? `<p class="now"><b>On screen now:</b> ${now}</p>` : ''}${sources}${csv ? csvBtn(csv) : ''}`;
-
-/** One market's row as a query, with its real price written in, so it runs and gives the same numbers. */
-function marketPanel(r) {
-  const base = name(r.sym), l = S.live.get(r.sym);
-  if (!l || r.move == null) return `<p class="what">${base} has no ${!l ? 'live price' : 'close for yesterday'} yet, so there is nothing to calculate.</p>`;
-  const live = livePrices([r], { volume: true, show: 1 });
-  const cols = `SELECT f.symbol AS market,
-       f.price,
-       ROUND(100 * f.move, 2) AS today_pct,
-       ROUND(f.z, 1) AS z,
-       ROUND(100 * f.sd_return_30d, 2) AS usual_day_pct,
-       ROUND(f.volume_x, 1) AS volume_x,
-       f.liquidity`;
-  const sql = r.unusual
-    ? `-- ${base}: every number in its row\n${live.full},\n${todaySql(live.bc, true)},\n${FLAGGED}\n${cols},\n       ${HORIZONS.map(verdict).join(',\n       ')}\nFROM flagged f\n${EVIDENCE_JOINS};`
-    : `-- ${base}: every number in its row\n${live.full},\n${todaySql(live.bc, true)}\n${cols}\nFROM today f;`;
-  const ev = r.unusual ? evidenceFor(S.data.ev, r.z, r.liq) : [];
-  const now = `today_pct ${(100 * r.move).toFixed(2)} · z ${r.z == null ? 'NULL' : r.z.toFixed(1)} · usual_day_pct ${(100 * r.b.sd_return_30d).toFixed(2)} · volume_x ${r.volx == null ? 'NULL' : r.volx.toFixed(1)} · liquidity ${r.liq}${ev.map((e, i) => ` · next_${HORIZONS[i]}h ${e ? (e.verdict === 'held up' ? `${e.side} ${(100 * e.held_back_net_after_cost).toFixed(2)}%` : e.verdict) : 'NULL'}`).join('')}`;
-  return `${panelHtml({ what: `How ${base}'s numbers are calculated. Run the query in MEDUSA's D1 or in Databricks and it gives the same numbers.`, id: `m-${r.sym}`, title: 'The query (SQL)', sql, now, sources: sourcesTable({ bc: live.bc, evidence: r.unusual, volume: true }) })}
-    <details class="mkt-raw"><summary>The Binance message behind the price</summary><code>${esc(JSON.stringify(l.raw))}</code><p class="faint">${l.via === 'stream' ? `From the live stream at ${clockS(l.t)}: <code>c</code> is the last price, <code>q</code> the USDT traded in the last 24 hours.` : `From the price snapshot of ${clockS(l.t)}: it hasn't traded since this page opened.`}</p></details>
-    ${r.unusual ? `<details class="mkt-raw"><summary>Every past move behind these verdicts (Databricks)</summary>${sqlBlock('Databricks SQL', `SELECT event_hour, symbol, z, move_so_far, fwd_return_1h, fwd_return_4h, fwd_return_24h, period\nFROM market.gold.intraday_events\nWHERE direction = '${r.z > 0 ? 'up' : 'down'}' AND z_band = '${zBand(r.z)}' AND liquidity = '${r.liq}'\nORDER BY event_hour DESC;`)}<p class="faint">Built by ${ghLink('intraday_events.sql')}; it exists only in the lakehouse.</p></details>` : ''}`;
-}
-
-/** The verdicts and past moves of one kind of move, for Patterns. */
-function evidenceSql(dir, band, liq) {
-  const moves = band === 'all' ? `direction = '${dir}'` : `direction = '${dir}' AND z_band = '${band}' AND liquidity = '${liq}'`;
-  const verdicts = band === 'all' ? `direction = '${dir}' AND z_band = 'all' AND liquidity = 'all'` : moves;
-  return sqlBlock('The verdicts (Databricks SQL; in MEDUSA\'s D1 the table is market_evidence)', `SELECT horizon_hours, verdict, side, events, days, avg_continuation, in_sample_t, held_back_t, held_back_net_after_cost
-FROM market.gold.event_evidence
-WHERE ${verdicts}
-ORDER BY horizon_hours;`)
-    + sqlBlock('Every past move behind them (Databricks SQL)', `SELECT event_hour, symbol, z, move_so_far, fwd_return_1h, fwd_return_4h, fwd_return_24h, period
-FROM market.gold.intraday_events
-WHERE ${moves}
-ORDER BY event_hour DESC;`);
+/** The text for Copy: the query made to run in MEDUSA's D1 or in Databricks. */
+function copyText(key, db) {
+  const q = S.sql.get(key), f = q && q.frozen;   // the tables as they were when the result on screen was calculated
+  if (!q || !f) return null;
+  const syms = q.params.symbol ? [q.params.symbol]
+    : [...S.data.base.values()].filter((b) => b.status !== 'not trading').map((b) => b.symbol);
+  const keep = new Set(syms);
+  const inputs = {
+    live_prices: syms.filter((s) => f.prices.has(s)).map((s) => [s, ...f.prices.get(s)]),
+    binance_markets: f.markets.filter((r) => keep.has(r[0])),
+    note: {
+      live_prices: `Binance's live prices at ${clockS(f.at)}`,
+      binance_markets: 'each market\'s type, and yesterday\'s close from Binance where the lakehouse hasn\'t got it yet',
+    },
+  };
+  const sql = assemble(DEFS.get(q.id), { inputs, params: q.params });
+  return db === 'dbx' ? toDbx(sql) : sql;
 }
 
 /* ---------- the page ---------- */
@@ -276,7 +430,7 @@ table.mkt-table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 .mkt-more { margin-top: 12px; padding: 12px 14px 8px; border-radius: 9px; background: #202020; color: var(--text-2); font-size: 13.5px; line-height: 1.55; }
 .mkt-more p { margin: 0 0 6px; }
 .mkt-more b { color: var(--text); }
-.mkt-more p.warn { color: #e8c547; }
+.mkt-more p.warn, .mkt-src p.warn { color: #e8c547; }
 .mkt-movers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .mkt-movers h3 { font-size: 15px; margin: 0 0 6px; color: var(--text-2); }
 @media (max-width: 760px) { .mkt-movers { grid-template-columns: minmax(0, 1fr); } }
@@ -310,27 +464,25 @@ table.mkt-table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 .mkt-src b, .mkt-more h4 { color: var(--text); }
 .mkt-src code, .mkt-more code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--text); word-break: break-all; }
 .mkt-src a, .mkt-more a { color: #86efac; }
-.mkt-src-list { margin: 0 0 8px; padding-left: 18px; display: grid; gap: 4px; }
 .mkt-more h4 { margin: 14px 0 6px; font-size: 14px; }
-.mkt-calc { display: grid; gap: 4px; margin: 0 0 8px; }
-.mkt-calc > div { display: flex; flex-wrap: wrap; gap: 2px 10px; }
-.mkt-calc span { min-width: 92px; color: var(--text-3); }
+.mkt-q + .mkt-q { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
 .mkt-sql { margin: 8px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .mkt-sql .h { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 6px 5px 10px; background: #232323; color: var(--text-2); font-size: 12.5px; font-weight: 600; }
 .mkt-sql .h .btn { height: 26px; padding: 0 10px; font-size: 12.5px; }
 .mkt-sql .h .b { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .mkt-src p.what { color: var(--text); font-size: 14px; }
-.mkt-src p.now { margin: 6px 0 10px; font-variant-numeric: tabular-nums; }
+.mkt-src p.now { margin: 10px 0 4px; font-variant-numeric: tabular-nums; }
+.mkt-params code { word-break: normal; }
 table.mkt-legend { width: 100%; border-collapse: collapse; margin: 4px 0 10px; font-size: 13px; }
 .mkt-legend th { text-align: left; font-weight: 600; color: var(--text-3); padding: 6px 8px; border-bottom: 1px solid var(--border-2); }
 .mkt-legend td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
-.mkt-legend td:first-child, .mkt-legend td:last-child { white-space: nowrap; }
-.mkt-legend td:last-child { color: var(--text-3); }
-@media (max-width: 640px) { .mkt-legend td:first-child, .mkt-legend td:last-child { white-space: normal; } }
+.mkt-legend td:first-child { white-space: nowrap; }
+table.mkt-result td, table.mkt-result th { white-space: nowrap; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+@media (max-width: 640px) { .mkt-legend td:first-child { white-space: normal; } }
 .mkt-raw { margin: 6px 0 8px; }
 .mkt-raw summary { cursor: pointer; color: var(--text-2); }
 .mkt-raw code { display: block; margin: 6px 0; }
-.mkt-sql pre { margin: 0; padding: 10px 12px; overflow-x: auto; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; line-height: 1.5; color: #d4d4d8; background: #161616; }
+.mkt-sql pre { margin: 0; padding: 10px 12px; overflow-x: auto; max-height: 420px; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; line-height: 1.5; color: #d4d4d8; background: #161616; }
 `;
 
 function shell() {
@@ -349,7 +501,7 @@ function shell() {
     <section class="kpis mkt-kpis" id="mkt-kpis" aria-label="The markets today"></section>
     <div id="mkt-kpi-src"></div>
     <section class="card">
-      <div class="card-head"><div><h2>Unusual right now</h2><p>Markets that have moved at least ${RULE.z} of their usual daily moves today, and what similar moves did next. Tap a row for the details and where its numbers come from.</p></div>${srcBtn('unusual')}</div>
+      <div class="card-head"><div><h2>Unusual right now</h2><p>Markets that have moved at least ${RULE.z} of their usual daily moves today, and what similar moves did next. Tap a row for the details and how its numbers are calculated.</p></div>${srcBtn('unusual')}</div>
       <div class="mkt-src-slot" id="mkt-unusual-src"></div>
       <div id="mkt-unusual"></div>
     </section>
@@ -381,6 +533,7 @@ function shell() {
         <li><b>The markets</b> are every Binance USDⓈ-M perpetual futures contract quoted in USDT: crypto coins and tokens, and the TradFi perpetuals on stocks, commodities, a currency and indices. The type next to each name comes from Binance's contract list.</li>
         <li><b>Each market's normal</b> comes from MEDUSA's market data lakehouse: the average and spread (σ) of its daily moves over its last 30 days with trades, built from Binance's checked daily files and published once a day (about 13:30 UTC).</li>
         <li><b>Live prices</b> come straight from Binance to this browser, about once a second. MEDUSA's server never sees them.</li>
+        <li><b>Every number here is calculated by SQL</b>, in a small SQLite database inside this browser that holds the lakehouse's tables and the live prices. The queries run about once a second; the <b>‹›</b> buttons show each one exactly as it runs, with its result and a copy that runs in MEDUSA's database or in Databricks.</li>
         <li><b>Today's move</b> is measured from yesterday's close (UTC). z is that move in the market's usual daily moves; ${RULE.z} or more (|z| ≥ ${RULE.z}) is flagged as unusual: the same rule the lakehouse applies to every hour since 2020.</li>
         <li><b>The evidence</b> shows what similar moves (same direction, size and liquidity) did over the next 1, 4 and 24 hours since 2020. Each side (follow the move or fade it) was chosen on 2020–2024 and checked on 2025 onwards, which played no part in choosing it, after 0.10% trading costs. Most kinds of move show no pattern that held; the Patterns view lists them all. Almost all of that history is crypto.</li>
         <li><b>Live numbers are unchecked</b> until the next day's batch run. History is no promise: costs differ by market and funding isn't counted. This is research, not trading advice.</li>
@@ -392,13 +545,17 @@ function shell() {
 }
 
 /** Replace a part of the page only when it changed (keeps focus, hover and text selection). A part is
- * held still while the pointer is over its details or sources, so they can be read, selected and copied. */
+ * held still while the pointer is over its details or sources, so they can be read, selected and copied.
+ * The queries a part's panels registered are kept for Copy only when the part was redrawn. */
 function put(id, html) {
-  if (S.html.get(id) === html) return;
+  const copies = PENDING;
+  PENDING = [];
+  if (S.html.get(id) === html) { for (const [k, v] of copies) S.sql.set(k, v); return; }
   const el = document.getElementById(id);
   if (!el || el.querySelector('.mkt-src:hover, .mkt-more:hover')) return;
   S.html.set(id, html);
   el.innerHTML = html;
+  for (const [k, v] of copies) S.sql.set(k, v);
 }
 
 function schedule() {
@@ -406,9 +563,28 @@ function schedule() {
   S.paintTimer = setTimeout(() => { S.paintTimer = 0; paint(); }, Math.max(0, 1000 - (Date.now() - S.painted)));
 }
 
+/** About once a second: bring the engine up to date, run the queries, then draw their results. */
 function paint() {
   if (!host || host.hidden || document.hidden || !document.getElementById('mkt-status')) return;
   S.painted = Date.now();
+  if (!S.data || S.loadErr) { draw(); return; }
+  if (!S.eng.ok) { if (!S.eng.err) startEngine(); draw(); return; }
+  if (S.running) { S.again = true; return; }
+  S.running = true;
+  S.urgent = false;
+  run().then(() => { S.runErr = null; }, (e) => { S.runErr = e.message; })
+    .finally(() => {
+      S.running = false;
+      draw();
+      if (!S.again) return;
+      S.again = false;
+      if (S.urgent) paint(); else schedule();   // a click runs again at once; new prices wait for the next second
+    });
+}
+
+/** Draw everything from the last results (no queries run here). */
+function draw() {
+  if (!host || !document.getElementById('mkt-status')) return;
   host.querySelectorAll('[data-mkt="view"], [data-mkt="kind"], [data-mkt="sort"]').forEach((b) => {
     b.setAttribute('aria-pressed', String(b.dataset.v === S[b.dataset.mkt]));
   });
@@ -422,138 +598,19 @@ function paint() {
       : '<div>Loading the market data…</div>');
     return;
   }
-  const all = compute();
-  paintStatus(all);
-  if (S.view === 'patterns') { paintPatterns(all); return; }
-  const rows = S.kind === 'all' ? all : all.filter((r) => r.type && r.type.group === S.kind);
-  paintKpis(rows, all);
-  paintUnusual(rows);
-  paintMovers(rows);
-  paintAll(rows);
-  paintSources(rows, all);
+  paintStatus();
+  if (S.view === 'patterns') { paintPatterns(); return; }
+  paintKpis();
+  paintUnusual();
+  paintMovers();
+  paintAll();
+  paintSources();
 }
 
-/** The "how this is calculated" panels of the summary cards and the tables. */
-function paintSources(rows, all) {
-  const moved = rows.filter((r) => r.move != null);
-  const only = S.kind === 'all' ? '' : ` (${KIND_WORD[S.kind].trim()} markets only)`;
-  const none = '<p class="what">No market has a live price and yesterday\'s close yet.</p>';
-  // The query's first two steps, for every panel below: the live prices, then each market's move and z.
-  const start = (list, extra = false) => {
-    const live = livePrices(list, { volume: extra });
-    return { live, full: `${live.full},\n${todaySql(live.bc, extra)}`, shown: `${live.shown},\n${todaySql(live.bc, extra)}` };
-  };
-  const panel = (id, what, q, tail, now, csv, { dbxTail = tail, evidence = false, volume = false } = {}) => panelHtml({
-    what, id, title: 'The query (SQL)', sql: `${q.full}\n${tail}`, shown: `${q.shown}\n${tail}`, dbx: toDbx(`${q.full}\n${dbxTail}`),
-    now, sources: sourcesTable({ bc: q.live.bc, evidence, volume }), csv,
-  });
-
-  let kpi = '';
-  if (S.src === 'kpi-btc') {
-    const btc = all.find((r) => r.sym === 'BTCUSDT');
-    kpi = btc ? `<p class="what"><b>Bitcoin</b> is the BTCUSDT perpetual (on TradingView: BINANCE:BTCUSDT.P), not the spot market.</p>${marketPanel(btc)}` : '<p class="what">No Bitcoin price yet.</p>';
-  } else if (S.src && S.src.startsWith('kpi-')) {
-    if (!moved.length) kpi = none;
-    else {
-      const q = start(moved);
-      const up = moved.filter((r) => r.move > 0).length, down = moved.filter((r) => r.move < 0).length;
-      const sorted = moved.map((r) => r.move).sort((a, b) => a - b);
-      const median = (sorted[(sorted.length - 1) >> 1] + sorted[sorted.length >> 1]) / 2;
-      if (S.src === 'kpi-breadth') {
-        kpi = panel('kpi-breadth', `<b>Breadth</b> is the share of markets that are up today${only}.`, q, `SELECT SUM(CASE WHEN move > 0 THEN 1 ELSE 0 END) AS up,
-       SUM(CASE WHEN move < 0 THEN 1 ELSE 0 END) AS down,
-       COUNT(*) AS markets,
-       ROUND(100.0 * SUM(CASE WHEN move > 0 THEN 1 ELSE 0 END) / COUNT(*)) AS breadth_pct
-FROM today;`, `up ${up} · down ${down} · markets ${moved.length} · breadth_pct ${Math.round((100 * up) / moved.length)}`, 'kpi');
-      } else if (S.src === 'kpi-median') {
-        kpi = panel('kpi-median', `<b>Median move</b> is the middle of today's moves${only}: half of the markets moved less, half more.`, q, `SELECT ROUND(100 * AVG(move), 2) AS median_pct     -- the middle move (or the average of the two middle ones)
-FROM (SELECT move FROM today ORDER BY move
-      LIMIT 2 - (SELECT COUNT(*) FROM today) % 2
-      OFFSET (SELECT (COUNT(*) - 1) / 2 FROM today)) middle;`, `median_pct ${(100 * median).toFixed(2)}`, 'kpi', {
-          dbxTail: 'SELECT ROUND(100 * percentile(move, 0.5), 2) AS median_pct   -- the middle move\nFROM today;',
-        });
-      } else if (S.src === 'kpi-unusual') {
-        const uUp = moved.filter((r) => r.unusual && r.z > 0).length, uDown = moved.filter((r) => r.unusual && r.z < 0).length;
-        kpi = panel('kpi-unusual', `<b>Unusual now</b> counts the markets that have moved ${RULE.z} or more of their usual daily moves today${only}.`, q, `SELECT SUM(CASE WHEN z >= 3 THEN 1 ELSE 0 END) AS unusual_up,
-       SUM(CASE WHEN z <= -3 THEN 1 ELSE 0 END) AS unusual_down
-FROM today;`, `unusual_up ${uUp} · unusual_down ${uDown}`, 'kpi');
-      }
-    }
-  }
-  put('mkt-kpi-src', kpi ? `<div class="mkt-src">${kpi}</div>` : '');
-
-  const flagged = moved.filter((r) => r.unusual);
-  put('mkt-unusual-src', srcBox('unusual', !moved.length ? none : (() => {
-    const q = start(moved);
-    return panel('unusual', `<b>Unusual right now</b>: every column of the table as one query. It keeps the markets whose z is ${RULE.z} or more either way, then looks up what moves of the same kind (direction, size band, liquidity) did next. The small line under each verdict is the same lookup with <code>z_band = 'all'</code> and <code>liquidity = 'all'</code>; <b>Since</b> is when this page first saw the market unusual.`,
-      { ...q, full: `${q.full},\n${FLAGGED}`, shown: `${q.shown},\n${FLAGGED}` }, `SELECT f.symbol AS market,
-       f.price,
-       ROUND(100 * f.move, 2) AS today_pct,
-       ROUND(f.z, 1) AS z,
-       f.liquidity,
-       ${HORIZONS.map(verdict).join(',\n       ')}
-FROM flagged f
-${EVIDENCE_JOINS}
-ORDER BY ABS(f.z) DESC;`, `${flagged.length} markets`, 'unusual', { evidence: true });
-  })()));
-
-  put('mkt-movers-src', srcBox('movers', !moved.length ? none : panel('movers', `<b>Movers today</b>: the eight biggest gains and the eight biggest losses since yesterday's close${only}.`, start(moved), `SELECT symbol AS market,
-       price,
-       ROUND(100 * move, 2) AS today_pct,
-       ROUND(z, 1) AS z
-FROM today
-ORDER BY move DESC          -- Up the most (Down the most: ORDER BY move ASC)
-LIMIT 8;`, '', 'moved')));
-
-  const sorted = { z: 'ABS(z) DESC          -- Most unusual', up: 'move DESC            -- Gainers', down: 'move ASC             -- Losers', vol: 'volume_x DESC        -- Volume' }[S.sort];
-  const shown = S.q ? moved.filter((r) => r.sym.includes(S.q) || (r.type && r.type.label.toUpperCase().includes(S.q))) : moved;
-  put('mkt-every-src', srcBox('every', !shown.length ? none : panel('every', `<b>Every market</b>: every column of the table as one query${only}${S.q ? `, for the markets matching “${esc(S.q)}”` : ''}.`, start(shown, true), `SELECT symbol AS market,
-       price,
-       ROUND(100 * move, 2) AS today_pct,
-       ROUND(z, 1) AS z,
-       ROUND(100 * sd_return_30d, 2) AS usual_day_pct,
-       ROUND(volume_x, 1) AS volume_x,
-       liquidity
-FROM today
-ORDER BY ${sorted};`, '', 'every', { volume: true })));
-}
-
-/** A market's details: its move in words, the evidence when unusual, and how every number is calculated. */
-function marketDetail(r) {
-  const t = r.type, b = r.b, dir = r.z > 0 ? 'up' : 'down';
-  const who = `${name(r.sym)}${t ? ` (${esc(t.label)})` : ''}`;
-  let html = r.move == null
-    ? `<p>${who}: not scored yet${S.live.get(r.sym) ? ', yesterday\'s close is missing' : ', no live price yet'}.</p>`
-    : `<p>${who} has moved ${pct(r.move)} since yesterday's close${r.z != null ? `: ${sig(r.z)}, ${Math.abs(r.z).toFixed(1)} times its usual daily move (${size(b.sd_return_30d)} over its last ${b.history_days} days)` : ''}.${r.unusual ? ` Its own group: ${kindPhrase(dir, zBand(r.z), r.liq)} (average ${Math.round((b.avg_quote_volume_30d || 0) / 1e6).toLocaleString('en-US')} million USDT a day).` : ''}</p>`;
-  if (r.unusual) {
-    if (t && t.group !== 'crypto') html += `<p class="warn">${name(r.sym)} is a ${esc(t.label.toLowerCase())} perpetual. Almost all the history behind the evidence is crypto: the side of each pattern was chosen on 2020–2024, when Binance had almost no stock, commodity or currency perpetuals. Treat the evidence with extra care here.</p>`;
-    html += evidenceFor(S.data.ev, r.z, r.liq).map((e, i) => evWords(e, HORIZONS[i])).join('');
-    html += `<p><b>For comparison, a wider group</b>, every ${dir} move together (any size, any market): ${HORIZONS.map((h) => `next ${h} h ${evShort(S.data.ev.get(evKey(dir, 'all', 'all', h)))}`).join(' · ')}. ${name(r.sym)}'s own group is the closer match; the wider group has many more examples but mixes very different moves.</p>`;
-  }
-  return `<div class="mkt-more">${html}<div class="mkt-src">${marketPanel(r)}</div></div>`;
-}
-
-/** Every trading market with its live price, move today, z, liquidity, type and volume against normal. */
-function compute() {
-  const out = [], now = Date.now();
-  for (const b of S.data.base.values()) {
-    if (b.status === 'not trading') continue;
-    const l = S.live.get(b.symbol);
-    const s = l && S.ref ? score(b, l.price, S.ref.close.get(b.symbol)) : null;
-    const avgVol = b.avg_quote_volume_30d || 0;
-    const r = {
-      b, sym: b.symbol, type: typeOf(b.symbol), price: l ? l.price : null, move: s ? s.move : null, z: s ? s.z : null,
-      unusual: !!(s && s.unusual), liq: liquidity(avgVol), volx: l && l.q > 0 && avgVol > 0 ? l.q / avgVol : null,
-    };
-    if (r.unusual) { if (!S.seen.has(r.sym)) S.seen.set(r.sym, now); } else S.seen.delete(r.sym);
-    out.push(r);
-  }
-  return out;
-}
-
-function paintStatus(rows) {
+function paintStatus() {
   const pub = S.data.published.market_baseline || {};
-  const priced = rows.filter((r) => r.price != null).length;
+  let priced = 0;
+  for (const b of S.data.base.values()) if (b.status !== 'not trading' && S.live.has(b.symbol)) priced++;
   const ago = S.lastMsg ? Math.max(0, Math.round((Date.now() - S.lastMsg) / 1000)) : null;
   const live = {
     live: `<span class="mkt-dot live"></span><b>Live from Binance</b>${ago != null ? ` · updated ${ago < 2 ? 'just now' : `${ago} s ago`}` : ''}`,
@@ -562,44 +619,99 @@ function paintStatus(rows) {
     refused: '<span class="mkt-dot off"></span><b>Binance\'s live prices can\'t be reached from here</b> (Binance refuses some regions and networks). Prices below are from when they last arrived; the daily numbers are unaffected.',
     off: '<span class="mkt-dot"></span>Not connected',
   }[S.wsState] || '';
-  const y = utcDay(Date.now() - DAY);
+  const y = yesterday();
   const ref = !S.ref
     ? (S.refTotal ? `Getting yesterday's closes from Binance: ${S.refDone} of ${S.refTotal}…` : 'Getting yesterday\'s closes…')
     : S.ref.src === 'lakehouse' ? `Today's move is measured from yesterday's (${shortDay(y)}) close, from the lakehouse`
       : S.ref.src === 'binance' ? `Today's move is measured from yesterday's (${shortDay(y)}) close, from Binance (the lakehouse publishes ${shortDay(y)} at about 13:30 UTC)${S.ref.missing ? `; ${S.ref.missing} markets without it aren't scored` : ''}`
         : `Yesterday's closes couldn't be fetched from Binance, so ${S.ref.missing} markets aren't scored until the lakehouse publishes ${shortDay(y)} (about 13:30 UTC)`;
+  const engine = S.eng.err
+    ? `<span class="warn"><b>The SQL engine couldn't start:</b> ${esc(S.eng.err)}</span> <button class="btn btn-sm" data-mkt="engine">Try again</button>`
+    : !S.eng.ok ? 'Starting the SQL engine…'
+      : S.runErr ? `<span class="warn">${esc(S.runErr)}</span>`
+        : S.lastRun ? `Numbers calculated by SQL in this browser: ${S.lastRun.n} queries at ${clockS(S.lastRun.at)} in ${S.lastRun.ms} ms` : 'Calculating…';
   put('mkt-status', `
     <div class="row"><span>${live}</span><span class="faint">${priced} markets priced</span></div>
     <div class="row faint"><span>Each market's normal: lakehouse day ${shortDay(pub.as_of)}${pub.published_at ? `, published ${clock(pub.published_at)}` : ''}</span><span>${ref}</span></div>
+    <div class="row faint"><span>${engine}</span></div>
     <div class="row faint"><span>Live numbers are unchecked until the next daily run; the evidence is history, not a trading signal.</span></div>`);
 }
 
-function paintKpis(rows, all) {
-  const moved = rows.filter((r) => r.move != null);
-  const up = moved.filter((r) => r.move > 0).length, down = moved.filter((r) => r.move < 0).length;
-  const sorted = moved.map((r) => r.move).sort((a, b) => a - b);
-  const median = sorted.length ? (sorted[(sorted.length - 1) >> 1] + sorted[sorted.length >> 1]) / 2 : null;
-  const uUp = rows.filter((r) => r.unusual && r.z > 0).length, uDown = rows.filter((r) => r.unusual && r.z < 0).length;
-  const btc = all.find((r) => r.sym === 'BTCUSDT');
-  const kpi = (id, k, v, s) => `<div class="kpi"><div class="k"><span class="kt">${k}</span>${srcBtn(id)}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
-  put('mkt-kpis', [
-    kpi('kpi-breadth', 'Breadth', moved.length ? `${Math.round((up / moved.length) * 100)}% up` : '–', `${up} up · ${down} down`),
-    kpi('kpi-median', 'Median move', `<span class="${tone(median)}">${pct(median)}</span>`, `of ${moved.length} ${KIND_WORD[S.kind]}markets`),
-    kpi('kpi-unusual', 'Unusual now', `${uUp + uDown}`, `<span class="pos">${uUp} up</span> · <span class="neg">${uDown} down</span>`),
-    kpi('kpi-btc', 'Bitcoin', btc && btc.price ? price(btc.price) : '–', btc ? `<span class="${tone(btc.move)}">${pct(btc.move)}</span> · ${sig(btc.z)}` : '–'),
-  ].join(''));
+function paintKpis() {
+  const card = (src, id) => {
+    const d = DEFS.get(id), res = S.res.get(id);
+    const v = res && res.error ? '<span class="neg">!</span>' : fillCard(d.card.value, res);
+    const s = res && res.error ? 'The query failed: see ‹›' : fillCard(d.card.sub, res);
+    return `<div class="kpi"><div class="k"><span class="kt">${esc(d.name)}</span>${srcBtn(src)}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+  };
+  put('mkt-kpis', card('kpi-breadth', 'breadth') + card('kpi-median', 'median_move') + card('kpi-unusual', 'unusual_count') + card('kpi-btc', 'bitcoin'));
 }
 
-/** A verdict in a few words: the side and its held-back result when the pattern held up. */
-function evShort(e, strong = true) {
-  if (!e) return '–';
-  if (e.verdict === 'held up') return strong ? `<span class="mkt-ev">${e.side === 'fade' ? 'Fade' : 'Follow'} ${pct(e.held_back_net_after_cost)}</span>` : `<b>${e.side} ${pct(e.held_back_net_after_cost)}</b>`;
-  return esc(e.verdict);
+const KEY = `<p class="mkt-key"><b>z</b> = today's move ÷ the market's usual daily move (<b>σ</b>, the spread of its daily moves over its last 30 days); ${RULE.z}σ or more is unusual. <b>Next 1 h / 4 h / 24 h</b>: what moves of the same kind (direction, size, liquidity) did next since 2020. <b>Fade</b> or <b>Follow</b> with a result means the pattern held up on years held back from the choice, after costs; otherwise the verdict. The small line is every up (or down) move together, a wider group.</p>`;
+
+function paintUnusual() {
+  const res = S.res.get('unusual');
+  if (!res) { put('mkt-unusual', pending()); return; }
+  if (res.error) { put('mkt-unusual', failed(res)); return; }
+  if (!res.rows.length) {
+    put('mkt-unusual', `<div class="mkt-empty">${S.live.size ? `No ${KIND_WORD[S.kind]}market is unusual right now: none has moved ${RULE.z} or more of its usual daily moves today.` : 'Waiting for prices…'}</div>`);
+    return;
+  }
+  const table = resultTable(res, DEFS.get('unusual'), {
+    row: (o) => `data-mkt="row" data-sym="${esc(o.market)}" aria-selected="${S.open === o.market}"`,
+    extra: [{ label: 'Since', title: 'When this page first saw it unusual (kept by the page, not by the query)', cell: (o) => `<span class="faint">${clock(S.seen.get(o.market))}</span>` }],
+  });
+  // The chosen market's details sit under the table (not in it), so the text always fits the screen.
+  const open = S.open && objects(res).some((o) => o.market === S.open) ? marketDetail(S.open) : '';
+  put('mkt-unusual', `${table}${KEY}${open}`);
 }
 
-/** One evidence cell: this kind of move's verdict, and below it every move in that direction together. */
-function evCell(e, wide, dir) {
-  return `<div class="mkt-evc"><span class="v">${evShort(e)}</span>${wide !== undefined ? `<span class="mkt-ev-all">all ${dir}: ${evShort(wide, false)}</span>` : ''}</div>`;
+function paintMovers() {
+  const part = (id) => {
+    const res = S.res.get(id), d = DEFS.get(id);
+    const body = !res ? pending() : res.error ? failed(res) : !res.rows.length ? `<div class="mkt-empty">${S.live.size ? 'None.' : 'Waiting for prices…'}</div>` : resultTable(res, d);
+    return `<div><h3>${esc(d.name)}</h3>${body}</div>`;
+  };
+  put('mkt-movers', `<div class="mkt-movers">${part('gainers')}${part('losers')}</div>`);
+}
+
+/** Every market: the query returns them all; search, sorting and pages are the table's own controls. */
+function paintAll() {
+  const res = S.res.get('markets');
+  if (!res) { put('mkt-all', pending()); return; }
+  if (res.error) { put('mkt-all', failed(res)); return; }
+  const col = (n) => res.columns.indexOf(n);
+  const [iSym, iZ, iMove, iVol] = [col('market'), col('z'), col('today_pct'), col('volume_x')];
+  let rows = res.rows;
+  if (S.q && iSym >= 0) rows = rows.filter((r) => String(r[iSym]).includes(S.q) || ((typeOf(r[iSym]) || {}).label || '').toUpperCase().includes(S.q));
+  const num = (v, missing) => (v == null ? missing : v);
+  const key = {
+    z: (r) => (iZ < 0 ? 0 : Math.abs(num(r[iZ], -1))),
+    up: (r) => (iMove < 0 ? 0 : num(r[iMove], -Infinity)),
+    down: (r) => (iMove < 0 ? 0 : r[iMove] == null ? -Infinity : -r[iMove]),
+    vol: (r) => (iVol < 0 ? 0 : num(r[iVol], -1)),
+  }[S.sort];
+  rows = [...rows].sort((a, b) => key(b) - key(a) || (iSym < 0 ? 0 : String(a[iSym]).localeCompare(String(b[iSym]))));
+  put('mkt-all-sub', `${rows.length} ${KIND_WORD[S.kind]}markets${S.q ? ` matching “${esc(S.q)}”` : ''}; z is today's move in the market's usual daily moves (σ); volume is the last 24 hours against its usual day`);
+  if (!rows.length) { put('mkt-all', '<div class="mkt-empty">No market matches.</div>'); return; }
+  const shown = { columns: res.columns, rows: rows.slice(0, S.limit) };
+  const table = resultTable(shown, DEFS.get('markets'), {
+    row: (o) => `data-mkt="row" data-list="all" data-sym="${esc(o.market)}" aria-selected="${S.openAll === o.market}"`,
+  });
+  const picked = S.openAll && objects(shown).some((o) => o.market === S.openAll) ? marketDetail(S.openAll) : '';
+  const more = rows.length > S.limit ? `<button class="btn btn-sm mkt-more-btn" data-mkt="more">Show ${Math.min(50, rows.length - S.limit)} more (of ${rows.length - S.limit})</button>` : '';
+  put('mkt-all', `${table}${picked}${more}`);
+}
+
+/** The "how this is calculated" panels of the summary cards and the tables. */
+const PANELS = {
+  'kpi-breadth': ['breadth'], 'kpi-median': ['median_move'], 'kpi-unusual': ['unusual_count'], 'kpi-btc': ['bitcoin'],
+  unusual: ['unusual'], movers: ['gainers', 'losers'], every: ['markets'],
+};
+function paintSources() {
+  const panel = (key) => `<div class="mkt-src">${PANELS[key].map((id) => queryPanel(id)).join('')}</div>`;
+  put('mkt-kpi-src', S.src && S.src.startsWith('kpi-') ? panel(S.src) : '');
+  for (const [slot, key] of [['mkt-unusual-src', 'unusual'], ['mkt-movers-src', 'movers'], ['mkt-every-src', 'every']]) put(slot, S.src === key ? panel(key) : '');
 }
 
 /** The evidence in words, for the details. */
@@ -618,68 +730,69 @@ function evWords(e, h) {
   return `<p>${head} ${verdict}</p>`;
 }
 
-const KEY = `<p class="mkt-key"><b>z</b> = today's move ÷ the market's usual daily move (<b>σ</b>, the spread of its daily moves over its last 30 days); ${RULE.z}σ or more is unusual. <b>Next 1 h / 4 h / 24 h</b>: what moves of the same kind (direction, size, liquidity) did next since 2020. <b>Fade</b> or <b>Follow</b> with a result means the pattern held up on years held back from the choice, after costs; otherwise the verdict. The small line is every up (or down) move together, a wider group.</p>`;
+/** A verdict in a few words, from the evidence table: the side and its held-back result when it held up. */
+function evShort(e) {
+  if (!e) return '–';
+  if (e.verdict === 'held up') return `<span class="mkt-ev">${e.side === 'fade' ? 'Fade' : 'Follow'} ${pct(e.held_back_net_after_cost)}</span>`;
+  return esc(e.verdict);
+}
 
-function paintUnusual(rows) {
-  const list = rows.filter((r) => r.unusual).sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
-  if (!list.length) {
-    put('mkt-unusual', `<div class="mkt-empty">${S.ref && S.live.size ? `No ${KIND_WORD[S.kind]}market is unusual right now: none has moved ${RULE.z} or more of its usual daily moves today.` : 'Waiting for prices…'}</div>`);
-    return;
+/** A market's details: its move in words (from its query), the evidence when unusual, and its query. */
+function marketDetail(sym) {
+  const key = `market:${sym}`, res = S.res.get(key);
+  if (!res) return '<div class="mkt-more"><p>Calculating…</p></div>';
+  if (res.error) return `<div class="mkt-more">${failed(res)}<div class="mkt-src">${queryPanel('market', key, { symbol: sym })}</div></div>`;
+  const r = objects(res)[0], b = S.data.base.get(sym), t = typeOf(sym), l = S.live.get(sym);
+  const who = `${name(sym)}${t ? ` (${esc(t.label)})` : ''}`;
+  let html;
+  if (!r || r.today_pct == null) {
+    html = `<p>${who}: not scored yet${l ? ', yesterday\'s close is missing' : ', no live price yet'}.</p>`;
+  } else {
+    html = `<p>${who} has moved ${pct(r.today_pct / 100)} since yesterday's close${r.z != null ? `: ${sig(r.z)}, ${Math.abs(r.z).toFixed(1)} times its usual daily move (${Number(r.usual_day_pct).toFixed(2)}%${b ? ` over its last ${b.history_days} days` : ''})` : ''}.${r.direction ? ` Its own group: ${kindPhrase(r.direction, r.z_band, r.liquidity)}${b ? ` (average ${Math.round((b.avg_quote_volume_30d || 0) / 1e6).toLocaleString('en-US')} million USDT a day)` : ''}.` : ''}</p>`;
+    if (r.direction) {
+      if (t && t.group !== 'crypto') html += `<p class="warn">${name(sym)} is a ${esc(t.label.toLowerCase())} perpetual. Almost all the history behind the evidence is crypto: the side of each pattern was chosen on 2020–2024, when Binance had almost no stock, commodity or currency perpetuals. Treat the evidence with extra care here.</p>`;
+      html += HORIZONS.map((h) => evWords(S.data.ev.get(evKey(r.direction, r.z_band, r.liquidity, h)) || null, h)).join('');
+      html += `<p><b>For comparison, a wider group</b>, every ${r.direction} move together (any size, any market): ${HORIZONS.map((h) => `next ${h} h ${evShort(S.data.ev.get(evKey(r.direction, 'all', 'all', h)))}`).join(' · ')}. ${name(sym)}'s own group is the closer match; the wider group has many more examples but mixes very different moves.</p>`;
+    }
   }
-  const ev = S.data.ev;
-  const body = list.map((r) => {
-    const dir = r.z > 0 ? 'up' : 'down';
-    return `<tr data-mkt="row" data-sym="${esc(r.sym)}" aria-selected="${S.open === r.sym}">
-      <td class="sym">${market(r.sym)}</td><td>${price(r.price)}</td><td class="${tone(r.move)}">${pct(r.move)}</td>
-      <td><span class="mkt-tag ${dir}">${sig(r.z)}</span></td><td class="l">${LIQ[r.liq]}</td>
-      ${evidenceFor(ev, r.z, r.liq).map((e, i) => `<td>${evCell(e, ev.get(evKey(dir, 'all', 'all', HORIZONS[i])) || null, dir)}</td>`).join('')}
-      <td class="faint">${clock(S.seen.get(r.sym))}</td></tr>`;
-  }).join('');
-  // The chosen market's details sit under the table (not in it), so the text always fits the screen.
-  const r = list.find((x) => x.sym === S.open);
-  const more = r ? marketDetail(r) : '';
-  put('mkt-unusual', `<div class="scroll-x"><table class="mkt-table"><thead><tr><th>Market</th><th>Price</th><th>Today</th><th title="${Z_TIP}">z (σ)</th><th class="l" title="${LIQ_TIP}">Liquidity</th><th>Next 1 h</th><th>Next 4 h</th><th>Next 24 h</th><th title="When this page first saw it unusual">Since</th></tr></thead><tbody>${body}</tbody></table></div>${KEY}${more}`);
-}
-
-function paintMovers(rows) {
-  const moved = rows.filter((r) => r.move != null);
-  const table = (list) => (list.length
-    ? `<div class="scroll-x"><table class="mkt-table"><thead><tr><th>Market</th><th>Price</th><th>Today</th><th title="${Z_TIP}">z (σ)</th></tr></thead><tbody>${list.map((r) => `<tr><td class="sym">${market(r.sym)}</td><td>${price(r.price)}</td><td class="${tone(r.move)}">${pct(r.move)}</td><td>${sig(r.z)}</td></tr>`).join('')}</tbody></table></div>`
-    : '<div class="mkt-empty">Waiting for prices…</div>');
-  const gain = [...moved].sort((a, b) => b.move - a.move).slice(0, 8).filter((r) => r.move > 0);
-  const lose = [...moved].sort((a, b) => a.move - b.move).slice(0, 8).filter((r) => r.move < 0);
-  put('mkt-movers', `<div class="mkt-movers"><div><h3>Up the most</h3>${table(gain)}</div><div><h3>Down the most</h3>${table(lose)}</div></div>`);
-}
-
-function paintAll(rows) {
-  let list = S.q ? rows.filter((r) => r.sym.includes(S.q) || (r.type && r.type.label.toUpperCase().includes(S.q))) : rows;
-  const key = { z: (r) => (r.z == null ? -1 : Math.abs(r.z)), up: (r) => (r.move == null ? -Infinity : r.move), down: (r) => (r.move == null ? -Infinity : -r.move), vol: (r) => (r.volx == null ? -1 : r.volx) }[S.sort];
-  list = [...list].sort((a, b) => key(b) - key(a) || a.sym.localeCompare(b.sym));
-  put('mkt-all-sub', `${list.length} ${KIND_WORD[S.kind]}markets${S.q ? ` matching “${esc(S.q)}”` : ''}; z is today's move in the market's usual daily moves (σ); volume is the last 24 hours against its usual day`);
-  if (!list.length) { put('mkt-all', '<div class="mkt-empty">No market matches.</div>'); return; }
-  const shown = list.slice(0, S.limit);
-  const body = shown.map((r) => `<tr data-mkt="row" data-list="all" data-sym="${esc(r.sym)}" aria-selected="${S.openAll === r.sym}"><td class="sym">${market(r.sym)}</td><td>${price(r.price)}</td><td class="${tone(r.move)}">${pct(r.move)}</td>
-    <td>${r.unusual ? `<span class="mkt-tag ${r.z > 0 ? 'up' : 'down'}">${sig(r.z)}</span>` : sig(r.z)}</td>
-    <td>${size(r.b.sd_return_30d)}</td><td>${volx(r.volx)}</td><td class="l">${LIQ[r.liq]}</td></tr>`).join('');
-  const picked = shown.find((r) => r.sym === S.openAll);
-  const more = list.length > S.limit ? `<button class="btn btn-sm mkt-more-btn" data-mkt="more">Show ${Math.min(50, list.length - S.limit)} more (of ${list.length - S.limit})</button>` : '';
-  put('mkt-all', `<div class="scroll-x"><table class="mkt-table"><thead><tr><th>Market</th><th>Price</th><th>Today</th><th title="${Z_TIP}">z (σ)</th><th title="The market's usual daily move (σ) over its last 30 days">Usual day</th><th title="USDT traded in the last 24 hours ÷ its usual day">Volume</th><th class="l" title="${LIQ_TIP}">Liquidity</th></tr></thead><tbody>${body}</tbody></table></div>${picked ? marketDetail(picked) : ''}${more}`);
+  const raw = l ? `<details class="mkt-raw"><summary>The Binance message behind the price</summary><code>${esc(JSON.stringify(l.raw))}</code><p class="faint">${l.via === 'stream' ? `From the live stream at ${clockS(l.t)}: <code>c</code> is the last price, <code>q</code> the USDT traded in the last 24 hours.` : `From the price snapshot of ${clockS(l.t)}: it hasn't traded since this page opened.`}</p></details>` : '';
+  const past = r && r.direction ? `<details class="mkt-raw"><summary>Every past move behind these verdicts (Databricks)</summary>${sqlBlock('Databricks SQL', `SELECT event_hour, symbol, z, move_so_far, fwd_return_1h, fwd_return_4h, fwd_return_24h, period\nFROM market.gold.intraday_events\nWHERE direction = '${r.direction}' AND z_band = '${r.z_band}' AND liquidity = '${r.liquidity}'\nORDER BY event_hour DESC;`)}<p class="faint">Built by ${ghLink('intraday_events.sql')}; it exists only in the lakehouse.</p></details>` : '';
+  return `<div class="mkt-more">${html}<div class="mkt-src">${queryPanel('market', key, { symbol: sym })}${raw}${past}</div></div>`;
 }
 
 /* ---------- Patterns: every kind of move and what it did next ---------- */
 
-function paintPatterns(rows) {
+/** The verdicts and past moves of one kind of move, for Patterns. */
+function evidenceSql(dir, band, liq) {
+  const moves = band === 'all' ? `direction = '${dir}'` : `direction = '${dir}' AND z_band = '${band}' AND liquidity = '${liq}'`;
+  const verdicts = band === 'all' ? `direction = '${dir}' AND z_band = 'all' AND liquidity = 'all'` : moves;
+  return sqlBlock('The verdicts (Databricks SQL; in MEDUSA\'s D1 the table is market_evidence)', `SELECT horizon_hours, verdict, side, events, days, avg_continuation, in_sample_t, held_back_t, held_back_net_after_cost
+FROM market.gold.event_evidence
+WHERE ${verdicts}
+ORDER BY horizon_hours;`)
+    + sqlBlock('Every past move behind them (Databricks SQL)', `SELECT event_hour, symbol, z, move_so_far, fwd_return_1h, fwd_return_4h, fwd_return_24h, period
+FROM market.gold.intraday_events
+WHERE ${moves}
+ORDER BY event_hour DESC;`);
+}
+
+function evCell(e) {
+  return `<div class="mkt-evc"><span class="v">${evShort(e)}</span></div>`;
+}
+
+function paintPatterns() {
   const ev = S.data.ev;
   const evRows = [...ev.values()];
   const count = (v) => evRows.filter((e) => e.verdict === v).length;
   const total = (dir) => (ev.get(evKey(dir, 'all', 'all', 1)) || {}).events || 0;
-  const now = (dir, band, liq) => rows.filter((r) => r.unusual && (r.z > 0 ? 'up' : 'down') === dir && (band === 'all' || (zBand(r.z) === band && r.liq === liq)));
+  const flagged = objects(S.res.get('unusual_all_types'));   // live, from the query; every type
+  const now = (dir, band, liq) => flagged.filter((r) => r.direction === dir && (band === 'all' || (r.z_band === band && r.liquidity === liq)));
   const pub = S.data.published.market_evidence || {};
 
   const held = evRows.filter((e) => e.verdict === 'held up').sort((a, b) => b.held_back_net_after_cost - a.held_back_net_after_cost);
   const heldHtml = held.length ? held.map((e) => {
     const m = now(e.direction, e.z_band, e.liquidity);
-    return `<div><b>${e.side === 'fade' ? 'Fade' : 'Follow'} ${kindPhrase(e.direction, e.z_band, e.liquidity)}, over the next ${e.horizon_hours === 1 ? 'hour' : `${e.horizon_hours} hours`}:</b> <span class="mkt-ev">${pct(e.held_back_net_after_cost)}</span> a trade from 2025 after ${size(e.round_trip_cost)} costs (t ${tval(e.held_back_t)} over ${e.held_back_days} days), chosen on 2020–2024 (t ${tval(e.in_sample_t)} over ${e.in_sample_days} days). ${e.events} moves on ${e.days} days in all. Right now: ${m.length ? m.map((r) => name(r.sym)).join(', ') : 'no market'}.</div>`;
+    return `<div><b>${e.side === 'fade' ? 'Fade' : 'Follow'} ${kindPhrase(e.direction, e.z_band, e.liquidity)}, over the next ${e.horizon_hours === 1 ? 'hour' : `${e.horizon_hours} hours`}:</b> <span class="mkt-ev">${pct(e.held_back_net_after_cost)}</span> a trade from 2025 after ${size(e.round_trip_cost)} costs (t ${tval(e.held_back_t)} over ${e.held_back_days} days), chosen on 2020–2024 (t ${tval(e.in_sample_t)} over ${e.in_sample_days} days). ${e.events} moves on ${e.days} days in all. Right now: ${m.length ? m.map((r) => name(r.market)).join(', ') : 'no market'}.</div>`;
   }).join('') : '<div>No kind of move held up.</div>';
 
   const groups = [];
@@ -698,17 +811,17 @@ function paintPatterns(rows) {
   if (S.pat && ev.get(S.pat)) {
     const e = ev.get(S.pat);
     const m = now(e.direction, e.z_band, e.liquidity);
-    detail = `<div class="mkt-more"><p><b>${kindName(e.direction, e.z_band, e.liquidity)}</b>${e.z_band === 'all' ? ' (any size, any market)' : ''}.</p>${evWords(e, e.horizon_hours)}<p>Right now: ${m.length ? m.map((r) => `${name(r.sym)} ${sig(r.z)}`).join(', ') : 'no market is in this group'}.</p>
-      <h4>Where these numbers come from</h4><p>The lakehouse's <code>gold.event_evidence</code> (${ghLink('event_evidence.sql')}), built from <code>gold.intraday_events</code> (${ghLink('intraday_events.sql')}), copied to MEDUSA's <code>market_evidence</code>. <b>Now</b> is live, as on Today.</p>${evidenceSql(e.direction, e.z_band, e.liquidity)}</div>`;
+    detail = `<div class="mkt-more"><p><b>${kindName(e.direction, e.z_band, e.liquidity)}</b>${e.z_band === 'all' ? ' (any size, any market)' : ''}.</p>${evWords(e, e.horizon_hours)}<p>Right now: ${m.length ? m.map((r) => `${name(r.market)} ${sig(r.z)}`).join(', ') : 'no market is in this group'}.</p>
+      <h4>Where these numbers come from</h4><p>The lakehouse's <code>gold.event_evidence</code> (${ghLink('event_evidence.sql')}), built from <code>gold.intraday_events</code> (${ghLink('intraday_events.sql')}), copied to MEDUSA's <code>market_evidence</code>. <b>Now</b> is live, from the query below.</p>${evidenceSql(e.direction, e.z_band, e.liquidity)}</div>`;
   }
 
   put('mkt-patterns', `
     <section class="card">
       <div class="card-head"><div><h2>What similar moves did next</h2><p>Every time a market's move during a day reached ${RULE.z} of its usual daily moves since January 2020, the lakehouse recorded what the price did over the next 1, 4 and 24 hours: about ${(total('up') + total('down')).toLocaleString('en-US')} moves (${total('up').toLocaleString('en-US')} up, ${total('down').toLocaleString('en-US')} down), almost all of them crypto. Lakehouse day ${shortDay(pub.as_of)}.</p></div>${srcBtn('patterns')}</div>
-      ${srcBox('patterns', `<p>Everything in this view comes from the lakehouse, except <b>Now</b> and <b>Right now</b>, which are live, as on Today. Two dbt models build it on every daily run: ${ghLink('intraday_events.sql')} (every unusual move since 2020 and the price 1, 4 and 24 hours later) and ${ghLink('event_evidence.sql')} (the verdicts, judged by days, on 2020–2024 and then on 2025 onwards). The publish job copies the verdicts to MEDUSA's <code>market_evidence</code>${pub.published_at ? `, last at ${clock(pub.published_at)}` : ''}.</p>
+      ${srcBox('patterns', `<p>Everything in this view comes from the lakehouse, except <b>Now</b> and <b>Right now</b>, which are live. Two dbt models build it on every daily run: ${ghLink('intraday_events.sql')} (every unusual move since 2020 and the price 1, 4 and 24 hours later) and ${ghLink('event_evidence.sql')} (the verdicts, judged by days, on 2020–2024 and then on 2025 onwards). The publish job copies the verdicts to MEDUSA's <code>market_evidence</code>${pub.published_at ? `, last at ${clock(pub.published_at)}` : ''}.</p>
         ${sqlBlock('Every verdict (Databricks SQL)', 'SELECT direction, z_band, liquidity, horizon_hours, verdict, side, events, days,\n       in_sample_days, in_sample_t, held_back_days, held_back_t, held_back_net_after_cost\nFROM market.gold.event_evidence\nORDER BY direction, z_band, liquidity, horizon_hours;')}
         ${sqlBlock('How many moves, and when (Databricks SQL)', 'SELECT direction, period, COUNT(*) AS moves, COUNT(DISTINCT event_date) AS days\nFROM market.gold.intraday_events\nGROUP BY direction, period\nORDER BY direction, period;')}
-        ${sqlBlock("The same verdicts, in MEDUSA's copy (D1)", 'SELECT *\nFROM market_evidence\nORDER BY direction, z_band, liquidity, horizon_hours;')}`)}
+        ${queryPanel('unusual_all_types')}`)}
       <div class="mkt-counts"><span><b>${count('held up')}</b> held up</span><span><b>${count('did not hold')}</b> did not hold</span><span><b>${count('no pattern')}</b> no pattern</span><span><b>${count('too few')}</b> too few</span><span>of <b>${evRows.length}</b> kinds of move and horizons</span></div>
     </section>
     <section class="card">
@@ -745,7 +858,8 @@ async function load() {
       const ev = new Map(rowsOf(d.market_evidence).map((r) => [evKey(r.direction, r.z_band, r.liquidity, r.horizon_hours), r]));
       const published = d.published || {};
       if (S.data && (S.data.published.market_baseline || {}).as_of !== (published.market_baseline || {}).as_of) S.ref = null;   // a new day arrived
-      S.data = { published, base, ev, at: Date.now() };
+      const empty = { columns: [], rows: [] };
+      S.data = { published, base, ev, at: Date.now(), raw: { market_baseline: d.market_baseline || empty, market_evidence: d.market_evidence || empty } };
       S.loadErr = base.size ? null : 'The lakehouse hasn\'t published its tables to MEDUSA yet.';
     } catch (e) {
       if (e.message !== 'Signed out') {
@@ -780,18 +894,20 @@ async function loadTypes() {
     }
   }
   S.types = new Map(Object.entries(kept.map).map(([sym, [u, sub]]) => [sym, marketType(u, sub)]));
+  S.marketsVer++;
   schedule();
 }
 
 // Today's move is measured from yesterday's close. The lakehouse has it after its daily run (about
 // 13:30 UTC); before that its newest day is the day before, so yesterday's closes come from Binance's
 // daily candles instead: one small request per market, once a day per browser (kept in local storage).
+// The queries choose between the two (market_now): these closes go into binance_markets.
 async function ensureRef() {
   if (!S.data || S.loadErr) return;
-  const day = utcDay(Date.now() - DAY);
+  const day = yesterday();
   if ((S.ref && S.ref.day === day) || S.refBusy === day) return;
   S.refBusy = day;
-  const close = new Map(), need = [];
+  const close = new Map(), binance = new Map(), need = [];
   for (const b of S.data.base.values()) {
     if (b.status === 'not trading') continue;
     if (b.as_of_date === day) close.set(b.symbol, b.last_close);
@@ -801,7 +917,7 @@ async function ensureRef() {
   if (need.length) {
     const cached = api.store.get(`mkt.close.${day}`, {}) || {};
     const todo = need.filter((s) => !(cached[s] > 0));
-    need.forEach((s) => { if (cached[s] > 0) close.set(s, cached[s]); });
+    need.forEach((s) => { if (cached[s] > 0) { close.set(s, cached[s]); binance.set(s, cached[s]); } });
     S.refTotal = need.length; S.refDone = need.length - todo.length;
     schedule();
     const start = Date.parse(`${day}T00:00:00Z`);
@@ -812,7 +928,10 @@ async function ensureRef() {
         const r = await fetch(`${REST}/klines?symbol=${sym}&interval=1d&startTime=${start}&limit=1`, { credentials: 'omit' });
         if (r.status === 418 || r.status === 429) { stop = true; return; }   // Binance asks us to slow down: stop here
         const k = r.ok ? await r.json() : null;
-        if (Array.isArray(k) && k[0] && k[0][0] === start && Number(k[0][4]) > 0) { close.set(sym, Number(k[0][4])); cached[sym] = Number(k[0][4]); }
+        if (Array.isArray(k) && k[0] && k[0][0] === start && Number(k[0][4]) > 0) {
+          const c = Number(k[0][4]);
+          close.set(sym, c); binance.set(sym, c); cached[sym] = c;
+        }
       } catch { /* this market stays unscored */ }
       S.refDone++;
       schedule();
@@ -828,8 +947,9 @@ async function ensureRef() {
     if (missing) api.log('markets', `Yesterday's close is missing for ${missing} of ${need.length} markets`, null, 'debug');
   }
   if (S.refBusy !== day) return;   // the day changed meanwhile: a newer run takes over
-  S.ref = { day, close, src, missing };
+  S.ref = { day, close, binance, src, missing };
   S.refBusy = null;
+  S.marketsVer++;
   schedule();
 }
 
@@ -839,7 +959,11 @@ async function snapshot() {
   try {
     const r = await fetch(`${REST}/ticker/price`, { credentials: 'omit' });
     if (!r.ok) return;
-    for (const p of await r.json()) if (!S.live.has(p.symbol)) S.live.set(p.symbol, { price: Number(p.price), q: null, t: p.time, raw: p, via: 'snapshot' });
+    for (const p of await r.json()) {
+      if (S.live.has(p.symbol)) continue;
+      S.live.set(p.symbol, { price: Number(p.price), q: null, t: p.time, raw: p, via: 'snapshot' });
+      S.dirty.add(p.symbol);
+    }
     S.snapAt = Date.now();
     schedule();
   } catch { /* the stream fills them in */ }
@@ -856,7 +980,11 @@ function connect() {
     let d;
     try { d = JSON.parse(e.data); } catch { return; }
     if (!Array.isArray(d)) return;
-    for (const t of d) if (t && t.s) S.live.set(t.s, { price: Number(t.c), q: Number(t.q), t: t.E, raw: t, via: 'stream' });
+    for (const t of d) {
+      if (!t || !t.s) continue;
+      S.live.set(t.s, { price: Number(t.c), q: Number(t.q), t: t.E, raw: t, via: 'stream' });
+      S.dirty.add(t.s);
+    }
     S.lastMsg = Date.now();
     if (S.wsState !== 'live') S.wsState = 'live';
     schedule();
@@ -895,32 +1023,40 @@ async function start() {
 
 /* ---------- entry points (app.js) ---------- */
 
-/** Every market behind a number, with each input exactly as used now and where it came from. */
-function downloadCsv(scope) {
-  const all = compute();
-  let rows = S.kind === 'all' ? all : all.filter((r) => r.type && r.type.group === S.kind);
-  if (scope === 'unusual') rows = rows.filter((r) => r.unusual);
-  else if (scope === 'moved') rows = rows.filter((r) => r.move != null);
-  else if (scope === 'every' && S.q) rows = rows.filter((r) => r.sym.includes(S.q) || (r.type && r.type.label.toUpperCase().includes(S.q)));
-  const iso = (ms) => (ms ? new Date(ms).toISOString() : '');
-  const head = ['market', 'type', 'price', 'price_time_utc', 'price_source', 'yesterday_close', 'close_source', 'move_today', 'avg_return_30d',
-    'sd_return_30d', 'history_days', 'z', 'unusual', 'avg_quote_volume_30d', 'liquidity', 'quote_volume_24h', 'lakehouse_day'];
-  const lines = rows.map((r) => {
-    const l = S.live.get(r.sym), close = S.ref ? S.ref.close.get(r.sym) : null;
-    return [r.sym, r.type ? r.type.label : '', l ? l.price : '', l ? iso(l.t) : '', l ? `binance ${l.via}` : '', close,
-      close == null ? '' : r.b.as_of_date === S.ref.day ? 'lakehouse market_baseline' : 'binance daily candle', r.move, r.b.avg_return_30d,
-      r.b.sd_return_30d, r.b.history_days, r.z, r.unusual, r.b.avg_quote_volume_30d, r.liq, l && l.q ? l.q : '', r.b.as_of_date].map(csvCell).join(',');
-  });
-  const blob = new Blob([`﻿${[head.join(','), ...lines].join('\n')}\n`], { type: 'text/csv;charset=utf-8' });
-  const a = Object.assign(document.createElement('a'), {
-    href: URL.createObjectURL(blob),
-    download: `medusa-markets-${scope}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}Z.csv`,
-  });
+function saveCsv(file, columns, rows) {
+  const blob = new Blob([`﻿${[columns.map(csvCell).join(','), ...rows.map((r) => r.map(csvCell).join(','))].join('\n')}\n`], { type: 'text/csv;charset=utf-8' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: file });
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-  api.log('markets', `Downloaded the inputs (${scope}, ${rows.length} markets)`);
+}
+
+/** A query's result, or every input behind it (each market's row of market_now), as a CSV file. */
+async function downloadCsv(key, what) {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const q = S.sql.get(key);
+  if (what === 'result') {
+    const res = S.res.get(key);
+    if (!res || res.error) { api.toast('There is no result to download yet.', 'error'); return; }
+    saveCsv(`medusa-markets-${key.replace(/[^\w-]/g, '-')}-${stamp}Z.csv`, res.columns, res.rows);
+    api.log('markets', `Downloaded the result of ${key} (${res.rows.length} rows)`);
+    return;
+  }
+  const one = q && q.params.symbol;
+  const def = {
+    name: 'The inputs', description: 'each market with its live price, yesterday\'s close and its normal',
+    sql: `SELECT * FROM market_now\nWHERE :kind IN ('all', market_type)${one ? '\n  AND symbol = :symbol' : ''}`,
+  };
+  try {
+    const out = await call({ op: 'run', jobs: [{ id: 'inputs', sql: assemble(def), params: { ':kind': S.kind, ':yesterday': yesterday(), ...(one ? { ':symbol': one } : {}) } }] }, 5_000);
+    const res = out.inputs;
+    if (res.error) throw new Error(res.error);
+    saveCsv(`medusa-markets-inputs-${stamp}Z.csv`, res.columns, res.rows);
+    api.log('markets', `Downloaded the inputs (${res.rows.length} markets)`);
+  } catch (e) {
+    api.toast(`The inputs couldn't be read: ${e.message}`, 'error');
+  }
 }
 
 function onClick(e) {
@@ -928,30 +1064,33 @@ function onClick(e) {
   if (!el || !host.contains(el)) return;
   const act = el.dataset.mkt;
   if (act === 'retry') { S.loadErr = null; paint(); start(); return; }
+  if (act === 'engine') { restartEngine(); draw(); return; }
   if (act === 'copy') {
-    const q = el.dataset.sql ? S.sql.get(el.dataset.sql) : null;
-    const sql = q ? q[el.dataset.db] : el.closest('.mkt-sql').querySelector('pre').textContent;
+    const sql = el.dataset.sql ? copyText(el.dataset.sql, el.dataset.db) : el.closest('.mkt-sql').querySelector('pre').textContent;
+    if (!sql) { api.toast('Not calculated yet: try again in a second.', 'error'); return; }
     const where = el.dataset.db === 'dbx' ? ' for Databricks' : el.dataset.db === 'd1' ? ' for MEDUSA\'s D1' : '';
     navigator.clipboard.writeText(sql).then(() => api.toast(`Query copied${where}.`), () => api.toast('Copying isn\'t allowed here: select the query and copy it.', 'error'));
     return;
   }
-  if (act === 'csv') { downloadCsv(el.dataset.scope); return; }
+  if (act === 'csv') { downloadCsv(el.dataset.key, el.dataset.what); return; }
   if (act === 'view') { S.view = el.dataset.v; api.store.set('mktView', S.view); }
   else if (act === 'kind') { S.kind = el.dataset.v; S.limit = 50; api.store.set('mktKind', S.kind); }
-  else if (act === 'sort') { S.sort = el.dataset.v; S.limit = 50; }
-  else if (act === 'more') S.limit += 50;
-  else if (act === 'src') S.src = S.src === el.dataset.id ? null : el.dataset.id;
+  else if (act === 'sort') { S.sort = el.dataset.v; S.limit = 50; draw(); return; }
+  else if (act === 'more') { S.limit += 50; draw(); return; }
+  else if (act === 'src') { S.src = S.src === el.dataset.id ? null : el.dataset.id; draw(); return; }
   else if (act === 'row' && el.dataset.list === 'all') S.openAll = S.openAll === el.dataset.sym ? null : el.dataset.sym;
   else if (act === 'row') S.open = S.open === el.dataset.sym ? null : el.dataset.sym;
-  else if (act === 'pat') S.pat = S.pat === el.dataset.k ? null : el.dataset.k;
-  paint();
+  else if (act === 'pat') { S.pat = S.pat === el.dataset.k ? null : el.dataset.k; draw(); return; }
+  draw();
+  S.urgent = true;
+  paint();   // the view, type or an opened market changes which queries run
 }
 
 function onInput(e) {
   if (e.target.id !== 'mkt-q') return;
   S.q = e.target.value.trim().toUpperCase();
   S.limit = 50;
-  paint();
+  draw();
 }
 
 /** Show the page (each time it is opened). */
@@ -972,7 +1111,8 @@ export function render(el, appApi) {
   start();
 }
 
-/** The page was left: close the live stream until it is opened again. */
+/** The page was left: close the live stream until it is opened again. The SQL engine stays, with its
+ * tables, so the page is back at once. */
 export function stop() {
   S.stopped = true;
   clearTimeout(S.retry);

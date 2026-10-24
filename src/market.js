@@ -9,6 +9,8 @@
 // else, which is why the job doesn't get a token for the whole database (ADR-024).
 //
 // The live scanner page reads them back through GET /api/market/scanner, for signed-in accounts only.
+// That answer is the same for everyone, so it is built once when the data changes and kept ready-made
+// in Workers KV (ADR-026): page loads read one KV value, not D1.
 
 import { json, fail, SECURITY } from './http.js';
 
@@ -117,57 +119,72 @@ export async function marketIngest(req, env) {
       .bind(body.table, body.as_of, body.rows.length, Date.now()),
     db.prepare(`SELECT COUNT(*) AS n FROM ${body.table}`),
   ]);
-  return json({ ok: true, table: body.table, as_of: body.as_of, rows: counted.results[0].n });
+  // The tables changed, so the scanner's ready-made answer is rebuilt now. If that fails, the old answer
+  // is removed rather than left behind: readers then get the new data from D1 until the next publish.
+  let served = 'kv';
+  try {
+    await env.LAB.put(ANSWER_KEY, await buildAnswer(env));
+  } catch {
+    served = 'd1';
+    await env.LAB.delete(ANSWER_KEY).catch(() => {});
+  }
+  return json({ ok: true, table: body.table, as_of: body.as_of, rows: counted.results[0].n, served });
 }
 
 /* ---------- the read side: what the live scanner page loads ---------- */
 
 // Behind the sign-in like the rest of MEDUSA (worker.js checks the session first, ADR-025), but the
 // same answer for every account: it holds no one's own data. Rows go out as lists in the column order
-// of TABLES, much smaller than one object per row. Cloudflare's cache keeps one copy for everyone and
-// each browser its own ("private": never a shared proxy), 5 minutes each, so most visits never reach
-// D1 and a new publish shows within about 10 minutes. x-cache says whether Cloudflare's cache answered
-// (HIT) or D1 (MISS). The cache key is an internal address no request from outside can reach.
-const READ_SECONDS = 300;
-const READ_KEY = 'https://medusa.cache/market/scanner';
+// of TABLES, much smaller than one object per row.
+//
+// The answer is kept ready-made in Workers KV (ADR-026). The ingest above rebuilds it after every
+// publish, so a page load reads one KV value instead of about 810 D1 rows, and it is never older than
+// the last publish. (Cloudflare's Cache API, used before, does nothing on a workers.dev address.)
+// It sits in the Lab's KV namespace under market/; the Lab finds its own keys through D1 and never
+// lists the namespace. When the answer isn't there (before the first publish, or after a failed
+// rebuild) it comes from D1 and is kept for 10 minutes, so even a copy that raced a publish soon goes.
+// x-cache says which answered: KV or D1. Each browser keeps its copy 5 minutes ("private").
+const ANSWER_KEY = 'market/scanner.json';
+const FALLBACK_SECONDS = 600;
 
-const readAnswer = (body, cached) => new Response(body, {
+const readAnswer = (body, from) => new Response(body, {
   headers: {
     'content-type': 'application/json; charset=utf-8',
-    'cache-control': `private, max-age=${READ_SECONDS}`,
-    'x-cache': cached ? 'HIT' : 'MISS',
+    'cache-control': 'private, max-age=300',
+    'x-cache': from,
     ...SECURITY,
   },
 });
 
-/** GET /api/market/scanner: {published: {table: {as_of, rows, published_at}}, table: {columns, rows}}. */
-export async function marketScanner(env) {
-  const cache = caches.default;
-  const key = new Request(READ_KEY);
-  const hit = await cache.match(key);
-  if (hit) return readAnswer(hit.body, true);
-
-  // One batch is one transaction, so the tables and their publish records always belong together.
+/** Both market tables and their publish records, read in one batch: one transaction, so the tables and
+ * their records always belong together. */
+async function buildAnswer(env) {
   const names = Object.keys(TABLES);
   const db = env.DB;
-  let results;
-  try {
-    results = await db.batch([
-      ...names.map((t) => db.prepare(
-        `SELECT ${Object.keys(TABLES[t].columns).join(', ')} FROM ${t} ORDER BY ${TABLES[t].key.join(', ')}`)),
-      db.prepare('SELECT tbl, as_of, rows, published_at FROM market_publish'),
-    ]);
-  } catch (e) {
-    if (/no such table/i.test(String(e && e.message))) return fail(503, 'Market data is not set up on this server (migrations/003_market.sql).');
-    throw e;
-  }
-
+  const results = await db.batch([
+    ...names.map((t) => db.prepare(
+      `SELECT ${Object.keys(TABLES[t].columns).join(', ')} FROM ${t} ORDER BY ${TABLES[t].key.join(', ')}`)),
+    db.prepare('SELECT tbl, as_of, rows, published_at FROM market_publish'),
+  ]);
   const answer = { published: Object.fromEntries(results.at(-1).results.map(({ tbl, ...p }) => [tbl, p])) };
   names.forEach((t, i) => {
     const columns = Object.keys(TABLES[t].columns);
     answer[t] = { columns, rows: results[i].results.map((r) => columns.map((c) => r[c])) };
   });
-  const body = JSON.stringify(answer);
-  await cache.put(key, new Response(body, { headers: { 'cache-control': `public, max-age=${READ_SECONDS}` } }));
-  return readAnswer(body, false);
+  return JSON.stringify(answer);
+}
+
+/** GET /api/market/scanner: {published: {table: {as_of, rows, published_at}}, table: {columns, rows}}. */
+export async function marketScanner(env) {
+  const kept = await env.LAB.get(ANSWER_KEY);
+  if (kept) return readAnswer(kept, 'KV');
+  let body;
+  try {
+    body = await buildAnswer(env);
+  } catch (e) {
+    if (/no such table/i.test(String(e && e.message))) return fail(503, 'Market data is not set up on this server (migrations/003_market.sql).');
+    throw e;
+  }
+  await env.LAB.put(ANSWER_KEY, body, { expirationTtl: FALLBACK_SECONDS }).catch(() => {});
+  return readAnswer(body, 'D1');
 }

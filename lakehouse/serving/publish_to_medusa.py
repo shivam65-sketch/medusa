@@ -138,20 +138,23 @@ def main():
             rows = query(warehouse, sql)
             answer = send(f"{url}/api/market/ingest", token, {"table": table, "as_of": as_of, "rows": rows})
             ok = answer.get("ok") is True and answer.get("rows") == len(rows)
-            summary.append((table, len(rows), answer.get("rows"), "OK" if ok else "MISMATCH"))
-            print(f"{table}: gold {len(rows)} rows, MEDUSA {answer.get('rows')} rows: {'OK' if ok else 'MISMATCH'}")
+            # "kv": MEDUSA rebuilt the scanner's ready-made answer; "d1": it couldn't, so the scanner
+            # reads D1 until the next publish (the data is still right, ADR-026).
+            served = answer.get("served", "-")
+            summary.append((table, len(rows), answer.get("rows"), "OK" if ok else "MISMATCH", served))
+            print(f"{table}: gold {len(rows)} rows, MEDUSA {answer.get('rows')} rows: {'OK' if ok else 'MISMATCH'}; scanner answer from {served}")
             failed |= not ok
         except Exception as e:
-            summary.append((table, None, None, "FAILED"))
+            summary.append((table, None, None, "FAILED", "-"))
             print(f"FAILED   {table}: {e}", file=sys.stderr)
             failed = True
 
     # A small table on the run's summary page in GitHub.
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
-            f.write(f"### Published to MEDUSA (lakehouse day {as_of})\n\n| Table | Gold rows | MEDUSA rows | Check |\n|---|---|---|---|\n")
-            for t, g, m, s in summary:
-                f.write(f"| `{t}` | {g if g is not None else '-'} | {m if m is not None else '-'} | {s} |\n")
+            f.write(f"### Published to MEDUSA (lakehouse day {as_of})\n\n| Table | Gold rows | MEDUSA rows | Check | Scanner answer |\n|---|---|---|---|---|\n")
+            for t, g, m, s, v in summary:
+                f.write(f"| `{t}` | {g if g is not None else '-'} | {m if m is not None else '-'} | {s} | {v} |\n")
     return 1 if failed else 0
 
 

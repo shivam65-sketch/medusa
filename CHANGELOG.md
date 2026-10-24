@@ -3,6 +3,17 @@
 Every release of MEDUSA, newest first. The current version is in `public/version.json` (shown in the
 app's menu and on the sign-in page); each release adds a section here with the same number.
 
+## Unreleased
+
+Live, not yet a numbered release; planned as 1.7.0 with editable definitions.
+
+- Markets: **every number on Today is calculated by SQL**. The queries run in a small SQLite database inside the browser (sql.js 1.14.2, SQLite compiled to WebAssembly, in a background worker): it holds MEDUSA's copies of the lakehouse tables (`market_baseline`, `market_evidence`), the live prices (`live_prices`, kept up to date from Binance's stream) and each market's type with Binance's close for yesterday (`binance_markets`). About once a second the page writes the prices that changed and runs the queries (about 50 ms in all); the cards and tables show what they return. Every number is defined once, in `public/markets-metrics.js`: four shared steps (`market_now`, `today`, `flagged`, `verdicts`) and a query for each card and table, with its name, its definition in words and how its columns are shown.
+- Markets, how each number is calculated: the panel shows the query exactly as it ran (it reads `FROM live_prices`; no prices are written into it), its parameters (the type filter and yesterday's date), the raw result, and where each table comes from. **Copy for MEDUSA (D1)** and **Copy for Databricks** add the browser-only tables as values, as they were for the result on screen, and fill in the parameters, so the copy returns that result. **Download the result (CSV)** and **Download the inputs (CSV)** (each market's price, yesterday's close and its normal).
+- Markets: choosing a type or opening a market recalculates at once (about 0.1 s instead of up to 1 s).
+- Server: `GET /api/market/scanner` answers from Workers KV instead of D1. The ingest saves the answer ready-made after every publish, so a page load no longer reads about 810 D1 rows and the answer is never older than the last publish. Cloudflare's cache, used before, does nothing on a `workers.dev` address. `x-cache` says `KV` or `D1`.
+- Security policy: `/markets-sql.js` may run WebAssembly (`'wasm-unsafe-eval'`) and reach only MEDUSA, like the Lab's Python worker; files under `/vendor/` are cached for a year (the version is in the path).
+- Market data lakehouse: a dbt exposure, `markets_page`, ties the Markets page to the gold models it reads; the publish job's summary shows whether MEDUSA rebuilt the scanner's answer.
+
 ## 1.6.0 (2026-10-24)
 
 - **Markets**, a new page in the menu (under Journal): a live scanner of every Binance USDⓈ-M perpetual quoted in USDT, from crypto coins and tokens to the TradFi perpetuals on stocks, commodities, a currency and indices. Each market's move today (from yesterday's close, UTC) is compared with its own normal from the market data lakehouse; live prices stream from Binance straight to the browser, about once a second and only while the page is open. Like every page, it needs a signed-in account.

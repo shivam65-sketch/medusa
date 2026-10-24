@@ -424,3 +424,37 @@ Types follow SQLite: text, `REAL` for numbers, `INTEGER` for counts; dates are `
 
 **What the data looks like (2026-10-22 23:46 UTC):** `market_baseline` 748 rows and `market_evidence`
 60 rows, lakehouse day 2026-10-21, matching gold exactly.
+
+### The scanner's answer, ready-made (Workers KV)
+
+After replacing a table, the ingest saves the read endpoint's whole answer in Workers KV, key
+`market/scanner.json` in the Lab's namespace
+([ADR-026](decisions.md#adr-026-the-scanners-answer-is-kept-ready-made-in-workers-kv)). It is what
+`GET /api/market/scanner` returns (about 160 KB):
+
+| Part | Holds |
+|---|---|
+| `published` | One entry per table: `as_of`, `rows`, `published_at`, as in `market_publish` |
+| `market_baseline`, `market_evidence` | `columns` (the D1 columns, in order) and `rows` (one list of values per row, in key order) |
+
+## On the Markets page (browser only)
+
+The page keeps a SQLite database in the browser tab and calculates every number on it with SQL
+([ADR-028](decisions.md#adr-028-every-number-is-a-sql-query-run-in-the-browser);
+[step 26](steps/26-numbers-built-by-sql.md)). It holds `market_baseline` and `market_evidence`, loaded
+from the answer above with D1's schema, and two tables that exist only there. Nothing in it is stored
+anywhere: closing the tab deletes it.
+
+| Table | Key | Filled by | Columns |
+|---|---|---|---|
+| `live_prices` | `symbol` | Binance's live stream, upserted about once a second (and one price snapshot when the page opens) | `symbol`, `price` (last price), `quote_volume_24h` (USDT traded in the last 24 hours; empty until the market's first stream message) |
+| `binance_markets` | `symbol` | Binance's contract list (once a day) and Binance's daily candles | `symbol`, `market_type` (`crypto`, `stock`, `commodity` or `other`), `yesterday_close` (only while the lakehouse doesn't have yesterday) |
+
+The shared steps (models) every Today number reads, defined in `public/markets-metrics.js`:
+
+| Model | Grain | Columns |
+|---|---|---|
+| `market_now` | One trading market | `symbol`, `market_type`, `price`, `quote_volume_24h`, `prev_close` (the lakehouse's close, or Binance's while the lakehouse is behind), `avg_return_30d`, `sd_return_30d`, `history_days`, `avg_quote_volume_30d` |
+| `today` | One trading market | `symbol`, `market_type`, `price`, `move` (fraction), `z`, `sd_return_30d`, `volume_x` (24 hours ÷ a usual day), `liquidity` |
+| `flagged` | One unusual market (\|z\| ≥ 3) | Every column of `today`, plus `direction` and `z_band` |
+| `verdicts` | One kind of move (`direction`, `z_band`, `liquidity`) | `next_1h`, `next_4h`, `next_24h`: `fade 0.22%` (the side and its held-back result) when the pattern held up, otherwise the verdict |

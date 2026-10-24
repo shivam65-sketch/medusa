@@ -3,7 +3,8 @@
 A daily data pipeline for crypto futures market data. Every morning it loads the previous day's
 1-minute candles and market metrics for every Binance USDⓈ-M perpetual into a Databricks
 lakehouse, where the history is kept and analysed. MEDUSA's **Markets** page, a live scanner, compares
-each market's move today with its own history from these tables ([step 25](docs/steps/25-scanner-page.md)).
+each market's move today with its own history from these tables ([step 25](docs/steps/25-scanner-page.md)),
+and every number on it is calculated by SQL in the browser ([step 26](docs/steps/26-numbers-built-by-sql.md)).
 
 It lives inside the [MEDUSA](../README.md) repository: MEDUSA is the trading journal and backtesting
 app; this folder is its market data platform.
@@ -19,7 +20,7 @@ flowchart LR
     E --> F["Silver<br>dbt models"]
     F --> G["Gold<br>dbt models"]
   end
-  G -.->|daily copy, publish job| I["MEDUSA Markets page (live scanner)<br>Cloudflare D1 + live Binance stream"]
+  G -.->|daily copy, publish job| I["MEDUSA Markets page (live scanner)<br>Cloudflare D1 + KV, live Binance stream<br>numbers calculated by SQL in the browser"]
 ```
 
 | Layer | Holds | Built by |
@@ -69,7 +70,10 @@ flowchart LR
 | [23. Serving tables](docs/steps/23-serving-tables.md) | MEDUSA's copy of `coin_baseline` and `event_evidence` in D1, filled through a write-only endpoint with its own token | Done |
 | [24. Publish job](docs/steps/24-publish-job.md) | After every transform, gold is copied into MEDUSA and the row counts reconciled | Done |
 | [25. Scanner page](docs/steps/25-scanner-page.md) | The live scanner, MEDUSA's Markets page (release 1.6.0, signed-in accounts): live Binance prices against each market's normal, the evidence, Patterns, and where every number comes from | Done |
-| 26. Decisions and lineage | Decision records for the live layer in the browser and per-number lineage; a dbt exposure that ties the scanner to its gold models | Next |
+| [26. Numbers built by SQL](docs/steps/26-numbers-built-by-sql.md) | Every number on the Markets page calculated by SQL in the browser (SQLite) from the live prices and the serving copy; the scanner's answer kept ready-made in Workers KV; a dbt exposure tying the page to its gold models | Done |
+| 27. Metric definitions in Databricks | Each number's name, definition and SQL in a versioned table, published to MEDUSA, which runs them | Next |
+| 28. Editing the definitions | Change a number's SQL on the page: a preview for everyone, saved by the owner to Databricks with its history | Planned |
+| 29. Patterns on SQL, release 1.7.0 | The Patterns view on the same engine; MEDUSA 1.7.0 | Planned |
 
 ## Folder layout
 
@@ -80,7 +84,8 @@ lakehouse/
 ├─ sql/ddl/                  numbered, re-runnable DDL (catalog, schemas, volume)
 ├─ ingest/                   the downloader that GitHub Actions runs
 ├─ pipelines/bronze/         the bronze Lakeflow pipeline (SQL)
-├─ dbt/                      the dbt project for silver and gold (models, tests, macros)
+├─ dbt/                      the dbt project for silver and gold (models, tests, macros, the Markets page exposure)
+├─ serving/                  the publish job that copies gold into MEDUSA
 ├─ docs/                     everything linked above
 └─ .gitignore                keeps downloaded data and secrets out of Git
 ```
