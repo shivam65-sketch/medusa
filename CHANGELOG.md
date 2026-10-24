@@ -5,8 +5,10 @@ app's menu and on the sign-in page); each release adds a section here with the s
 
 ## Unreleased (planned as 1.6.0, with the live scanner)
 
-Changes already live on the server but not yet part of a numbered release.
+Changes already live but not yet part of a numbered release.
 
+- **Markets** (new page in the menu, under Journal): the live scanner's **Today** view. Every Binance USDT perpetual's move today (from yesterday's close, UTC) against its own normal from the market data lakehouse, with live prices streamed from Binance straight to the browser (about once a second, only while the page is open). The summary shows the market's breadth, the median move, how many coins are unusual and Bitcoin. **Unusual right now** lists every coin that has moved at least 3 of its usual daily moves (|z| ≥ 3), with what similar moves (direction, size, coin liquidity) did over the next 1, 4 and 24 hours since 2020, judged on years held back from the choice and after costs; tap a coin for the evidence in words. **Movers today** and **Every coin** (search, sort by most unusual, gainers, losers or volume against normal) cover the rest. Before the lakehouse publishes yesterday (about 13:30 UTC), yesterday's closes come from Binance, once a day per browser. The page's rule reproduces the lakehouse's own events exactly (300 of 300 checked).
+- Security policy: the page may also connect to Binance's live futures stream (`wss://fstream.binance.com`).
 - Server: a daily copy of the market data lakehouse's tables for the coming live scanner: each coin's normal (`market_baseline`) and what similar moves did next (`market_evidence`), with `market_publish` recording each copy. They arrive through `POST /api/market/ingest`, which needs its own token (`MARKET_INGEST_TOKEN`), checks every row, can only replace these tables, and swaps a table in one transaction. Nothing changes in the app yet.
 - Server: `GET /api/market/scanner` gives the live scanner page that copy: read-only and, like the rest of MEDUSA, only for signed-in accounts; both tables read in one transaction together with when each was published, rows sent as lists in a fixed column order (about 160 KB, 67 KB compressed). The answer is the same for every account, so Cloudflare's cache keeps one copy for 5 minutes (and each browser its own), and most visits never reach the database.
 

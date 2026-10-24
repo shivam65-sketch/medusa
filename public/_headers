@@ -4,7 +4,7 @@
   Referrer-Policy: no-referrer
   X-Frame-Options: DENY
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.binance.com https://fapi.binance.com https://data.binance.vision; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.binance.com https://fapi.binance.com https://data.binance.vision wss://fstream.binance.com; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'
 
 # MEDUSA Lab's Python engine (a background worker). WebAssembly needs 'wasm-unsafe-eval'; only this
 # worker gets it, and it can't reach Binance or anything else outside MEDUSA. It also switches its

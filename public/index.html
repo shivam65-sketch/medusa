@@ -64,7 +64,7 @@ h1, h2, h3, p { margin: 0; }
 .top-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .last-import { font-size: 13px; color: var(--text-3); }
 .view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }
-#app[data-view="lab"] .j-only, #app[data-view="devtools"] .j-only { display: none !important; }
+#app[data-view="lab"] .j-only, #app[data-view="devtools"] .j-only, #app[data-view="markets"] .j-only { display: none !important; }
 
 /* ---------- the left sidebar: Journal, the Lab's pages, Logs ---------- */
 .shell { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; }
@@ -462,6 +462,7 @@ textarea.input { min-height: 110px; resize: vertical; line-height: 1.5; }
 <div id="app" class="shell" hidden>
   <nav class="sidenav" id="side" aria-label="MEDUSA">
     <button class="side-item" data-action="nav" data-nav="journal" data-tip="Journal" aria-label="Journal" aria-current="false"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3.5h12.5A1.5 1.5 0 0 1 19 5v15H6.5A1.5 1.5 0 0 1 5 18.5z"/><path d="M5 18.5A1.5 1.5 0 0 1 6.5 17H19M9 7.5h6M9 11h6"/></svg><span class="side-label">Journal</span></button>
+    <button class="side-item" data-action="nav" data-nav="markets" data-tip="Markets" aria-label="Markets" aria-current="false"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 17.5l5.5-5.5 4 4 7.5-7.5"/><path d="M15 8.5h5.5V14"/></svg><span class="side-label">Markets</span></button>
     <div class="side-group"><span>Lab</span></div>
     <button class="side-item" data-action="nav" data-nav="lab:dashboard" data-tip="Dashboard" aria-label="Dashboard" aria-current="false"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15.5a8 8 0 1 1 16 0"/><path d="M12 15.5l4-4.5"/><circle cx="12" cy="15.5" r="1.2"/></svg><span class="side-label">Dashboard</span></button>
     <button class="side-item" data-action="nav" data-nav="lab:data" data-tip="Get data" aria-label="Get data" aria-current="false"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 19.5h14"/></svg><span class="side-label">Get data</span></button>
@@ -569,6 +570,7 @@ textarea.input { min-height: 110px; resize: vertical; line-height: 1.5; }
     <div id="hist"></div>
   </section>
   </div>
+  <div id="markets" class="view" hidden></div>
   <div id="lab" class="view" hidden></div>
   <div id="devtools" class="view" hidden>
     <div class="toggle dev-tabs" role="group" aria-label="Dev tools">
@@ -587,6 +589,6 @@ textarea.input { min-height: 110px; resize: vertical; line-height: 1.5; }
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="/stats.js?v=20"></script>
-<script src="/app.js?v=26"></script>
+<script src="/app.js?v=27"></script>
 </body>
 </html>

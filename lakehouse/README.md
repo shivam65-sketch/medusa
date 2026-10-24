@@ -68,7 +68,7 @@ flowchart LR
 | [22. Evidence](docs/steps/22-evidence.md) | Every unusual intraday move since 2020 and what followed over 1, 4 and 24 hours, judged by days and on held-back years | Done |
 | [23. Serving tables](docs/steps/23-serving-tables.md) | MEDUSA's copy of `coin_baseline` and `event_evidence` in D1, filled through a write-only endpoint with its own token | Done |
 | [24. Publish job](docs/steps/24-publish-job.md) | After every transform, gold is copied into MEDUSA and the row counts reconciled | Done |
-| 25. Scanner page | The live scanner in MEDUSA: live Binance prices against each coin's normal, with the evidence | Next |
+| 25. Scanner page | The live scanner in MEDUSA's Markets page, for signed-in accounts: live Binance prices against each coin's normal, with the evidence. Done: the read endpoint (25.1) and the Today view (25.2); next: Patterns (25.3) and release 1.6.0 | In progress |
 
 ## Folder layout
 

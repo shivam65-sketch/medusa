@@ -40,7 +40,7 @@ flowchart TB
 | Orchestration | GitHub Actions: load, then transform ([ADR-017](decisions.md#adr-017-orchestrate-the-daily-chain-in-github-actions)) | One place for the whole chain, one set of secrets and one failure email. |
 | Deploying Databricks resources | Databricks Asset Bundle ([`databricks.yml`](../databricks.yml)) | Jobs and pipelines are defined as code and deployed with one command. |
 | Serving copy | MEDUSA's database (Cloudflare D1): `market_baseline`, `market_evidence`, filled by the publish job through `POST /api/market/ingest` ([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)) | MEDUSA's users have no Databricks access, and a page querying Databricks would wake the warehouse on every visit. The endpoint's own token can only replace these tables. |
-| Live scanner (next) | A page inside MEDUSA on Cloudflare, for signed-in accounts ([ADR-025](decisions.md#adr-025-the-scanner-is-for-signed-in-accounts)), with live prices streamed from Binance to the browser | Day trading needs today's prices: the browser compares the live market with the serving copy, read through `GET /api/market/scanner`. |
+| Live scanner | MEDUSA's Markets page (`public/markets.js`) on Cloudflare, for signed-in accounts ([ADR-025](decisions.md#adr-025-the-scanner-is-for-signed-in-accounts)), with live prices streamed from Binance (`wss://fstream.binance.com/market/ws/!miniTicker@arr`) to the browser | Day trading needs today's prices: the browser compares the live market with the serving copy, read through `GET /api/market/scanner`, using the same rule as `intraday_events` (it reproduces the lakehouse's events exactly). |
 
 ## Catalog layout
 

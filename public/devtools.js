@@ -3,7 +3,8 @@
 // speed-ups. Nothing here changes your account's data on the server (trades, notes, Lab files, results).
 //
 // What this browser keeps for MEDUSA (local storage, keys starting with "j."), in three kinds:
-//   temporary   rebuilt by itself: Binance coin lists (j.lab.coins.*), the greeting's cached name
+//   temporary   rebuilt by itself: Binance coin lists (j.lab.coins.*), yesterday's closes for Markets
+//               (j.mkt.close.*), the greeting's cached name
 //   settings    layouts, filters, forms, chart settings, the menu, the INR switch, replay speed...
 //   your own    chart drawings (j.lab.chart.draw.*), the Python tab's code, the strategy editor's draft
 // plus the browser's cache of MEDUSA's files (the page, the Lab, the Python engine) and what is in memory.
@@ -21,7 +22,7 @@ const dateText = (ymd) => (ymd ? new Date(`${ymd}T00:00:00`).toLocaleDateString(
 /* ---------- what this browser keeps ---------- */
 
 function kindOf(k) {
-  if (/^j\.lab\.coins\./.test(k) || k === 'j.name') return 'temp';
+  if (/^j\.lab\.coins\./.test(k) || /^j\.mkt\.close\./.test(k) || k === 'j.name') return 'temp';
   if (/^j\.lab\.chart\.draw\./.test(k) || k === 'j.lab.py.code' || k === 'j.lab.draft') return 'mine';
   return 'settings';
 }

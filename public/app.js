@@ -1742,7 +1742,7 @@
     const fromHash = (fallback) => {
       const h = location.hash.slice(1);
       if (h === 'logs' || h === 'devtools/logs') return 'devtools:logs';   // the Logs used to be a page of their own
-      return h.startsWith('lab') ? `lab:${h.split('/')[1] || 'dashboard'}` : h === 'devtools' ? 'devtools:tools' : h === 'journal' ? 'journal' : fallback;
+      return h.startsWith('lab') ? `lab:${h.split('/')[1] || 'dashboard'}` : h === 'devtools' ? 'devtools:tools' : h === 'markets' || h === 'journal' ? h : fallback;
     };
     const want = fromHash(store.get('view', 'journal'));
     if (want !== 'journal') setView(want, false);
@@ -1750,7 +1750,7 @@
     addEventListener('hashchange', () => setView(fromHash('journal')));   // a #lab/... link or the address bar
     if (!store.get('menuHint', false)) {                                   // once: where the pages went
       store.set('menuHint', true);
-      setTimeout(() => showToast('The Journal, the Lab’s pages (Dashboard, Get data, Files, Chart, Strategies, Python, Strategy guide) and Dev tools (with the Logs) are in the menu on the left.', '', 10000), 1200);
+      setTimeout(() => showToast('The Journal, Markets, the Lab’s pages (Dashboard, Get data, Files, Chart, Strategies, Python, Strategy guide) and Dev tools (with the Logs) are in the menu on the left.', '', 10000), 1200);
     }
     if (importNow && state.hasKey) runImport(false);
   }
@@ -1770,18 +1770,21 @@
     if (v.startsWith('lab:')) { tab = v.slice(4); v = 'lab'; }
     if (v === 'logs') v = 'devtools:logs';
     if (v.startsWith('devtools:')) { devTab = v.slice(9) === 'logs' ? 'logs' : 'tools'; v = 'devtools'; }
-    view = v === 'lab' || v === 'devtools' ? v : 'journal';
+    view = v === 'lab' || v === 'devtools' || v === 'markets' ? v : 'journal';
     if (tab) labTab = tab;
     $('#app').dataset.view = view;
     $('#journal').hidden = view !== 'journal';
+    $('#markets').hidden = view !== 'markets';
     $('#lab').hidden = view !== 'lab';
     $('#devtools').hidden = view !== 'devtools';
     if (save) store.set('view', view === 'lab' ? `lab:${labTab}` : view === 'devtools' ? `devtools:${devTab}` : view);
-    history.replaceState(null, '', view === 'journal' ? location.pathname + location.search : view === 'lab' ? `#lab/${labTab}` : devTab === 'logs' ? '#devtools/logs' : '#devtools');
+    history.replaceState(null, '', view === 'journal' ? location.pathname + location.search : view === 'markets' ? '#markets' : view === 'lab' ? `#lab/${labTab}` : devTab === 'logs' ? '#devtools/logs' : '#devtools');
     markNav();
-    if (view !== 'lab') log('nav', view === 'devtools' ? (devTab === 'logs' ? 'Logs' : 'Dev tools') : 'Journal', null, 'debug');   // the Lab logs its own pages
+    if (view !== 'lab') log('nav', view === 'devtools' ? (devTab === 'logs' ? 'Logs' : 'Dev tools') : view === 'markets' ? 'Markets' : 'Journal', null, 'debug');   // the Lab logs its own pages
+    if (view !== 'markets' && mktLoad) mktLoad.then((m) => { if (m && view !== 'markets') m.stop(); });   // close Binance's live stream
     if (view === 'lab') openLab(labTab);
     else if (view === 'devtools') openDevtools();
+    else if (view === 'markets') openMarkets();
     else if (state.loaded) render();
   }
   /* On a phone the menu is a slim bar of icons; its button slides the full menu over the page (with a
@@ -1826,6 +1829,25 @@
       });
   }
 
+  /* ---------- Markets, the live scanner (markets.js, downloaded only when the page is opened) ---------- */
+  // Every coin's move today against its normal from the market data lakehouse, with live prices
+  // streamed from Binance to this browser while the page is open.
+  let mktLoad = null;
+  function openMarkets() {
+    const host = $('#markets');
+    if (!mktLoad) {
+      host.innerHTML = '<div class="loading">Opening Markets…</div>';
+      mktLoad = import('/markets.js?v=1').catch((e) => {
+        mktLoad = null;
+        log('markets', `Markets couldn't be opened: ${e.message}`, null, 'error');
+        host.innerHTML = `<div class="banner"><div><b>Markets couldn’t be opened.</b> ${esc(e.message)} Reload the page to try again.</div></div>`;
+        return null;
+      });
+    }
+    mktLoad.then((m) => { if (m && view === 'markets') m.render(host, mktApi); });
+  }
+  const mktApi = { call, log, store };
+
   /* ---------- Dev tools (devtools.js, downloaded only when the page is opened) ---------- */
   let devLoad = null;
   function openDevtools() {
@@ -1836,7 +1858,7 @@
     const host = $('#dev-tools');
     if (!devLoad) {
       host.innerHTML = '<div class="loading">Opening Dev tools…</div>';
-      devLoad = import('/devtools.js?v=1').catch((e) => {
+      devLoad = import('/devtools.js?v=2').catch((e) => {
         devLoad = null;
         host.innerHTML = `<div class="banner"><div><b>Dev tools couldn’t be opened.</b> ${esc(e.message)} Reload the page to try again.</div></div>`;
         return null;
