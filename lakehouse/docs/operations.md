@@ -108,6 +108,39 @@ the page calculated correctly and any surprise is in the data. Start there.
 |---|---|---|---|
 | 2026-10-21 | The first scheduled daily load (for 2026-10-20) failed in the download step: `FAILED metrics ATHUSDT 2026-10-20: [Errno 104] Connection reset by peer` (1,527 saved, 280 missing, 1 failed). Re-run at 21:51 UTC: all 872 coins loaded and every test passed; no data was lost. | 1. The downloader retried a connection that failed to open, but not one that dropped mid-download. 2. GitHub started the 06:00 schedule at 11:19, before Binance had finished publishing: 88 coins' candle files appeared only at 11:55. Without the network error, the day would have loaded without those coins. | Mid-download errors are retried; the schedule moved to 13:00 UTC; the download step refuses a day that isn't fully published ([ADR-021](decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)). |
 
+## The Markets save login (service principal)
+
+Saving a definition from a Markets window (step 28) makes MEDUSA's server write to Databricks. It signs
+in as its own service principal, `medusa-markets-writer`, never with a person's token, and that login
+can do nothing else:
+
+| Permission | Why |
+|---|---|
+| **Can use** on the Serverless Starter Warehouse | To run its statements |
+| `USE CATALOG` on `market`, `USE SCHEMA` on `market.semantic` | To reach the two tables |
+| `SELECT, MODIFY` on `market.semantic.metric_definitions` and `market.semantic.user_metric_definitions` | To add and close versions; nothing else in the lakehouse is readable (`market.gold` is refused: `INSUFFICIENT_PERMISSIONS`) |
+
+It signs in with an OAuth secret (client credentials) and asks for the **`sql`** scope: on Free Edition
+the usual `all-apis` scope is refused (`Scopes 'all-apis' are not assigned to the client`), and the
+SQL Statement API needs only `sql`. Each save gets a new one-hour token.
+
+To set it up again: Settings → Identity and access → Service principals → Add new; on its page,
+Secrets → Generate secret; the warehouse's Permissions → Can use; then, in the SQL editor (the
+Application ID in backticks):
+
+```sql
+GRANT USE CATALOG ON CATALOG market TO `APPLICATION-ID`;
+GRANT USE SCHEMA ON SCHEMA market.semantic TO `APPLICATION-ID`;
+GRANT SELECT, MODIFY ON TABLE market.semantic.metric_definitions TO `APPLICATION-ID`;
+GRANT SELECT, MODIFY ON TABLE market.semantic.user_metric_definitions TO `APPLICATION-ID`;
+```
+
+Then save the secrets in Cloudflare (README, "Saving the Markets definitions"). Never type the secret
+where it shows on screen or stays in a command's history.
+
+If a deleted account's versions are still in Databricks (its deletion couldn't reach Databricks), remove
+them in the SQL editor: `DELETE FROM market.semantic.user_metric_definitions WHERE account_id = <number>`.
+
 ## Secrets and renewals
 
 | Credential | Where it lives | Expires | Renew by |
@@ -118,6 +151,8 @@ the page calculated correctly and any surprise is in the data. Start there.
 | Workspace address | GitHub secret `DATABRICKS_HOST` | Never | Only if the workspace changes |
 | MEDUSA ingest token | Cloudflare secret `MARKET_INGEST_TOKEN` and GitHub secret `MEDUSA_INGEST_TOKEN` (the same value) | Never | If it may have leaked: generate a new one (`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`), `npx wrangler@4 secret put MARKET_INGEST_TOKEN`, update the GitHub secret |
 | MEDUSA's address | GitHub secret `MEDUSA_URL` | Never | Only if the app's address changes |
+| Markets save login (service principal `medusa-markets-writer`) | Cloudflare secrets `DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET` | The OAuth secret's own expiry (shown on its Secrets tab) | Databricks: the service principal → **Secrets** → **Generate secret**, then `npx wrangler@4 secret put DATABRICKS_CLIENT_SECRET`, then delete the old secret |
+| Whose saves are shared | Cloudflare secret `MARKET_OWNER_ID` (an account number) | Never | Only if the owner's account changes |
 
 Tokens are never pasted into chat, files or commits. A secret's value is never shown again after
 saving; it can only be replaced.

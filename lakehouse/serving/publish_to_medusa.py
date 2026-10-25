@@ -1,5 +1,6 @@
 """Copy the live scanner's tables into MEDUSA's database (the serving layer, step 24): two gold tables,
-and the current version of every metric definition (market.semantic, step 27).
+the current version of every metric definition (market.semantic, step 27) and each account's own
+version in use (step 28).
 
 After the daily `dbt build`, the transform workflow runs this script. For each table it:
   1. reads the gold table from Databricks (the SQL Statement API, through the Databricks CLI, which
@@ -44,6 +45,13 @@ TABLES = {
         select metric_id, version, kind, name, description, sql_text, display,
                date_format(valid_from, 'yyyy-MM-dd HH:mm:ss') as valid_from, changed_by, change_note
         from market.semantic.metric_definitions
+        where is_current""",
+    # Each account's own version in use (step 28). Saving on the page already copies it to MEDUSA; this
+    # makes sure MEDUSA's copy matches the lakehouse every day. It may be empty.
+    "market_user_metrics": """
+        select account_id as user_id, metric_id, version, sql_text, description, based_on,
+               date_format(valid_from, 'yyyy-MM-dd HH:mm:ss') as valid_from, changed_by, change_note
+        from market.semantic.user_metric_definitions
         where is_current""",
 }
 # The day the copy reflects: the newest day in the lakehouse.
@@ -149,7 +157,8 @@ def main():
             # reads D1 until the next publish (the data is still right, ADR-026).
             served = answer.get("served", "-")
             summary.append((table, len(rows), answer.get("rows"), "OK" if ok else "MISMATCH", served))
-            print(f"{table}: lakehouse {len(rows)} rows, MEDUSA {answer.get('rows')} rows: {'OK' if ok else 'MISMATCH'}; scanner answer from {served}")
+            where = '' if served == '-' else f"; scanner answer from {served}"   # personal versions aren't in that answer
+            print(f"{table}: lakehouse {len(rows)} rows, MEDUSA {answer.get('rows')} rows: {'OK' if ok else 'MISMATCH'}{where}")
             failed |= not ok
         except Exception as e:
             summary.append((table, None, None, "FAILED", "-"))

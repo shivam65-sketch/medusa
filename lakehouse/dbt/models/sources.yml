@@ -72,3 +72,45 @@ sources:
             data_tests: [not_null]
           - name: change_note
             description: Why it changed.
+
+      - name: user_metric_definitions
+        description: >
+          Each MEDUSA account's own versions of those definitions, saved from the Markets page. Only
+          that account's page uses them; the shared definitions above stay as they are. A version is
+          closed without a new one when the account goes back to the shared definition. The rules in
+          tests/assert_user_metric_definitions_valid.sql keep it consistent.
+        columns:
+          - name: account_id
+            description: The MEDUSA account the version belongs to (its number, never its email).
+            data_tests: [not_null]
+          - name: metric_id
+            description: The definition it changes.
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: source('semantic', 'metric_definitions')
+                    field: metric_id
+          - name: version
+            description: 1, 2, 3 ... per account and definition.
+            data_tests: [not_null]
+          - name: sql_text
+            description: The query. One read-only statement, like the shared ones.
+            data_tests: [not_null]
+          - name: description
+            description: What the number means with this query.
+          - name: based_on
+            description: The shared version the account started from.
+          - name: valid_from
+            description: When this version came into use.
+            data_tests: [not_null]
+          - name: valid_to
+            description: When it was replaced or given up; empty while it is current.
+          - name: is_current
+            description: True for the version in use; none current means the account uses the shared definition.
+            data_tests: [not_null]
+          - name: changed_by
+            description: The name the account gave in MEDUSA, or account and its number (never an email).
+            data_tests: [not_null]
+          - name: change_note
+            description: Why it changed.

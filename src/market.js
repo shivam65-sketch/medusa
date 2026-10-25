@@ -1,6 +1,6 @@
 // MEDUSA's copy of the market data lakehouse's small tables, for the live scanner: each market's normal
-// (market_baseline), the evidence (market_evidence) and the definition of every number on the page
-// (market_metrics).
+// (market_baseline), the evidence (market_evidence), the definition of every number on the page
+// (market_metrics) and each account's own versions of those definitions (market_user_metrics).
 //
 // Once a day the lakehouse's publish job sends each table here: POST /api/market/ingest with
 //   Authorization: Bearer <MARKET_INGEST_TOKEN>
@@ -55,7 +55,23 @@ export const TABLES = {
       display: LONG, valid_from: TIME, changed_by: TEXT, change_note: LONG,
     },
   },
+  // Each account's own versions: the current version of each row of the lakehouse's
+  // market.semantic.user_metric_definitions (lakehouse step 28). Saving on the page writes here too
+  // (metrics.js); the daily publish replaces it as a whole, so it always ends up matching Databricks.
+  // It may be empty, and it is never part of the shared answer below (only its own account reads a row).
+  market_user_metrics: {
+    maxRows: 20000,
+    allowEmpty: true,
+    key: ['user_id', 'metric_id'],
+    required: ['user_id', 'metric_id', 'version', 'sql_text'],
+    columns: {
+      user_id: INT, metric_id: TEXT, version: INT, sql_text: LONG, description: LONG, based_on: INT,
+      valid_from: TIME, changed_by: TEXT, change_note: LONG,
+    },
+  },
 };
+// The tables in the scanner's answer, which is the same for every account.
+const SHARED = ['market_baseline', 'market_evidence', 'market_metrics'];
 
 const fits = {
   [TEXT]: (v) => typeof v === 'string' && v.length <= 40,
@@ -68,7 +84,7 @@ const fits = {
 
 /** The first problem with the rows, or null: unknown or wrongly typed columns, missing keys, repeats. */
 function checkRows(spec, rows) {
-  if (!Array.isArray(rows) || rows.length === 0) return 'rows must be a non-empty list.';
+  if (!Array.isArray(rows) || (rows.length === 0 && !spec.allowEmpty)) return 'rows must be a non-empty list.';
   if (rows.length > spec.maxRows) return `at most ${spec.maxRows} rows.`;
   const seen = new Set();
   for (let i = 0; i < rows.length; i++) {
@@ -135,16 +151,22 @@ export async function marketIngest(req, env) {
       .bind(body.table, body.as_of, body.rows.length, Date.now()),
     db.prepare(`SELECT COUNT(*) AS n FROM ${body.table}`),
   ]);
-  // The tables changed, so the scanner's ready-made answer is rebuilt now. If that fails, the old answer
-  // is removed rather than left behind: readers then get the new data from D1 until the next publish.
-  let served = 'kv';
+  // A shared table changed, so the scanner's ready-made answer is rebuilt now (personal versions aren't in it).
+  const served = SHARED.includes(body.table) ? await rebuildAnswer(env) : '-';
+  return json({ ok: true, table: body.table, as_of: body.as_of, rows: counted.results[0].n, served });
+}
+
+/** Rebuild the scanner's ready-made answer after a shared table changed: 'kv'. If that fails, the old
+ * answer is removed rather than left behind, and readers get the new data from D1 until the next
+ * publish: 'd1'. */
+export async function rebuildAnswer(env) {
   try {
     await env.LAB.put(ANSWER_KEY, await buildAnswer(env));
+    return 'kv';
   } catch {
-    served = 'd1';
     await env.LAB.delete(ANSWER_KEY).catch(() => {});
+    return 'd1';
   }
-  return json({ ok: true, table: body.table, as_of: body.as_of, rows: counted.results[0].n, served });
 }
 
 /* ---------- the read side: what the live scanner page loads ---------- */
@@ -175,14 +197,14 @@ const readAnswer = (body, from) => new Response(body, {
 /** The market tables and their publish records, read in one batch: one transaction, so the tables and
  * their records always belong together. Before migration 004 has run there is no market_metrics, and the
  * answer goes without it (the page then uses its built-in definitions). */
-async function buildAnswer(env, names = Object.keys(TABLES)) {
+async function buildAnswer(env, names = SHARED) {
   const db = env.DB;
   let results;
   try {
     results = await db.batch([
       ...names.map((t) => db.prepare(
         `SELECT ${Object.keys(TABLES[t].columns).join(', ')} FROM ${t} ORDER BY ${TABLES[t].key.join(', ')}`)),
-      db.prepare('SELECT tbl, as_of, rows, published_at FROM market_publish'),
+      db.prepare(`SELECT tbl, as_of, rows, published_at FROM market_publish WHERE tbl IN (${SHARED.map((t) => `'${t}'`).join(', ')})`),
     ]);
   } catch (e) {
     if (names.includes('market_metrics') && /no such table: market_metrics/i.test(String(e && e.message))) {

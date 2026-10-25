@@ -248,9 +248,24 @@ CREATE TABLE IF NOT EXISTS market_metrics (
   change_note TEXT
 );
 
+-- Each account's own versions of those definitions (the current version of each row of the lakehouse's
+-- market.semantic.user_metric_definitions). Only that account's page uses them.
+CREATE TABLE IF NOT EXISTS market_user_metrics (
+  user_id INTEGER NOT NULL,          -- the account it belongs to
+  metric_id TEXT NOT NULL,           -- the definition it changes (market_metrics.metric_id)
+  version INTEGER NOT NULL,          -- the account's version in use
+  sql_text TEXT NOT NULL,            -- the query the account's page runs instead of the shared one
+  description TEXT,
+  based_on INTEGER,                  -- the shared version it was edited from
+  valid_from TEXT,                   -- when this version came into use (UTC)
+  changed_by TEXT,
+  change_note TEXT,
+  PRIMARY KEY (user_id, metric_id)
+);
+
 -- One row per market table: when it was last published, for which day, and how many rows it holds.
 CREATE TABLE IF NOT EXISTS market_publish (
-  tbl TEXT PRIMARY KEY,              -- market_baseline | market_evidence | market_metrics
+  tbl TEXT PRIMARY KEY,              -- market_baseline | market_evidence | market_metrics | market_user_metrics
   as_of TEXT,                        -- the lakehouse day the copy reflects
   rows INTEGER NOT NULL,
   published_at INTEGER NOT NULL      -- ms since 1970

@@ -11,6 +11,7 @@ import { json, fail, readBody } from './http.js';
 import { labRoute, bodyLimit } from './lab.js';
 import { logsRoute } from './logs.js';
 import { marketIngest, marketScanner } from './market.js';
+import { myMetrics, saveMetric, resetMetric } from './metrics.js';
 import {
   currentUser, accountInfo, confirmPassword, signup, login, recover, logout, changePassword, newRecovery,
   twoStepSetup, twoStepEnable, twoStepDisable, signOutOthers, deleteAccount,
@@ -277,7 +278,8 @@ async function route(req, env, url) {
     // Only this app's own pages may change anything (blocks cross-site form posts).
     const origin = req.headers.get('origin');
     if (req.headers.get('x-requested-with') !== 'journal' || (origin && origin !== url.origin)) return fail(403, 'Blocked.');
-    if (Number(req.headers.get('content-length') || 0) > (bodyLimit(path, method) || 64 * 1024)) return fail(413, 'That request is too big.');
+    const limit = bodyLimit(path, method) || (path === '/api/market/metrics/save' ? 160 * 1024 : 64 * 1024);   // a query up to 20,000 characters
+    if (Number(req.headers.get('content-length') || 0) > limit) return fail(413, 'That request is too big.');
   }
 
   // Signed-out routes.
@@ -316,6 +318,10 @@ async function route(req, env, url) {
   if (path === '/api/logs') return logsRoute(req, env, url, uid);
   if (path === '/api/fx' && method === 'GET') return usdtInr();
   if (path === '/api/market/scanner' && method === 'GET') return marketScanner(env);   // the live scanner's data, the same for every account
+  // The Markets definitions: the account's own versions, and saving a version to the lakehouse (metrics.js).
+  if (path === '/api/market/metrics/mine' && method === 'GET') return myMetrics(env, user);
+  if (path === '/api/market/metrics/save' && method === 'POST') return saveMetric(req, env, user);
+  if (path === '/api/market/metrics/reset' && method === 'POST') return resetMetric(req, env, user);
 
   // Dev tools: how far the server is (and which Cloudflare data centre answered), and clearing what this
   // browser keeps for MEDUSA. Only the site's own response can ask a browser to clear that (Clear-Site-Data);

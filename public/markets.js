@@ -72,6 +72,25 @@ export function definitionsFrom(rows) {
   }
   return defs;
 }
+
+/** The account's own versions (rows of market_user_metrics) over the shared definitions: the SQL and
+ * description change, and `own` says which of the account's versions it is. */
+export function ownOver(defs, rows) {
+  const out = new Map(defs);
+  for (const r of rows) {
+    const shared = defs.get(r.metric_id);
+    if (!shared) continue;
+    out.set(r.metric_id, {
+      ...shared, sql: r.sql_text, description: r.description || shared.description,
+      own: { version: r.version, validFrom: r.valid_from, changedBy: r.changed_by, note: r.change_note, basedOn: r.based_on },
+    });
+  }
+  return out;
+}
+// What the definitions are built from: the published shared rows, and the account's own rows with
+// what Save does for it ({rows, canSave, saves: 'own' | 'shared', name}).
+const SRC = { shared: [], mine: { rows: [], canSave: false, saves: 'own', name: '' } };
+const rebuildDefs = () => { DEFS = ownOver(definitionsFrom(SRC.shared), SRC.mine.rows); };
 const BROWSER_TABLES = {   // column -> type, for an empty value in the first row of VALUES
   live_prices: { symbol: 'STRING', price: 'DOUBLE', quote_volume_24h: 'DOUBLE' },
   binance_markets: { symbol: 'STRING', market_type: 'STRING', yesterday_close: 'DOUBLE' },
@@ -421,9 +440,13 @@ function queryHead(id, key = id, extra = {}, defs = null) {
   const used = [...new Set([...noComments(raw).matchAll(/:([a-z_]+)\b/g)].map((m) => m[1]))].filter((p) => p in params);
   const written = (p) => (p !== 'kind' ? `<code>${esc(literal(params[p]))}</code>`
     : params.kind === 'all' ? '<code>TRUE</code> (All: every type)' : `<code>market_type = ${esc(literal(params.kind))}</code>`);
-  const steps = modelsOf(def.sql).map((m) => `<code>${m}</code>${DEFS.get(m).version ? ` v${DEFS.get(m).version}` : ''}`).join(', ');
+  const step = (m) => { const d = DEFS.get(m); return d.own ? ` your own v${d.own.version}` : d.version ? ` v${d.version}` : ''; };
+  const steps = modelsOf(def.sql).map((m) => `<code>${m}</code>${step(m)}`).join(', ');
+  const own = def.own;
   const origin = defs
     ? `<b>Your version:</b> with your changes to ${[...S.edit.live.keys()].map((d) => `<code>${esc(d)}</code>`).join(', ')}, running on this screen only. Nothing is saved.`
+    : own
+      ? `<b>Your own version ${own.version}</b> of <code>${esc(def.id)}</code> in the lakehouse's <code>market.semantic.user_metric_definitions</code>, saved ${own.validFrom ? `${esc(own.validFrom)} UTC ` : ''}by ${esc(own.changedBy || 'you')}${own.note ? ` (“${esc(own.note)}”)` : ''}. Only your account uses it; the shared version is ${def.version || 'the built-in one'}.${S.win ? ` <button class="btn btn-sm" type="button" data-mkt="edit-giveup" data-def="${esc(def.id)}">Use the shared version again</button>` : ''}`
     : def.from === 'lakehouse'
       ? `<b>Definition:</b> version ${def.version} of <code>${esc(def.id)}</code> in the lakehouse's <code>market.semantic.metric_definitions</code>${def.validFrom ? `, in use since ${esc(def.validFrom)} UTC` : ''}${def.changedBy ? ` (${esc(def.changedBy)})` : ''}${steps ? `; its shared steps: ${steps}` : ''}.`
       : '<b>Definition:</b> the built-in copy in <code>markets-metrics.js</code>, because the lakehouse\'s definitions haven\'t been published to MEDUSA yet.';
@@ -528,6 +551,7 @@ function neededColumns(id) {
 
 /** Preview: every changed definition, checked first, then run on this screen next to the current one. */
 function startPreview() {
+  closeSave();
   const changes = new Map();
   for (const id of S.edit.text.keys()) if (edited(id)) changes.set(id, clean(S.edit.text.get(id)));
   if (!changes.size) { stopPreview('Nothing has changed yet: edit a query, then press Preview.'); return; }
@@ -546,6 +570,7 @@ function startPreview() {
 }
 
 function stopPreview(note = null) {
+  closeSave();
   S.edit.live = null;
   S.edit.note = note;
   for (const k of [...S.res.keys()]) if (k.startsWith('preview:')) S.res.delete(k);
@@ -561,7 +586,7 @@ function editBox(id) {
   const text = S.edit.text.has(id) ? S.edit.text.get(id) : d.sql;
   const rows = Math.min(30, Math.max(6, text.split('\n').length + 1));
   return `<div class="mkt-edit-box${edited(id) ? ' changed' : ''}" data-box="${esc(id)}">
-    <div class="h"><b>${esc(d.name)}</b><code>${esc(id)}</code><span class="faint">${d.kind === 'model' ? 'a shared step' : 'the number\'s own query'}${d.version ? `, version ${d.version}` : ''}</span><span class="sp"></span>
+    <div class="h"><b>${esc(d.name)}</b><code>${esc(id)}</code><span class="faint">${d.kind === 'model' ? 'a shared step' : 'the number\'s own query'}${d.own ? `, your own version ${d.own.version}` : d.version ? `, version ${d.version}` : ''}</span><span class="sp"></span>
       <button class="btn btn-sm" type="button" data-mkt="edit-undo" data-def="${esc(id)}">Undo my changes</button>
       <button class="btn btn-sm" type="button" data-mkt="edit-close" data-def="${esc(id)}">Close</button></div>
     <p class="faint">${d.kind === 'model'
@@ -587,16 +612,158 @@ function editable() {
 function paintEditBar() {
   const chips = editable().map((id) => {
     const d = DEFS.get(id), open = S.edit.open.includes(id);
-    return `<button class="mkt-chip" type="button" data-mkt="edit-open" data-def="${esc(id)}" aria-pressed="${open}">${esc(d.kind === 'model' ? id : d.name)}${d.version ? ` <span class="faint">v${d.version}</span>` : ''}${edited(id) ? ' <span class="mkt-dirty" title="Changed">●</span>' : ''}</button>`;
+    return `<button class="mkt-chip" type="button" data-mkt="edit-open" data-def="${esc(id)}" aria-pressed="${open}">${esc(d.kind === 'model' ? id : d.name)}${d.own ? ` <span class="faint">own v${d.own.version}</span>` : d.version ? ` <span class="faint">v${d.version}</span>` : ''}${edited(id) ? ' <span class="mkt-dirty" title="Changed">●</span>' : ''}</button>`;
   }).join('');
   put('mkt-edit-pick', `<span class="faint">Open to edit:</span>${chips}`);
   const live = S.edit.live;
   const note = S.edit.note;
   put('mkt-edit-status', live
-    ? `<span class="mkt-dot live"></span>Previewing your changes to ${[...live.keys()].map((d) => `<code>${esc(d)}</code>`).join(', ')} since ${clockS(S.edit.since)}, on this screen only. Nothing is saved.`
-    : `<span class="faint">${[...S.edit.text.keys()].some(edited) ? 'Changed, not previewed yet.' : 'Your version runs on this screen only, next to the current one. Nothing is saved.'}</span>`);
+    ? `<span class="mkt-dot live"></span>Previewing your changes to ${[...live.keys()].map((d) => `<code>${esc(d)}</code>`).join(', ')} since ${clockS(S.edit.since)}, on this screen only. Nothing is saved${SRC.mine.canSave ? ' until you press Save' : ''}.`
+    : `<span class="faint">${[...S.edit.text.keys()].some(edited) ? 'Changed, not previewed yet.' : 'Your version runs on this screen only, next to the current one.'}</span>`);
   put('mkt-edit-problems', note ? `<ul class="mkt-problems">${(Array.isArray(note) ? note : [note]).map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : '');
   document.querySelectorAll('[data-mkt="preview-stop"]').forEach((b) => { b.hidden = !live; });
+  const save = document.querySelector('[data-mkt="save-open"]');
+  if (save) save.hidden = !(live && SRC.mine.canSave && [...live.keys()].every((id) => DEFS.get(id).from === 'lakehouse'));
+  put('mkt-edit-saves', SRC.mine.canSave
+    ? `After a preview, <b>Save</b> keeps it in the lakehouse ${SRC.mine.saves === 'shared' ? 'as the <b>shared</b> version, which every account uses' : 'as <b>your own</b> version, which only your account uses'}.`
+    : 'Saving isn\'t set up on this MEDUSA, so changes can only be previewed.');
+}
+
+/* ---------- saving to the lakehouse (metrics.js on the server) ---------- */
+
+// Saves and give-ups reach every MEDUSA tab and window in this browser at once.
+const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('medusa-markets') : null;
+const tell = (msg) => { try { if (channel) channel.postMessage(msg); } catch { /* the others catch up on their next load */ } };
+
+/** A saved version from the server becomes the definition in use here. */
+function applySaved({ saves, definition: d }) {
+  if (saves === 'shared') SRC.shared = [...SRC.shared.filter((r) => r.metric_id !== d.metric_id), d];
+  else SRC.mine.rows = [...SRC.mine.rows.filter((r) => r.metric_id !== d.metric_id), d];
+  rebuildDefs();
+}
+function applyGaveUp(id) {
+  SRC.mine.rows = SRC.mine.rows.filter((r) => r.metric_id !== id);
+  rebuildDefs();
+}
+function definitionsChanged() {
+  S.edit.painted = null;   // the editor's boxes show the new versions (unless someone is typing)
+  draw();
+  S.urgent = true;
+  paint();
+}
+if (channel) {
+  channel.onmessage = ({ data }) => {
+    if (!data || !host) return;
+    if (data.type === 'saved' && data.definition) applySaved(data);
+    else if (data.type === 'gaveup') applyGaveUp(data.metric_id);
+    else return;
+    definitionsChanged();
+  };
+}
+
+/** Every number the edits change, run once with them (every type, and Bitcoin for one market's row):
+ * none may fail or stop returning a column its display needs. The window previews only its own
+ * numbers; this covers the whole page before anything is saved. */
+async function checkEverything() {
+  const defs = previewDefs();
+  const params = { kind: 'all', yesterday: yesterday(), symbol: 'BTCUSDT' };
+  const ids = [...DEFS.values()].filter((d) => d.kind === 'metric' && touches(d.id, defs)).map((d) => d.id);
+  const out = await call({ op: 'run', jobs: ids.map((id) => ({ id, sql: assemble(defs.get(id), { defs, params }) })) }, 5_000);
+  const problems = [];
+  for (const id of ids) {
+    const res = out[id], name = DEFS.get(id).name;
+    if (res.error) { problems.push(`${name}: ${res.error}`); continue; }
+    const missing = neededColumns(id).filter((c) => !res.columns.includes(c));
+    if (missing.length) problems.push(`${name} would no longer return ${missing.join(', ')}, which the page needs.`);
+  }
+  return { ids, problems };
+}
+
+/** The save form: one note (and description) per changed definition, and what Save will do. */
+function openSave() {
+  const el = document.getElementById('mkt-edit-save');
+  if (!el || !S.edit.live) return;
+  const shared = SRC.mine.saves === 'shared';
+  el.innerHTML = `<div class="mkt-save">
+    <p>${shared ? '<b>Save as the shared version.</b> Every account\'s Markets page will use it.'
+    : '<b>Save as your own version.</b> Only your account\'s Markets page will use it; the shared definition stays as it is, and you can go back to it whenever you like.'}
+      It is kept in the lakehouse (<code>market.semantic.${shared ? 'metric_definitions' : 'user_metric_definitions'}</code>) as a new version, with the time, your name (${esc(SRC.mine.name)}) and your note. The version before it is kept too.</p>
+    ${[...S.edit.live.keys()].map((id) => `<div class="mkt-save-one">
+      <div><b>${esc(DEFS.get(id).name)}</b> <code>${esc(id)}</code></div>
+      <label>Why you changed it <input class="input" data-save-note="${esc(id)}" maxlength="300" placeholder="For example: count only moves bigger than 1%"></label>
+      <label>What it means now <span class="faint">(optional)</span><textarea class="input" data-save-desc="${esc(id)}" rows="2" maxlength="1000">${esc(DEFS.get(id).description)}</textarea></label>
+    </div>`).join('')}
+    <div class="mkt-edit-bar"><button class="btn btn-green" type="button" data-mkt="save-go">Save to the lakehouse</button>
+      <button class="btn" type="button" data-mkt="save-cancel">Cancel</button><span id="mkt-save-status"></span></div>
+  </div>`;
+  const first = el.querySelector('[data-save-note]');
+  if (first) first.focus();
+}
+const closeSave = () => { const el = document.getElementById('mkt-edit-save'); if (el) el.innerHTML = ''; };
+
+/** Save: check the whole page with the edits, then save each changed definition, one after another. */
+async function doSave() {
+  const status = (html) => { const s = document.getElementById('mkt-save-status'); if (s) s.innerHTML = html; };
+  const go = document.querySelector('[data-mkt="save-go"]');
+  if (!S.edit.live || (go && go.disabled)) return;
+  if (go) go.disabled = true;
+  const field = (attr, id) => [...host.querySelectorAll(`[${attr}]`)].find((x) => x.getAttribute(attr) === id);
+  const forms = new Map([...S.edit.live.keys()].map((id) => [id, { note: field('data-save-note', id).value.trim(), description: field('data-save-desc', id).value.trim() }]));
+  status('Checking every number your changes touch…');
+  let check;
+  try {
+    check = await checkEverything();
+  } catch (e) {
+    check = { problems: [`The check couldn't run: ${e.message}`] };
+  }
+  if (check.problems.length) {
+    S.edit.note = ['Nothing was saved: with your changes, these numbers would break.', ...check.problems];
+    status('');
+    if (go) go.disabled = false;
+    paintEditBar();
+    return;
+  }
+  const saved = [], live = new Map(S.edit.live);
+  let failure = null;
+  for (const [id, sql] of live) {
+    const d = DEFS.get(id), form = forms.get(id);
+    const base = SRC.mine.saves === 'shared' ? (d.version || 0) : (d.own ? d.own.version : 0);
+    status(`Saving ${esc(d.name)} in the lakehouse… <span class="faint">(Databricks can take up to a minute to wake up)</span>`);
+    try {
+      const r = await api.call('POST', '/api/market/metrics/save', { metric_id: id, sql_text: sql, description: form.description, note: form.note, base });
+      applySaved(r);
+      tell({ type: 'saved', saves: r.saves, definition: r.definition });
+      S.edit.text.delete(id);
+      saved.push(`${d.name}: ${r.saves === 'shared' ? 'shared' : 'your own'} version ${r.definition.version}${r.copied === false ? ' (MEDUSA\'s copy catches up with the next daily publish)' : ''}`);
+      api.log('markets', `Saved ${id} as ${r.saves === 'shared' ? 'shared' : 'own'} version ${r.definition.version}`);
+    } catch (e) {
+      failure = `${d.name} wasn't saved: ${e.message}`;
+      break;
+    }
+  }
+  closeSave();
+  stopPreview(failure ? [failure, ...(saved.length ? [`Saved before it: ${saved.join('; ')}.`] : [])] : null);
+  if (saved.length) api.toast(`Saved in the lakehouse. ${saved.join('; ')}.`, '', 8000);
+  definitionsChanged();
+}
+
+/** Back to the shared definition: the account's own version is given up (kept in the lakehouse's
+ * history, no longer in use). */
+async function giveUp(id) {
+  const d = DEFS.get(id);
+  if (!d || !d.own) return;
+  if (!window.confirm(`Use the shared version of ${d.name} again? Your own version ${d.own.version} stays in the lakehouse's history but your page stops using it.`)) return;
+  try {
+    await api.call('POST', '/api/market/metrics/reset', { metric_id: id, base: d.own.version });
+  } catch (e) {
+    api.toast(e.message, 'error');
+    return;
+  }
+  applyGaveUp(id);
+  tell({ type: 'gaveup', metric_id: id });
+  api.toast(`${d.name} uses the shared version again.`);
+  api.log('markets', `Gave up own version ${d.own.version} of ${id}`);
+  definitionsChanged();
 }
 
 /* ---------- the page ---------- */
@@ -721,6 +888,13 @@ table.mkt-result td, table.mkt-result th { white-space: nowrap; font-family: ui-
 .mkt-cmp.cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .mkt-cmp-yours .mkt-win-h, .mkt-yours-h { color: #facc15; }
 .mkt-src.mkt-yours { border-color: #a16207; }
+.mkt-save { margin-top: 12px; padding: 12px 14px; border-radius: 9px; border: 1px solid var(--green-btn); background: #18231c; display: grid; gap: 10px; font-size: 13.5px; line-height: 1.5; color: var(--text-2); }
+.mkt-save b { color: var(--text); }
+.mkt-save code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--text); }
+.mkt-save-one { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
+.mkt-save label { display: grid; gap: 4px; color: var(--text-2); }
+.mkt-save .input { width: 100%; height: auto; min-height: 36px; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border-2); background: #141414; color: var(--text); font: inherit; resize: vertical; }
+.mkt-save .mkt-edit-bar { margin-top: 2px; }
 .mkt-win-head { display: flex; flex-wrap: wrap; gap: 10px 16px; justify-content: space-between; align-items: center; }
 .mkt-win-head h1 { font-size: 22px; font-weight: 700; }
 .mkt-win-head p { margin-top: 2px; font-size: 13.5px; }
@@ -877,7 +1051,7 @@ function paintStatus() {
     ? `<span class="warn"><b>The SQL engine couldn't start:</b> ${esc(S.eng.err)}</span> <button class="btn btn-sm" data-mkt="engine">Try again</button>`
     : !S.eng.ok ? 'Starting the SQL engine…'
       : S.runErr ? `<span class="warn">${esc(S.runErr)}</span>`
-        : S.lastRun ? `Numbers calculated by SQL in this browser: ${S.lastRun.n} quer${S.lastRun.n === 1 ? 'y' : 'ies'} at ${clockS(S.lastRun.at)} in ${S.lastRun.ms} ms, defined ${DEFS.get('breadth').from === 'lakehouse' ? 'in the lakehouse' : 'by the built-in copy'}` : 'Calculating…';
+        : S.lastRun ? `Numbers calculated by SQL in this browser: ${S.lastRun.n} quer${S.lastRun.n === 1 ? 'y' : 'ies'} at ${clockS(S.lastRun.at)} in ${S.lastRun.ms} ms, defined ${DEFS.get('breadth').from === 'lakehouse' ? 'in the lakehouse' : 'by the built-in copy'}${SRC.mine.rows.length ? ` (${SRC.mine.rows.length} of them your own version${SRC.mine.rows.length === 1 ? '' : 's'})` : ''}` : 'Calculating…';
   put('mkt-status', `
     <div class="row"><span>${live}</span><span class="faint">${priced} markets priced</span></div>
     <div class="row faint"><span>Each market's normal: lakehouse day ${shortDay(pub.as_of)}${pub.published_at ? `, published ${clock(pub.published_at)}` : ''}</span><span>${ref}</span></div>
@@ -1112,15 +1286,17 @@ function windowShell() {
   <div class="banner mkt-status" id="mkt-status" aria-live="polite"></div>
   <div class="mkt-win-grid">
     <section class="card mkt-edit" aria-label="Edit and preview">
-      <div class="card-head"><div><h2>Edit and preview</h2><p>Change the SQL, then press <b>Preview</b> (or Ctrl+Enter): your version runs on this screen only, next to the current numbers. Nothing is saved.</p></div></div>
+      <div class="card-head"><div><h2>Edit, preview and save</h2><p>Change the SQL, then press <b>Preview</b> (or Ctrl+Enter): your version runs on this screen only, next to the current numbers. <span id="mkt-edit-saves"></span></p></div></div>
       <div class="mkt-edit-pick" id="mkt-edit-pick"></div>
       <div id="mkt-edit-boxes"></div>
       <div class="mkt-edit-bar">
         <button class="btn btn-green" type="button" data-mkt="preview">Preview</button>
         <button class="btn" type="button" data-mkt="preview-stop" hidden>Stop preview</button>
+        <button class="btn btn-green" type="button" data-mkt="save-open" hidden>Save…</button>
         <span id="mkt-edit-status"></span>
       </div>
       <div id="mkt-edit-problems"></div>
+      <div id="mkt-edit-save"></div>
     </section>
     <div class="mkt-win-out">
       ${ids.map((id, i) => `
@@ -1214,6 +1390,11 @@ async function load() {
   if (S.loading) return S.loading;
   S.loading = (async () => {
     try {
+      // The shared data (the same for every account) and this account's own definitions, side by side.
+      const mine = api.call('GET', '/api/market/metrics/mine').catch((e) => {
+        if (e.message !== 'Signed out') api.log('markets', `Your own definitions couldn't be loaded: ${e.message}`, null, 'error');
+        return null;
+      });
       const d = await api.call('GET', '/api/market/scanner');
       const rowsOf = (part) => (part ? part.rows.map((r) => Object.fromEntries(part.columns.map((c, i) => [c, r[i]]))) : []);
       const base = new Map(rowsOf(d.market_baseline).map((r) => [r.symbol, r]));
@@ -1222,7 +1403,10 @@ async function load() {
       if (S.data && (S.data.published.market_baseline || {}).as_of !== (published.market_baseline || {}).as_of) S.ref = null;   // a new day arrived
       const empty = { columns: [], rows: [] };
       S.data = { published, base, ev, at: Date.now(), raw: { market_baseline: d.market_baseline || empty, market_evidence: d.market_evidence || empty } };
-      DEFS = definitionsFrom(rowsOf(d.market_metrics));
+      SRC.shared = rowsOf(d.market_metrics);
+      const own = await mine;
+      if (own) SRC.mine = { rows: own.rows || [], canSave: Boolean(own.canSave), saves: own.saves === 'shared' ? 'shared' : 'own', name: own.name || '' };
+      rebuildDefs();
       S.loadErr = base.size ? null : 'The lakehouse hasn\'t published its tables to MEDUSA yet.';
     } catch (e) {
       if (e.message !== 'Signed out') {
@@ -1438,7 +1622,7 @@ function onClick(e) {
   }
   if (act === 'csv') { downloadCsv(el.dataset.key, el.dataset.what); return; }
   if (act === 'win') { openWindow(el.dataset.panel, el.dataset.sym || null); return; }
-  if (act.startsWith('edit-') || act.startsWith('preview')) { onEdit(act, el.dataset.def); return; }
+  if (act.startsWith('edit-') || act.startsWith('preview') || act.startsWith('save-')) { onEdit(act, el.dataset.def); return; }
   if (act === 'view') { S.view = el.dataset.v; api.store.set('mktView', S.view); }
   else if (act === 'kind') { S.kind = el.dataset.v; S.limit = 50; if (!S.win) api.store.set('mktKind', S.kind); }   // a window's choice is its own
   else if (act === 'sort') { S.sort = el.dataset.v; S.limit = 50; draw(); return; }
@@ -1454,6 +1638,10 @@ function onClick(e) {
 /** The editor's buttons: open or close a definition's box, undo its changes, preview, stop. */
 function onEdit(act, id) {
   if (act === 'preview') { startPreview(); return; }
+  if (act === 'save-open') { openSave(); return; }
+  if (act === 'save-cancel') { closeSave(); return; }
+  if (act === 'save-go') { doSave(); return; }
+  if (act === 'edit-giveup') { giveUp(id); return; }
   if (act === 'preview-stop') { stopPreview(); return; }
   if (!DEFS.has(id)) return;
   if (act === 'edit-open' || act === 'edit-close') {

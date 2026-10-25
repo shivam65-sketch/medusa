@@ -19,7 +19,7 @@ resources:
   jobs:
     setup_ddl:
       name: lakehouse-setup-ddl
-      description: Creates the catalog, the layer schemas, the landing volume and the metric definitions table. Safe to run again.
+      description: Creates the catalog, the layer schemas, the landing volume and the metric definitions tables (shared and personal). Safe to run again.
       tasks:
         - task_key: create_catalog
           sql_task:
@@ -50,6 +50,14 @@ resources:
             warehouse_id: ${var.warehouse_id}
             file:
               path: ./sql/ddl/004_semantic.sql
+
+        - task_key: create_user_metrics
+          depends_on:
+            - task_key: create_semantic
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/ddl/005_user_metrics.sql
 
     seed_metric_definitions:
       name: lakehouse-seed-metric-definitions

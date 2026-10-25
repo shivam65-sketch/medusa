@@ -17,6 +17,7 @@ import { json, fail, readBody } from './http.js';
 import { canStore, secretKey } from './vault.js';
 import { deleteLabData } from './lab.js';
 import { deleteLogs } from './logs.js';
+import { forgetMetrics } from './metrics.js';
 
 const enc = new TextEncoder();
 const MIN = 60_000;
@@ -409,6 +410,7 @@ export async function deleteAccount(req, env, user) {
     if (bad) return bad;
   }
   const db = env.DB;
+  await forgetMetrics(env, user.id);             // its own Markets definitions, in the lakehouse and here
   const lab = await deleteLabData(env, user.id); // Lab files in KV first, then their lists go with the rest
   lab.push(await deleteLogs(env, user.id));
   await db.batch([

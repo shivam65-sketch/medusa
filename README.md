@@ -157,6 +157,20 @@ the same for every account, so the ingest saves it ready-made in Workers KV afte
 `market/scanner.json` in the Lab's namespace, 2 writes a day) and page loads read that instead of D1;
 each browser keeps it for 5 minutes.
 
+**Saving the Markets definitions (optional).** Each calculation window can save an edited query to the
+lakehouse: the owner's account as the shared version, every other account as its own version
+(`market.semantic.metric_definitions` and `market.semantic.user_metric_definitions` in Databricks).
+MEDUSA's server signs in to Databricks as a service principal that may only use the SQL warehouse and
+read and change those two tables (OAuth client credentials with the `sql` scope; `lakehouse/docs/operations.md`
+has the setup). Create the copy's table with
+`npx wrangler@4 d1 execute medusa --remote --file=migrations/005_user_metrics.sql`, then save four secrets
+with `npx wrangler@4 secret put`: `DATABRICKS_HOST` (the workspace address), `DATABRICKS_CLIENT_ID` and
+`DATABRICKS_CLIENT_SECRET` (the service principal's), and `MARKET_OWNER_ID` (the number of the account
+whose saves are shared: `SELECT id FROM users WHERE username = 'your email'`). `DATABRICKS_WAREHOUSE_ID` is
+optional; without it the warehouse is found by its name. Without the first three, saving is off and the
+windows only preview. Each account can save 20 times a day, and MEDUSA 300 times in all, because every
+save wakes the warehouse.
+
 **Release version:** it is kept in one place, `public/version.json` (the number, the date and what changed), and shown at the bottom of the menu on the left and on the sign-in page. When you publish a new release, raise the number there (for example 1.2.0 → 1.3.0) and add a section with the same number to `CHANGELOG.md`, which keeps every version and what changed in it.
 
 ## Your CoinDCX key and how it's protected
