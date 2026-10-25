@@ -3,9 +3,13 @@
 Every release of MEDUSA, newest first. The current version is in `public/version.json` (shown in the
 app's menu and on the sign-in page); each release adds a section here with the same number.
 
-## Unreleased
+## 1.7.0 (2026-10-25)
 
-Live, not yet a numbered release; planned as 1.7.0 with editable definitions.
+The Markets page's numbers are now SQL you can read, change and keep: every number on Today and Patterns is calculated by a query in the browser, the queries are versioned definitions in the market data lakehouse, and each one can be opened in its own window, edited, previewed and saved back (lakehouse steps 26 to 29).
+
+- Markets, **Patterns on SQL**: the Patterns view is calculated by three definitions, like Today's numbers: `patterns_summary` (the moves recorded since 2020 and how many kinds of move got each verdict), `patterns_held` (each pattern that held up, with a row for every market in that group right now) and `patterns_grid` (every kind of move, how many markets are in it now, and its verdict over the next 1, 4 and 24 hours). Its ‹› window shows all three with the unusual markets query, and each can be previewed, saved, reloaded and undone. A cell's details in words still come straight from its row of the evidence. Every section of the view has a ‹› button.
+- Market data lakehouse: version 1 of the three Patterns definitions, loaded by a second idempotent seed (`002_metric_definitions_patterns.sql`, task `seed_patterns` of job `seed_metric_definitions`); `market.semantic.metric_definitions` now holds 17 definitions.
+- Markets: a definition the lakehouse hasn't published yet says so on its own ("hasn't published this definition"), instead of saying that no definitions were published.
 
 - Markets: **every number on Today is calculated by SQL**. The queries run in a small SQLite database inside the browser (sql.js 1.14.2, SQLite compiled to WebAssembly, in a background worker): it holds MEDUSA's copies of the lakehouse tables (`market_baseline`, `market_evidence`), the live prices (`live_prices`, kept up to date from Binance's stream) and each market's type with Binance's close for yesterday (`binance_markets`). About once a second the page writes the prices that changed and runs the queries (about 50 ms in all); the cards and tables show what they return. Every number is defined once, in `public/markets-metrics.js`: four shared steps (`market_now`, `today`, `flagged`, `verdicts`) and a query for each card and table, with its name, its definition in words and how its columns are shown.
 - Markets, how each number is calculated: the panel shows the query exactly as it ran (it reads `FROM live_prices`; no prices are written into it), its parameters (the type filter and yesterday's date), the raw result, and where each table comes from. **Copy for MEDUSA (D1)** and **Copy for Databricks** add the browser-only tables as values, as they were for the result on screen, and fill in the parameters, so the copy returns that result. **Download the result (CSV)** and **Download the inputs (CSV)** (each market's price, yesterday's close and its normal).

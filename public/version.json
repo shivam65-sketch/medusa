@@ -1,11 +1,11 @@
 {
-  "version": "1.6.0",
-  "date": "2026-10-24",
+  "version": "1.7.0",
+  "date": "2026-10-25",
   "changes": [
-    "Markets: a live scanner of every Binance USDT perpetual (crypto, stocks, commodities and more): each market's move today against its own normal from the market data lakehouse, with prices streamed live from Binance",
-    "Markets: unusual moves (3 or more of a market's usual daily moves) with what similar moves did over the next 1, 4 and 24 hours since 2020, checked on held-back years and after costs",
-    "Markets: Patterns, every kind of move and its verdict, with the patterns that held up and the markets in them right now",
-    "Markets: a filter by type (crypto, stocks, commodities, other), the day's movers, and every market with search and sorting",
-    "Markets: how each number is calculated, as one SQL query you can copy and run in MEDUSA's database or in Databricks for the same result, with where each input comes from and the inputs as a CSV file"
+    "Markets: every number on Today and Patterns is calculated by SQL in your browser, from definitions kept, with every version, in the market data lakehouse",
+    "Markets: each ‹› button opens that number's calculation in its own window, live beside the page, with the query exactly as it runs for the type you chose",
+    "Markets: edit a number's SQL in its window and preview your version on your screen, next to the numbers in use",
+    "Markets: save your version to the lakehouse: it becomes your account's own (the owner's saves are the shared version), with every earlier version a click away and Use this version again to go back",
+    "Markets: Patterns runs on the same SQL engine, so its counts, the patterns that held up and every kind of move can be opened, edited and saved like Today's numbers"
   ]
 }

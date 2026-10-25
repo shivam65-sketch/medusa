@@ -80,7 +80,8 @@ flowchart LR
 | [26. Numbers built by SQL](docs/steps/26-numbers-built-by-sql.md) | Every number on the Markets page calculated by SQL in the browser (SQLite) from the live prices and the serving copy; the scanner's answer kept ready-made in Workers KV; a dbt exposure tying the page to its gold models | Done |
 | [27. Metric definitions in Databricks](docs/steps/27-metric-definitions.md) | Each number's name, meaning and SQL in a versioned table (`market.semantic.metric_definitions`, SCD Type 2), checked by 11 dbt tests, published to MEDUSA with the data, and run by the Markets page | Done |
 | [28. Editing the definitions](docs/steps/28-editing-the-definitions.md) | Each number's calculation in its own window; edit and preview its SQL there (the query follows the filter); Save writes a new version to Databricks through MEDUSA's server as a service principal (the owner's account: the shared version; any other: its own, in `user_metric_definitions`); History, Use this version again, and the owner's Reload | Done |
-| 29. Patterns on SQL, release 1.7.0 | The Patterns view on the same engine; MEDUSA 1.7.0 | Next |
+| [29. Patterns on SQL, release 1.7.0](docs/steps/29-patterns-on-sql-and-release.md) | The Patterns view calculated by three versioned SQL definitions (seeded as version 1 by a second idempotent seed), editable in its window like Today; MEDUSA release 1.7.0 | Done |
+| 30. More Markets tabs | A market's history, a live chart per market, and data health, from more gold tables published to MEDUSA | Next |
 
 ## Folder layout
 
@@ -89,7 +90,7 @@ lakehouse/
 ├─ README.md                 this page
 ├─ databricks.yml            Asset Bundle: every job and pipeline, defined as code
 ├─ sql/ddl/                  numbered, re-runnable DDL (catalog, schemas, volume, the two semantic tables)
-├─ sql/seed/                 data loaded once and safe to re-run (version 1 of the metric definitions)
+├─ sql/seed/                 data loaded once and safe to re-run (version 1 of the metric definitions: Today's, then Patterns')
 ├─ ingest/                   the downloader that GitHub Actions runs
 ├─ pipelines/bronze/         the bronze Lakeflow pipeline (SQL)
 ├─ dbt/                      the dbt project for silver and gold (models, tests, macros, the Markets page exposure)

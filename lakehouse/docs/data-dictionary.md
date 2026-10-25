@@ -413,7 +413,8 @@ The definition of every number on MEDUSA's Markets page, kept as data, with ever
 [ADR-029](decisions.md#adr-029-metric-definitions-are-kept-in-databricks-and-published-with-the-data);
 [DDL](../sql/ddl/004_semantic.sql)). A change never overwrites a row: it closes the current version and
 adds the next (SCD Type 2). Key `metric_id`, `version` (declared; enforced by the dbt tests, not by
-Unity Catalog). Version 1 came from [a seed](../sql/seed/001_metric_definitions_v1.sql).
+Unity Catalog). Version 1 came from two seeds: [Today's](../sql/seed/001_metric_definitions_v1.sql) (step 27) and
+[the Patterns view's](../sql/seed/002_metric_definitions_patterns.sql) (step 29).
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -436,9 +437,10 @@ Since [step 28](steps/28-editing-the-definitions.md) new versions are added by t
 `changed_by` set to the account's name in MEDUSA. A save never changes `kind`, `name` or `display`;
 they carry over from the version in use.
 
-**What the data looks like (2026-10-25):** 14 rows, all version 1 and current since 2026-10-24
-23:34 UTC: 4 models (`market_now`, `today`, `flagged`, `verdicts`; 360 to 1,154 characters of SQL) and
-10 metrics (115 to 633 characters of SQL, displays up to 828 characters). The first real save (version
+**What the data looks like (2026-10-25):** 17 rows, all version 1 and current: 4 models (`market_now`,
+`today`, `flagged`, `verdicts`; 360 to 1,154 characters of SQL) and 10 metrics since 2026-10-24 23:34 UTC
+(115 to 633 characters of SQL, displays up to 828 characters), and the Patterns view's 3 metrics
+(`patterns_summary`, `patterns_held`, `patterns_grid`) since 2026-10-25 10:38 UTC. The first real save (version
 2 of `bitcoin`, 05:22 UTC) was removed by hand in the SQL editor; Delta's history keeps it (`MERGE` by
 the service principal, then `DELETE` and `UPDATE` by a person).
 
@@ -498,7 +500,8 @@ Types follow SQLite: text, `REAL` for numbers, `INTEGER` for counts; dates are `
 
 **What the data looks like (2026-10-22 23:46 UTC):** `market_baseline` 748 rows and `market_evidence`
 60 rows, lakehouse day 2026-10-21, matching gold exactly. On 2026-10-25 at 09:21 UTC the owner's
-**Reload** replaced `market_metrics` (14 rows) and `market_user_metrics` (0 rows).
+**Reload** replaced `market_metrics` (14 rows) and `market_user_metrics` (0 rows), and at 11:01 UTC,
+after step 29, `market_metrics` again (17 rows).
 
 ### The scanner's answer, ready-made (Workers KV)
 
