@@ -12,7 +12,8 @@ How the platform runs day to day, and what to do when something goes wrong.
 | Re-check the previous 7 days (job `recheck`) | Right after the load | The same run's `recheck` job: one line per day ("1814 files checked, 0 changed, 0 new, 0 removed"); a yellow warning on the run's page when Binance changed a file ([ADR-023](decisions.md#adr-023-re-check-loaded-days-against-binance-for-a-week)) |
 | Bronze, freshness check, `dbt build` (job `transform`) | Right after a successful upload, in the same run | The same run's `transform` job; Databricks → **Jobs & Pipelines** → lakehouse-bronze for the pipeline |
 | Publish to MEDUSA (last step of `transform`) | Only after every dbt test passed | The run's summary page: a table of lakehouse rows against MEDUSA rows for `market_baseline`, `market_evidence` and `market_metrics`, all "OK" ([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)), and **Scanner answer** `kv` (MEDUSA rebuilt the Markets page's ready-made answer, [ADR-026](decisions.md#adr-026-the-scanners-answer-is-kept-ready-made-in-workers-kv)) |
-| Check the result | After the run | The last line of `dbt build` in the log; `market.gold.data_health` for the new day |
+| Log the run (job `log`) | Last, whatever happened before | The run, its jobs, steps and errors in `ops.logs.etl_runs`, `etl_jobs`, `etl_steps`, `etl_errors`; MEDUSA's errors since the last copy in `ops.logs.app_events` ([step 31](steps/31-ops-log-tables.md)). The run's summary page shows how many MEDUSA errors were copied |
+| Check the result | After the run | `SELECT * FROM ops.logs.daily_etl_status` (one row per day: the scheduled run's result, how late GitHub started it, the day loaded); the last line of `dbt build` in the log; `market.gold.data_health` for the new day |
 
 A failed scheduled run sends GitHub's failure email.
 
@@ -43,7 +44,14 @@ All `databricks` commands run from the `lakehouse/` folder.
 | Check a bronze change without loading | `databricks bundle run bronze --validate-only` (checks the pipeline's definitions against the tables; reads no files) |
 | See what's in the landing volume | `databricks fs ls dbfs:/Volumes/market/landing/binance/klines_1m` |
 | Deploy a change to a job or pipeline | `databricks bundle validate`, then `databricks bundle deploy` |
-| Re-create the catalogs, schemas, volume and semantic tables | `databricks bundle run setup_ddl` (6 tasks, harmless if they already exist; the last, `create_layout`, writes the schema descriptions and tags and creates `ops`, `ops.logs` and `journal`) |
+| Re-create the catalogs, schemas, volume, semantic and log tables | `databricks bundle run setup_ddl` (8 tasks, harmless if they already exist: `create_layout` writes the schema descriptions and tags and creates `ops`, `ops.logs` and `journal`; `create_ops_logs` and `create_etl_logs` the log tables and views) |
+| Re-create the view over the bronze pipeline's log | `databricks bundle run ops_views` (`ops.logs.bronze_loads`; needs the bronze tables) |
+| See what the lakehouse runs did | `SELECT * FROM ops.logs.daily_etl_status` (by day); `SELECT run_number, workflow, run_type, status, message FROM ops.logs.etl_runs ORDER BY started_at DESC` (by run). A run's jobs and steps: join `etl_jobs` on `run_key` and `etl_steps` on `job_key` |
+| See what went wrong | `SELECT * FROM ops.logs.recent_failures` (ETL and MEDUSA, last 30 days); `SELECT message, details FROM ops.logs.etl_errors ORDER BY event_time DESC` (with the failed step's output) |
+| See which steps are slowest | `SELECT step_name, AVG(duration_seconds), MAX(duration_seconds) FROM ops.logs.etl_steps WHERE status = 'success' GROUP BY step_name ORDER BY 2 DESC` |
+| See MEDUSA's errors | `SELECT source, area, message, event_time FROM ops.logs.app_events ORDER BY event_time DESC` (copied daily); today's: the account's Logs tab, or from the `medusa` folder `npx wrangler@4 d1 execute medusa --remote --command "SELECT * FROM server_events ORDER BY id DESC LIMIT 20"` |
+| See every bronze load and its data quality | `SELECT * FROM ops.logs.bronze_loads ORDER BY event_time DESC` |
+| Fill the log tables from GitHub's history | GitHub → Actions → **Lakehouse log run** → Run workflow, with the first day (GitHub keeps runs for 90 days). Runs already in the tables are left as they are |
 | Tag the bronze and semantic tables | `databricks bundle run tag_tables` (after setup_ddl and the first bronze run, and again after a bronze full refresh or a re-created semantic table; dbt tags silver and gold itself on every build) |
 | See a table's descriptions and tags | Catalog Explorer, or the SQL editor: `DESCRIBE TABLE EXTENDED market.gold.coin_daily`; every tag: `SELECT * FROM market.information_schema.table_tags ORDER BY schema_name, table_name, tag_name` |
 | Add a column to a dbt model | Describe it in the model's YAML in the same change: `persist_docs` writes the description into Databricks on the next build; a column left out shows with an empty comment ([step 30](steps/30-catalog-layout.md)) |
@@ -89,6 +97,11 @@ A complete day has about 872 coins × 1,440 rows. A data-health table will autom
 | `dbt build` fails while writing comments (`COMMENT ON COLUMN …`, a column that can't be found) | A column described in a model's YAML no longer exists in the table (renamed or removed) | Rename or remove it in the YAML too, then re-run **Lakehouse transform** |
 | The workflow doesn't appear under Actions | The workflow file isn't in `.github/workflows/` at the repository root | Move it there (`git mv`) |
 | Scheduled runs stopped | GitHub pauses schedules in public repositories after 60 days without commits | Actions → the workflow → **Enable workflow** |
+| The `log` job's step **Write this run to the ETL log tables** shows a warning; the run is still green | Databricks couldn't be reached or refused the INSERT (the step never fails the run) | Fill the run in afterwards: Actions → **Lakehouse log run** → Run workflow from that day |
+| **Copy MEDUSA's failures** warns `MEDUSA answered 401` | The GitHub secret `MEDUSA_OPS_TOKEN` differs from MEDUSA's `OPS_EXPORT_TOKEN` | Make a new token and save it in both places (Secrets below). Nothing is lost: the next copy continues from the last id copied |
+| **Copy MEDUSA's failures** warns `MEDUSA answered 503` | MEDUSA has no `OPS_EXPORT_TOKEN` secret | Save it in Cloudflare (Secrets below) |
+| **Copy MEDUSA's failures** warns that MEDUSA's highest id is below the one copied | MEDUSA's `app_logs` or `server_events` was made again, so its ids started over | Rows with ids at or below the highest copied are not copied; later ones are. The rows already in Databricks stay |
+| `daily_etl_status` shows **missing** for a day | The scheduled daily load never ran that day (GitHub skipped or paused it) | Run **Lakehouse daily load** by hand for that day (it shows as a manual run) |
 
 ## When a number on MEDUSA's Markets page looks wrong
 
@@ -187,6 +200,7 @@ them in the SQL editor: `DELETE FROM market.semantic.user_metric_definitions WHE
 | MEDUSA's address | GitHub secret `MEDUSA_URL` | Never | Only if the app's address changes |
 | Markets save login (service principal `medusa-markets-writer`) | Cloudflare secrets `DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET` | The OAuth secret's own expiry (shown on its Secrets tab) | Databricks: the service principal → **Secrets** → **Generate secret**, then `npx wrangler@4 secret put DATABRICKS_CLIENT_SECRET`, then delete the old secret |
 | Whose saves are shared | Cloudflare secret `MARKET_OWNER_ID` (an account number) | Never | Only if the owner's account changes |
+| MEDUSA's ops export token | Cloudflare secret `OPS_EXPORT_TOKEN` and GitHub secret `MEDUSA_OPS_TOKEN` (the same value); it can only read MEDUSA's error lines and server events, without accounts | Never | Without showing it: `node -e` the token into a JSON file in the temp folder and the clipboard, `npx wrangler@4 secret bulk <file>`, paste it into the GitHub secret, delete the file and clear the clipboard ([step 31](steps/31-ops-log-tables.md)) |
 
 Tokens are never pasted into chat, files or commits. A secret's value is never shown again after
 saving; it can only be replaced.

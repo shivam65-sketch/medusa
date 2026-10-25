@@ -41,6 +41,8 @@ These five layers are the schemas of the catalog `market`, public market data. L
 their own, `ops`, and each account's private trades to `journal`, so access is granted per kind of data
 ([step 30](docs/steps/30-catalog-layout.md)). Every schema, table and column is described in Databricks
 itself, and every table is tagged with its domain, its layer and whether it holds personal data.
+Every workflow run, with its jobs, steps and errors, and MEDUSA's own errors, are logged in `ops.logs`
+([step 31](docs/steps/31-ops-log-tables.md)): `SELECT * FROM ops.logs.daily_etl_status` shows each day.
 
 ## Documentation
 
@@ -87,8 +89,8 @@ itself, and every table is tagged with its domain, its layer and whether it hold
 | [28. Editing the definitions](docs/steps/28-editing-the-definitions.md) | Each number's calculation in its own window; edit and preview its SQL there (the query follows the filter); Save writes a new version to Databricks through MEDUSA's server as a service principal (the owner's account: the shared version; any other: its own, in `user_metric_definitions`); History, Use this version again, and the owner's Reload | Done |
 | [29. Patterns on SQL, release 1.7.0](docs/steps/29-patterns-on-sql-and-release.md) | The Patterns view calculated by three versioned SQL definitions (seeded as version 1 by a second idempotent seed), editable in its window like Today; MEDUSA release 1.7.0 | Done |
 | [30. Catalog layout](docs/steps/30-catalog-layout.md) | One catalog per kind of data and permission boundary: `market` (unchanged), `journal` (private trades), `ops` (logs); every schema, table and column described in Databricks (schemas numbered in the order data flows), every table tagged `domain`, `layer` and `personal_data`, naming rules written down, no renames | Done |
-| 31. Pipeline and app log tables | `ops` tables for every build, ETL and publish failure and for MEDUSA's serving-side errors | Next |
-| 32. Journal trades in the lakehouse | A daily copy of each account's trades into a private `journal` catalog, journal statistics and trades against the market, published back to MEDUSA | Planned |
+| [31. Operations logs](docs/steps/31-ops-log-tables.md) | Every lakehouse workflow run in `ops.logs`: `etl_runs` (scheduled or manual, how late, the days loaded) → `etl_jobs` → `etl_steps` (dbt's counts), `etl_errors` (a failed step with the line that says why, each failed dbt check), a `daily_etl_status` view; MEDUSA's page and server errors in `app_events`, copied daily through a read-only export; all append-only, filled back to 19 October | Done |
+| 32. Journal trades in the lakehouse | A daily copy of each account's trades into a private `journal` catalog, journal statistics and trades against the market, published back to MEDUSA | Next |
 | 33. Lab history from the lakehouse | Backtests on the lakehouse's checked history plus the last hours from Binance, with the dataset recorded in each result | Planned |
 | 34. More Markets tabs | A market's history, a live chart per market, and data health, from more gold tables published to MEDUSA | Planned |
 
@@ -100,6 +102,8 @@ lakehouse/
 ├─ databricks.yml            Asset Bundle: every job and pipeline, defined as code
 ├─ sql/ddl/                  numbered, re-runnable DDL (catalogs, schemas, volume, the two semantic tables, the layout's descriptions and tags)
 ├─ sql/governance/           tags on the tables dbt doesn't build (bronze, semantic)
+├─ sql/ops/                  the ops view over the bronze pipeline's own event log
+├─ ops/                      the operations logs' writers: each workflow run, MEDUSA's errors (step 31)
 ├─ sql/seed/                 data loaded once and safe to re-run (version 1 of the metric definitions: Today's, then Patterns')
 ├─ ingest/                   the downloader that GitHub Actions runs
 ├─ pipelines/bronze/         the bronze Lakeflow pipeline (SQL)
@@ -112,5 +116,6 @@ lakehouse/
 The workflows live at the repository root in [`.github/workflows/`](../.github/workflows/), because
 that is the only place GitHub looks for them: `lakehouse-daily.yml` (every day at 13:23 UTC: load, re-check the previous 7 days, transform),
 `lakehouse-backfill.yml` (past days), `lakehouse-history.yml` (Binance's monthly hourly files, one
-year per job), and the two they share, `lakehouse-load-day.yml` (download, check, upload) and
-`lakehouse-transform.yml` (bronze, freshness, dbt build).
+year per job), and the three they share, `lakehouse-load-day.yml` (download, check, upload),
+`lakehouse-transform.yml` (bronze, freshness, dbt build) and `lakehouse-log-run.yml` (the last job of
+each: the run into the log tables; started by hand, it fills them from GitHub's history).

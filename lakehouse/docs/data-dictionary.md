@@ -14,7 +14,7 @@ Everything below lives in the catalog `market`; two more catalogs hold what isn'
 | Catalog | Schemas | Holds | Tags |
 |---|---|---|---|
 | `market` | `landing`, `bronze`, `silver`, `gold`, `semantic` (descriptions start "1 of 5" to "5 of 5") | Public market data and the metric definitions | `domain=market`, `personal_data=false` |
-| `ops` | `logs` | Logs of the pipelines and of MEDUSA (tables in step 31) | `domain=ops`, `personal_data=false` |
+| `ops` | `logs` | Logs of the lakehouse workflow runs and of MEDUSA's errors ([below](#ops-opslogs-step-31)) | `domain=ops`, `personal_data=false` |
 | `journal` | none yet | Each MEDUSA account's trades (step 32) | `domain=journal`, `personal_data=true` |
 
 The descriptions on this page are also in Databricks, as comments: on every schema, table and column
@@ -500,6 +500,124 @@ their MEDUSA account is deleted.
 
 **What the data looks like (2026-10-25):** empty. The table was created at 04:03 UTC, and no account
 other than the owner's has saved a version yet.
+
+## Ops: `ops.logs` (step 31)
+
+The operations logs ([step 31](steps/31-ops-log-tables.md), [ADR-033](decisions.md#adr-033-operations-logs-append-only-tables-in-databricks-filled-from-github-and-medusa)).
+Every table is append-only (`delta.appendOnly = true`: no `UPDATE` or `DELETE`, by anyone) and nothing
+is deleted. Keys are text made from where the row came from, and declared as informational primary and
+foreign keys:
+
+```
+etl_runs.run_key --+-- etl_jobs.run_key      etl_jobs.job_key --+-- etl_steps.job_key
+                   +-- etl_steps.run_key                        +-- etl_errors.job_key
+                   +-- etl_errors.run_key    etl_steps.step_key --- etl_errors.step_key
+```
+
+Times are UTC. Each table also has `logged_at`, when the row was written to Databricks.
+
+### `ops.logs.etl_runs`
+
+One row per run attempt of a lakehouse workflow (daily load, backfill, history, transform), written by
+the run's last job, `log`. Filled back to 19 October from GitHub's history.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `run_key` | STRING | `gh:<run id>:<attempt>`; primary key |
+| `workflow`, `workflow_file` | STRING | `Lakehouse daily load` and `lakehouse-daily.yml`, and so on |
+| `run_number` | INT | The number GitHub shows, e.g. 9 for *Lakehouse daily load #9* |
+| `run_id`, `run_attempt` | BIGINT, INT | GitHub's id of the run; 1, or 2 and up for a re-run |
+| `run_type` | STRING | `scheduled`, `manual` (started with Run workflow) or `re-run` (attempt 2 and up) |
+| `triggered_by` | STRING | In words: `GitHub schedule: cron "23 13 * * *", every day at 13:23 UTC`, `Started by hand with Run workflow on GitHub`, `Re-run (attempt 2) of a scheduled run, started by hand on GitHub` |
+| `trigger_event` | STRING | GitHub's event: `schedule` or `workflow_dispatch` |
+| `scheduled_for` | TIMESTAMP | A scheduled run: the time its schedule set, from the cron line of the workflow file at the commit the run used (06:00 until 22 Oct, then 13:00, then 13:23) |
+| `start_delay_minutes` | INT | A scheduled run's first attempt: minutes GitHub started it late |
+| `inputs` | STRING | JSON of what was typed when started by hand, e.g. `{"start": "2026-09-18", "end": "2026-10-17"}` |
+| `data_date` | DATE | The day of market data, when the run loaded one (a daily load) |
+| `data_from`, `data_to` | DATE | The days covered (a backfill or history range; equal to `data_date` for one day) |
+| `status` | STRING | `success`, `failure` or `cancelled` |
+| `started_at`, `finished_at`, `duration_seconds` | TIMESTAMP, TIMESTAMP, INT | From the start to the last job finishing |
+| `jobs_total`, `jobs_succeeded`, `jobs_failed`, `jobs_skipped`, `jobs_cancelled` | INT | The run's jobs, the log job not counted |
+| `message` | STRING | `Daily load (scheduled) of 2026-10-24: all 3 jobs succeeded in 9m 12s` |
+| `git_sha`, `branch`, `run_url` | STRING | The commit, branch and the run on GitHub |
+
+### `ops.logs.etl_jobs`
+
+One row per job of a run.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `job_key` | STRING | `<run_key>:<job id>`; primary key |
+| `run_key` | STRING | The run (`etl_runs`) |
+| `job_id`, `job_name` | BIGINT, STRING | `load`, `recheck`, `transform`, `days`, or a matrix job such as `load (2026-10-01)` |
+| `status` | STRING | `success`, `failure`, `cancelled` or `skipped` |
+| `data_date` | DATE | The day the job loaded (from a backfill job's name, or the run's day) |
+| `started_at`, `finished_at`, `duration_seconds` | | When and how long |
+| `steps_total`, `failed_step` | INT, STRING | Its steps (set-up and clean-up not counted) and the first that failed |
+| `message`, `job_url` | STRING | `transform failed at step 'Build and test silver and gold' in 5m 05s`; the job and its log on GitHub |
+
+### `ops.logs.etl_steps`
+
+One row per step of a job; GitHub's set-up and clean-up steps are left out.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `step_key` | STRING | `<job_key>:<step number>`; primary key |
+| `job_key`, `run_key` | STRING | Its job (`etl_jobs`) and run (`etl_runs`) |
+| `step_number`, `step_name` | INT, STRING | As GitHub numbers and names it, e.g. 9, `Build and test silver and gold` |
+| `status` | STRING | `success`, `failure`, `cancelled` or `skipped` (never ran) |
+| `started_at`, `finished_at`, `duration_seconds` | | When and how long |
+| `details` | STRING | JSON the step reported. `Build and test silver and gold`: `{"built": 15, "tests_passed": 131, "failed": 0, "warned": 0, "skipped": 0, "elapsed_seconds": 273}`; `Check bronze is fresh`: the sources checked, by status. Empty for other steps, and for runs filled from history |
+
+### `ops.logs.etl_errors`
+
+The ETL runtime errors and warnings.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `error_key` | STRING | `<step_key>:step` (a failed step) or `<job_key>:dbt:<dbt node>` (a dbt check); primary key |
+| `run_key`, `job_key`, `step_key` | STRING | Where it happened |
+| `event_time` | TIMESTAMP | When |
+| `severity` | STRING | `error` or `warning` |
+| `category` | STRING | `step_failed`, `dbt_model`, `dbt_snapshot`, `dbt_test` or `dbt_freshness` |
+| `object` | STRING | The step, or the dbt model, test or source |
+| `message` | STRING | `load: step 'Download and check Binance files' failed: FAILED metrics ATHUSDT 2026-10-20: [Errno 104] Connection reset by peer`; `test not_null_coin_daily_close failed: 3 failing rows` |
+| `details` | STRING | JSON: a failed step's output, up to 15 lines before GitHub marked the error (GitHub hides secrets in logs); for dbt, its message, failing rows and table |
+
+### `ops.logs.app_events`
+
+MEDUSA's errors, copied once a day from MEDUSA's read-only export (below).
+
+| Column | Type | Meaning |
+|---|---|---|
+| `event_id` | STRING | `browser:<id>` or `server:<id>`; primary key |
+| `source` | STRING | `browser` (a MEDUSA page reported it) or `server` (MEDUSA's server hit it) |
+| `source_id` | BIGINT | The row id in MEDUSA (D1 `app_logs` or `server_events`); the copy continues after the highest one here |
+| `event_time` | TIMESTAMP | When it happened |
+| `severity` | STRING | `error` |
+| `area` | STRING | Part of MEDUSA: `markets`, `lab`, `python`, `journal`, `api`, `error` (an uncaught error in a page); or `ingest`, `metrics`, `import`, or a path's first part (server) |
+| `message` | STRING | The error, e.g. `The query breadth failed: no such column: x` or `Wrong or missing token.` |
+| `details` | STRING | JSON: the definition and its version, where in the code, the method, path and status code. No account; email addresses replaced |
+
+### Views
+
+| View | One row per | Columns |
+|---|---|---|
+| `daily_etl_status` | Day, from the first logged run to today | `day`, `scheduled_status` (`success`, `failure`, `cancelled`, or `missing` when the schedule never ran), `scheduled_started_at`, `scheduled_for`, `started_late_minutes`, `attempts`, `data_date_loaded`, `manual_runs`, `manual_runs_failed`, `errors`, `summary`. A run belongs to the day its first attempt started; its result is the last attempt's |
+| `recent_failures` | Error of the last 30 days | `event_time`, `origin` (`pipeline` or `app`), `what` (workflow / job / object, or source / area), `message`, `details`, `link` (the GitHub job) |
+| `bronze_loads` | Bronze load, table and expectation | `event_time`, `update_id`, `table_name`, `rows_written`, `expectation`, `passed_records`, `failed_records`, from the bronze pipeline's event log |
+
+### In MEDUSA (Cloudflare D1)
+
+| Table | Holds |
+|---|---|
+| `app_logs` | Each account's log lines (the Logs tab, `src/logs.js`); the lines with `level = 'error'` are the browser errors copied to `app_events`. Columns `id`, `user_id`, `cid`, `day`, `at`, `level`, `area`, `msg`, `data` |
+| `server_events` | Errors MEDUSA's server hit (`src/ops.js`, created on first use): `id`, `at` (ms since 1970), `area`, `msg`, `data` (JSON: method, path, status). The same area and message is stored once a minute at most (6 hours for imports); the newest 2,000 rows are kept. No account |
+
+`GET /api/ops/events?browser_after=<id>&server_after=<id>` with `Authorization: Bearer <OPS_EXPORT_TOKEN>`
+answers `{"browser": [...], "server": [...], "more": bool, "last": {"browser": id, "server": id}}`: up to
+500 rows of each after the ids given, each `{"id", "at", "area", "msg", "data"}`, without `user_id`, and
+with anything that looks like an email address replaced by `[email]`.
 
 ## Serving: MEDUSA's copy (Cloudflare D1)
 

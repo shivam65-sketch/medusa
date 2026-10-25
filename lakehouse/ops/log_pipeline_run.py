@@ -124,15 +124,22 @@ def job_log(repo, job_id):
 
 
 def error_lines(log):
-    """The lines GitHub marked as errors and up to 15 lines before the first, without timestamps."""
-    lines = [re.sub(r"^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s?", "", l) for l in log.splitlines()]
+    """What the failed step printed before GitHub marked the error (at most 15 lines), and one line
+    that says why. Timestamps and colour codes are removed, and so is GitHub's preamble of the step
+    (the command, the shell and its environment, between ##[group] and ##[endgroup])."""
+    lines = [re.sub(r"\x1b\[[0-9;]*m", "", re.sub(r"^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s?", "", l)) for l in log.splitlines()]
     marks = [i for i, l in enumerate(lines) if "##[error]" in l]
     if not marks:
         return None, None
     first, last = marks[0], marks[-1]
-    tail = "\n".join(lines[max(0, first - 15): last + 1][-40:])[-4000:]
-    headline = next((lines[i].split("##[error]", 1)[1].strip() for i in marks if "exit code" not in lines[i]),
-                    lines[first].split("##[error]", 1)[1].strip())
+    start = max((i + 1 for i in range(first) if lines[i].startswith("##[endgroup]")), default=0)
+    output = [l for l in lines[max(start, first - 15): first] if l.strip() and not l.startswith("##[")]
+    errors = [lines[i].split("##[error]", 1)[1].strip() for i in marks]
+    tail = "\n".join(output + ["##[error]" + e for e in errors])[-4000:]
+    # GitHub's own last line ("Process completed with exit code 1.") says nothing; the step's output does.
+    telling = [e for e in errors if not e.startswith("Process completed with exit code")]
+    flagged = [l.strip() for l in output if re.search(r"error|fail|exception|traceback|denied|refused|timed? ?out", l, re.I)]
+    headline = (telling[0] if telling else flagged[0] if flagged else output[-1].strip() if output else errors[0])[:300]
     return headline, tail
 
 

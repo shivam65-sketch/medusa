@@ -157,6 +157,14 @@ the same for every account, so the ingest saves it ready-made in Workers KV afte
 `market/scanner.json` in the Lab's namespace, 2 writes a day) and page loads read that instead of D1;
 each browser keeps it for 5 minutes.
 
+**MEDUSA's failures in the lakehouse (optional).** The lakehouse's daily run copies the error lines MEDUSA's
+pages reported (the Markets page among them) and the errors its server hit into `ops.logs.app_events`
+(`lakehouse/docs/steps/31-ops-log-tables.md`), through `GET /api/ops/events`, which only answers requests
+carrying the `OPS_EXPORT_TOKEN` secret and never sends which account. Make a token without showing it
+(`lakehouse/docs/operations.md`, *Secrets*), save it in Cloudflare (`npx wrangler@4 secret bulk <file>` or
+`secret put OPS_EXPORT_TOKEN`) and as the GitHub Actions secret `MEDUSA_OPS_TOKEN`. Without it the endpoint
+answers 503 and the copy is skipped.
+
 **Saving the Markets definitions (optional).** Each calculation window can save an edited query to the
 lakehouse: the owner's account as the shared version, every other account as its own version
 (`market.semantic.metric_definitions` and `market.semantic.user_metric_definitions` in Databricks).
@@ -266,6 +274,7 @@ The Lab's folders use Workers KV: 1 GB in total, 100,000 reads and 1,000 writes 
 - `src/trades.js`: turns orders into closed trades, and finds each trade's stop loss and take profit
 - `src/logos.js`: coin logos
 - `src/market.js`: the market copy for the live scanner: `POST /api/market/ingest`, write-only, with its own token, which also saves the scanner's answer ready-made in KV; `GET /api/market/scanner`, read-only, for signed-in accounts
+- `src/ops.js`: MEDUSA's own failures for the lakehouse's operations logs: errors the server hits (`server_events`, no account), and `GET /api/ops/events`, read-only with its own token, which the lakehouse's daily run reads (the pages' error lines and the server events, emails replaced)
 - `src/metrics.js`: saving the Markets definitions to the lakehouse: `GET /api/market/metrics/mine` (the account's own versions), `POST /api/market/metrics/save`, `POST /api/market/metrics/reset`, `GET /api/market/metrics/history` and `POST /api/market/metrics/reload` (the owner only); signs in to Databricks as a service principal and runs parameterized statements through the SQL Statement API
 - `schema.sql`: the database tables (for a new install)
 - `migrations/`: upgrading a single-password database to accounts (`001_accounts.sql`, then `claim.sql`); the Lab's tables (`002_lab.sql`, optional); the market copy for the live scanner (`003_market.sql`), its metric definitions (`004_metrics.sql`) and each account's own versions of them (`005_user_metrics.sql`)

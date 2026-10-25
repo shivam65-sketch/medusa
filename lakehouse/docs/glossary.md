@@ -6,9 +6,12 @@ The data engineering terms used in this project, in plain words.
 
 | Term | Meaning | Where it appears here |
 |---|---|---|
+| **Append-only table** | A table that only takes new rows: updates and deletes are refused, for everyone. In Delta, the table property `delta.appendOnly = true` | Every table in `ops.logs` ([step 31](steps/31-ops-log-tables.md)) |
+| **Artifact (GitHub Actions)** | A file a job keeps for later jobs of the same run, for a few days | The transform keeps dbt's result files for the run's log job |
 | **Asset Bundle** | Databricks' "infrastructure as code": a YAML file declaring jobs, pipelines and dashboards, deployed with one command | [`databricks.yml`](../databricks.yml) |
 | **Atomic grain** | The finest level of detail stored. Everything coarser is built from it. | 1-minute candles |
 | **Atomic write** | Writing a file under a temporary name and renaming it when complete, so a half-written file never appears | The downloader |
+| **Audit log** | A record of what happened that is never changed afterwards, so it can be trusted | `ops.logs.etl_runs` and the tables under it |
 | **Auto Loader** | Databricks' incremental file loader: it remembers which files it has loaded and reads only new ones | Bronze pipeline |
 | **Backfill** | Running the pipeline for past dates to load history | `lakehouse-backfill.yml` |
 | **Bitemporal** | Tracking both when something was true in the world and when the warehouse knew it | `dim_coin` after the backfill |
@@ -28,10 +31,13 @@ The data engineering terms used in this project, in plain words.
 | **Exactly once** | Each input is processed one time: never skipped, never twice | Auto Loader |
 | **Expectation** | A data-quality rule in a Lakeflow pipeline that counts, drops or fails on bad rows | Bronze (count only) |
 | **Exposure (dbt)** | A declaration that something outside dbt (a dashboard, an app) uses certain models, so the lineage reaches it and dbt can select everything it depends on | `markets_page` in [`exposures.yml`](../dbt/models/exposures.yml) |
+| **Foreign key (informational)** | A column that names a row of another table, declared so readers and tools see the relationship, but not checked by the database | `etl_jobs.run_key` → `etl_runs`, `etl_steps.job_key` → `etl_jobs` |
 | **Generic / singular test** | dbt tests: a generic test is one line of YAML (`not_null`); a singular test is a SQL file returning bad rows (0 rows = pass) | `dbt/tests/` |
 | **Governance tag** | A `key = value` label on a catalog, schema, table or column that says what kind of data it is; searchable, queryable in `information_schema`, and what access rules and audits select on | `domain`, `layer`, `personal_data` on every table |
 | **Grain** | What one row of a table means, e.g. one coin per hour | `fct_candle_1h` |
+| **Header / detail** | A parent table and its child rows: an order and its lines. Each child carries its parent's key | `etl_runs` → `etl_jobs` → `etl_steps` |
 | **Held-back test (out-of-sample)** | Choosing a rule on one period and checking it on another that played no part in choosing it | `event_evidence` (2025 on) |
+| **High-water mark (watermark)** | The highest value already processed, kept so the next run continues after it. On insert order (an id), late rows aren't missed | MEDUSA's errors copied after the highest id in `ops.logs.app_events` |
 | **Hive-style partition** | A folder named `column=value`, read as a column | `date=2026-10-19` |
 | **Idempotent** | Running something again gives the same result and does no harm | DDL, downloader, uploads, the metric definitions' seed (`MERGE ... WHEN NOT MATCHED`) |
 | **Incremental model** | A dbt model that, after its first full build, processes only new data and merges it in | `fct_candle_1m` |
@@ -51,6 +57,7 @@ The data engineering terms used in this project, in plain words.
 | **Metrics layer (semantic layer)** | Defining each business number once, as data (name, definition, SQL), on shared steps (models), so every report computes it the same way | `market.semantic.metric_definitions`, run by the Markets page ([ADR-028](decisions.md#adr-028-every-number-is-a-sql-query-run-in-the-browser), [ADR-029](decisions.md#adr-029-metric-definitions-are-kept-in-databricks-and-published-with-the-data)) |
 | **Multiple testing** | Testing many ideas at once: some pass by luck, so each needs a stricter check | 60 rows in `event_evidence` |
 | **Naming convention** | Written rules for names, so a name says what a thing is: its layer, its kind (fact, dimension, building block), its grain and its units | `fct_candle_1m`, `dim_coin`, `int_candle_1h_all`, `_at`, `_usdt` ([step 30](steps/30-catalog-layout.md#naming-rules)) |
+| **Natural key** | A key made from what the row is about, not a number the database hands out, so every writer makes the same key for the same thing and a repeat is recognised | `gh:<run>:<attempt>:<job>` in the ETL logs |
 | **OAuth client credentials (machine to machine)** | How a program signs in without a person: it trades its client id and secret for a short-lived token, limited to a *scope* (what the token may be used for) | MEDUSA's server gets a one-hour token for its service principal with the `sql` scope (Free Edition refuses `all-apis`) |
 | **Optimistic concurrency** | Instead of locking a row while someone edits it, the change says which version it was based on, and is refused if the row changed in the meantime. SQL Server: checking a `rowversion` in the `WHERE` clause | A save carries `:base`, the version the window edited; if someone saved first, the `MERGE` changes nothing and the window is told to reload (409) |
 | **Parameterized statement** | A SQL statement sent with its values separately, as named parameters, so a value is always treated as data and can never change the statement itself (no SQL injection). SQL Server: `sp_executesql` with parameters | Every save: the edited SQL is the parameter `:sql_text`, stored by Databricks and never run there ([ADR-031](decisions.md#adr-031-edits-are-saved-to-databricks-by-medusas-server-as-shared-or-personal-versions)) |
@@ -64,6 +71,7 @@ The data engineering terms used in this project, in plain words.
 | **Retention** | How long each kind of data is kept | [ADR-011](decisions.md#adr-011-keep-1-minute-candles-for-a-limited-time) |
 | **Reusable workflow** | A GitHub Actions workflow other workflows call, so shared steps live in one place | `lakehouse-load-day.yml` |
 | **Reverse ETL / serving layer** | Copying finished warehouse tables to where an app can serve them | `market_baseline` and `market_evidence` in MEDUSA's D1, published after each transform |
+| **Run metadata** | What a run did (its jobs, steps, times, results), read after the fact from the scheduler rather than written by each job | The log job reads its own run from GitHub's API |
 | **SCD Type 2** | Keeping the full history of a dimension's changes, one row per version, with when each was valid | `dim_coin`; `metric_definitions` and `user_metric_definitions` (`version`, `valid_from`, `valid_to`, `is_current`) |
 | **Schema drift** | A source changing its columns or format over time | Caught by `_rescued_data` |
 | **Schema-on-read** | Applying column names and types when reading files, not when storing them | `read_files` in bronze |

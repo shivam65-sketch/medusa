@@ -40,6 +40,7 @@ entry replaces it and the old one is marked *Superseded*.
 | 030 | [Each number's calculation runs in its own window, with the filter's values in the SQL](#adr-030-each-numbers-calculation-runs-in-its-own-window-with-the-filters-values-in-the-sql) | Accepted |
 | 031 | [Edits are saved to Databricks by MEDUSA's server, as shared or personal versions](#adr-031-edits-are-saved-to-databricks-by-medusas-server-as-shared-or-personal-versions) | Accepted |
 | 032 | [One catalog per kind of data, described and tagged in place, no renames](#adr-032-one-catalog-per-kind-of-data-described-and-tagged-in-place-no-renames) | Accepted |
+| 033 | [Operations logs: append-only tables in Databricks, filled from GitHub and MEDUSA](#adr-033-operations-logs-append-only-tables-in-databricks-filled-from-github-and-medusa) | Accepted |
 
 ---
 
@@ -730,3 +731,58 @@ silver and gold (dbt YAML), and a new column without a description shows up as a
 YAML-against-columns comparison of step 30 is worth repeating. Tags on the bronze and semantic tables
 are set by a job, not by the code that creates the tables, so a re-created table needs `tag_tables` run
 again.
+
+## ADR-033: Operations logs: append-only tables in Databricks, filled from GitHub and MEDUSA
+
+**Status:** Accepted, 2026-10-25 and 26 (step 31).
+
+**Context:** The owner asked for a log table in Databricks for every build or ETL failure and another for
+failures of the dashboard (the Markets page), then for the ETL logs to say more (was a run started by
+hand?) and to be structured: runs, the jobs of each run, the steps of each job, and the errors. Failures
+were only in GitHub's run history (90 days, one run at a time) and each MEDUSA account's Logs tab. The
+lakehouse runs on GitHub Actions; MEDUSA runs on Cloudflare, with no Databricks access of its own beyond
+saving definitions.
+
+**Decision:**
+- **Tables in `ops.logs`** (ADR-032): `etl_runs` → `etl_jobs` → `etl_steps`, and `etl_errors` linked
+  to all three; `app_events` for MEDUSA. Views: `daily_etl_status` (one row per day, a missing day
+  shown), `recent_failures` and `bronze_loads` (the bronze pipeline's own event log).
+- **Append-only, kept for good.** `delta.appendOnly = true` on every table: nothing is updated or deleted,
+  by anyone. Unity Catalog has no insert-only grant, so the table enforces it. A few thousand rows a
+  year need no clean-up.
+- **Keys from the source.** `gh:<run>:<attempt>:<job>:<step>` and `browser:<id>` / `server:<id>`,
+  declared as informational primary and foreign keys. Every write is one `INSERT ... SELECT ... WHERE NOT
+  EXISTS`, with the rows as one JSON parameter, so repeating a write adds nothing.
+- **ETL runs from GitHub's API, after the fact.** The last job of each lakehouse workflow (`if: always()`)
+  reads its own run, jobs, steps and a failed job's log from GitHub, and dbt's result files from an
+  artifact the transform keeps. No logging code inside the jobs that do the work. Started by hand, the
+  same workflow fills the tables from GitHub's history. Logging never fails a run.
+- **The schedule as it was.** A scheduled run's planned time is read from the workflow file at the
+  commit the run used, so a delay is measured against the schedule of the time.
+- **MEDUSA's errors pulled once a day.** The page logs a failed query once; the server keeps its own
+  errors in D1 (`server_events`). The daily run reads both through `GET /api/ops/events` with a
+  read-only token, after the highest ids already copied (a high-water mark on insert order). MEDUSA
+  gets no Databricks write access, and no account is ever copied.
+- **No personal data.** A manual run is "manual", not a username; app events carry no account, and
+  email addresses are replaced before they leave MEDUSA.
+
+**Alternatives:**
+- *One wide table for everything* (the first version, `pipeline_events`). Simple to write, but a run, a
+  job and a dbt test are different things; counting runs per day or steps per job meant filtering one
+  table by kind. Replaced in 31.4, before it held anything that mattered.
+- *Logging code inside every job.* Each job would need a step that writes its own row, and a job that
+  crashes early writes nothing. Reading the run afterwards from GitHub sees every job, including those
+  that never started.
+- *Databricks system tables or a SQL alert.* Free Edition's system tables don't cover GitHub Actions,
+  which run the chain; an alert can be added later on these tables.
+- *MEDUSA pushing every error to Databricks.* Fresher, but it would need a Databricks credential that
+  can write, and every error would wake the warehouse.
+- *Keeping 90 days.* Deleting old rows means the table can't be append-only, and the volume doesn't
+  need it.
+
+**Consequences:** A failure is a row that SQL can count and join: which steps fail most, how late
+GitHub starts the schedule, which days are missing. A wrong row can't be corrected in place: it stays, and
+a better writer fixes the next ones (three early `etl_errors` rows keep GitHub's generic line). MEDUSA's
+errors reach Databricks a day late; the Logs tab shows them at once. The export token is one more secret
+to keep, in Cloudflare and GitHub. Without a token, GitHub's API allows 60 calls an hour, so history is
+filled from Actions, not from a computer.

@@ -13,6 +13,7 @@ Short answers to the questions people ask first, with links to the detailed page
 | **Lakehouse transform** (`lakehouse-transform.yml`) | After every successful load, or by hand | Bronze pipeline, source freshness, `dbt build` of silver and gold with all tests, then publish the scanner's tables to MEDUSA |
 | **Lakehouse backfill** (`lakehouse-backfill.yml`) | Only by hand, with a first and last day (up to 60) | Loads past days, 4 at a time, then runs the transform once |
 | **Lakehouse history** (`lakehouse-history.yml`) | Only by hand, with a first and last year | Loads Binance's monthly hourly files, one job per year, then the transform. Ran once, on 2026-10-20 |
+| **Lakehouse log run** (`lakehouse-log-run.yml`) | As the last job of each workflow above, whatever happened before; or by hand, with a first day | Writes the run, its jobs, steps and errors into `ops.logs` (and, for the daily load, MEDUSA's errors). By hand: fills those tables from GitHub's history |
 
 ## What happens on a normal day?
 
@@ -27,8 +28,11 @@ Short answers to the questions people ask first, with links to the detailed page
 4. **Publish to MEDUSA (about 7 seconds)**: `coin_baseline`, `event_evidence` and the current metric
    definitions (the shared ones and each account's own) are copied into MEDUSA's database through its
    write-only endpoint, and MEDUSA must report the same row counts as the lakehouse.
+5. **Log (about a minute), always**: the run, its jobs and steps (dbt's counts), and every failed step
+   or dbt check go into `ops.logs.etl_runs`, `etl_jobs`, `etl_steps` and `etl_errors`; MEDUSA's errors
+   since yesterday's copy go into `ops.logs.app_events`.
 
-A failure at any point stops the rest and sends GitHub's failure email.
+A failure at any point stops the rest (except the log, which records it) and sends GitHub's failure email.
 
 ## Does it download the whole history every day?
 
@@ -208,3 +212,14 @@ for anyone else. The owner's save changes the shared definition, and every page 
 its **History** keeps the old version, and **Use this version again** puts it back as the next version.
 Your own versions stay yours until you press **Use the shared version again** (or delete your
 account, which deletes them from Databricks and MEDUSA).
+
+## Where can I see whether the pipeline ran, and what went wrong?
+
+In Databricks, in `ops.logs` ([step 31](steps/31-ops-log-tables.md)). `SELECT * FROM
+ops.logs.daily_etl_status` gives one row per day: whether the scheduled daily load ran, how late GitHub
+started it (it is often hours late), its result, the day of data it loaded, and that day's manual runs and
+errors; a day the schedule never ran shows *missing*. Each run is in `etl_runs` (scheduled, manual or
+re-run, and what was typed when started by hand), its jobs in `etl_jobs` and their steps in `etl_steps`,
+linked by their keys. `recent_failures` lists every error of the last 30 days, the ETL's (`etl_errors`,
+with the line that says why) and MEDUSA's (`app_events`). The tables can't be changed afterwards: they
+are append-only.
