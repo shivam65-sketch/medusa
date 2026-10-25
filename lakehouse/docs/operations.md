@@ -82,8 +82,8 @@ A complete day has about 872 coins × 1,440 rows. A data-health table will autom
 
 Every number on the Markets page is calculated by a SQL query that runs in the browser
 ([ADR-028](decisions.md#adr-028-every-number-is-a-sql-query-run-in-the-browser)). Every summary card and
-table has a **‹›** button, and every market's details have a section, showing that query exactly as it
-ran, with its parameters and its raw result. **Copy for MEDUSA (D1)** or **Copy for Databricks** adds the
+table, and every market's details, have a **‹›** button that opens that query in its own window, live,
+exactly as it runs, with its parameters and its raw result. **Copy for MEDUSA (D1)** or **Copy for Databricks** adds the
 live prices as values and fills in the parameters; run it, and if the database returns the same result,
 the page calculated correctly and any surprise is in the data. Start there.
 

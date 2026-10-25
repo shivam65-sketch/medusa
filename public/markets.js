@@ -14,11 +14,13 @@
 // and Binance's contract list. The queries themselves are kept in the lakehouse
 // (market.semantic.metric_definitions, every version) and published to MEDUSA with the data
 // (market_metrics); markets-metrics.js is the built-in copy, used until they arrive. This file only
-// feeds the tables, runs the queries about once a second and draws what they return; each number's
-// query is shown under it, exactly as it runs. The rule is the lakehouse's own (intraday_events.sql), so the evidence describes
-// exactly the moves flagged here. Live numbers are unchecked: the next daily run replaces them.
+// feeds the tables, runs the queries about once a second and draws what they return. The rule is the
+// lakehouse's own (intraday_events.sql), so the evidence describes exactly the moves flagged here. Live
+// numbers are unchecked: the next daily run replaces them.
 //
-// Two views: Today (the live scan) and Patterns (every kind of move and what it did next).
+// Two views: Today (the live scan) and Patterns (every kind of move and what it did next). Each ‹›
+// button opens one number's calculation in its own window (markets-window.html): the same code with
+// its own data, engine and live prices, running only that number's queries.
 
 import { DEFINITIONS } from './markets-metrics.js?v=1';
 
@@ -140,7 +142,8 @@ const S = {
   frozen: null,                                      // the engine's browser-only tables as of the last run, for Copy
   seen: new Map(),                                   // symbol -> when this page first saw it unusual
   view: 'today', kind: 'all', sort: 'z', q: '', limit: 50, open: null, openAll: null, pat: null,
-  src: null, sql: new Map(),                         // the open "how this is calculated" panel; its queries for Copy
+  sql: new Map(),                                    // each calculation panel's query, for Copy
+  win: null,                                         // in a ‹› window: {panel, ids, symbol}
   painted: 0, paintTimer: 0, html: new Map(),
 };
 
@@ -302,6 +305,7 @@ function marketRows() {
 function jobs() {
   const params = { ':kind': S.kind, ':yesterday': yesterday() };
   const job = (id, key = id, extra = {}) => ({ id: key, sql: assemble(DEFS.get(id)), params: { ...params, ...extra } });
+  if (S.win) return S.win.ids.map((id) => (id === 'market' ? job(id, `market:${S.win.symbol}`, { ':symbol': S.win.symbol }) : job(id)));
   const out = [job('unusual_all_types')];
   if (S.view === 'today') {
     out.push(...['breadth', 'median_move', 'unusual_count', 'bitcoin', 'unusual', 'gainers', 'losers', 'markets'].map((id) => job(id)));
@@ -334,6 +338,7 @@ async function run() {
   S.lastRun = { at: Date.now(), ms: Math.round(performance.now() - t0), n: msg.jobs.length };
   S.res = new Map(Object.entries(out));
   // When this page first saw each market unusual (kept by the page, not by a query).
+  if (!S.res.has('unusual_all_types')) return;
   const now = Date.now(), flagged = new Set(objects(S.res.get('unusual_all_types')).map((r) => r.market));
   for (const s of flagged) if (!S.seen.has(s)) S.seen.set(s, now);
   for (const s of [...S.seen.keys()]) if (!flagged.has(s)) S.seen.delete(s);
@@ -343,8 +348,7 @@ async function run() {
 
 const GH = 'https://github.com/shivam65-sketch/medusa/blob/main/lakehouse/dbt/models/gold/';
 const ICON = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg>';
-const srcBtn = (id) => `<button class="mkt-src-btn" type="button" data-mkt="src" data-id="${id}" aria-pressed="${S.src === id}" title="How this is calculated" aria-label="How this is calculated">${ICON}</button>`;
-const srcBox = (id, body) => (S.src === id ? `<div class="mkt-src">${body}</div>` : '');
+const srcBtn = (panel, symbol = '') => `<button class="mkt-src-btn" type="button" data-mkt="win" data-panel="${panel}"${symbol ? ` data-sym="${esc(symbol)}"` : ''} title="How this is calculated (opens in its own window)" aria-label="How this is calculated, in its own window">${ICON}</button>`;
 const sqlBlock = (title, sql) => `<div class="mkt-sql"><div class="h"><span>${title}</span><button class="btn btn-sm" type="button" data-mkt="copy">Copy</button></div><pre>${esc(sql.trim())}</pre></div>`;
 const ghLink = (file) => `<a href="${GH}${file}" target="_blank" rel="noopener">${file}</a>`;
 const csvCell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -353,7 +357,7 @@ const csvCell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"
 // registers its queries here while it is drawn, and they are kept only if the panel was redrawn.
 let PENDING = [];
 const SOURCES = {
-  live_prices: () => `Binance's live prices, kept up to date from the stream while this page is open (last message ${clockS(S.lastMsg)}). Only in this browser.`,
+  live_prices: () => `Binance's live prices, kept up to date from the stream while this ${S.win ? 'window' : 'page'} is open (last message ${clockS(S.lastMsg)}). Only in this browser.`,
   binance_markets: () => 'Each market\'s type from Binance\'s contract list (once a day), and yesterday\'s close from Binance\'s daily candle until the lakehouse publishes yesterday (about 13:30 UTC). Only in this browser.',
   market_baseline: () => `Each market's normal (last close, average daily return, σ, days of history, average volume): MEDUSA's copy of the lakehouse's <code>gold.coin_baseline</code>, built by ${ghLink('coin_baseline.sql')}. Lakehouse day ${shortDay((S.data.published.market_baseline || {}).as_of)}.`,
   market_evidence: () => `What similar moves did next: MEDUSA's copy of the lakehouse's <code>gold.event_evidence</code>, built by ${ghLink('event_evidence.sql')}. Lakehouse day ${shortDay((S.data.published.market_evidence || {}).as_of)}.`,
@@ -371,33 +375,54 @@ function rawResult(res) {
     ${res.rows.length > shown.length ? `<p class="faint">… and ${res.rows.length - shown.length} more rows (download the result for all of them)</p>` : ''}`;
 }
 
-/** One number's panel: what it is, its query as it runs here, the parameters, the result now and
- * where each table comes from, with copies that run in MEDUSA's D1 or in Databricks. */
-function queryPanel(id, key = id, extra = {}) {
-  const def = DEFS.get(id), res = S.res.get(key);
+/** A number's query as it runs here, where its definition comes from, and its parameters, with
+ * copies that run in MEDUSA's D1 or in Databricks. It changes only with the definition or a parameter. */
+function queryHead(id, key = id, extra = {}) {
+  const def = DEFS.get(id);
   const params = { kind: S.kind, yesterday: yesterday(), ...extra };
   const sql = assemble(def);
   PENDING.push([key, { id, params, frozen: S.frozen }]);
   const used = [...new Set([...sql.matchAll(/:([a-z_]+)\b/g)].map((m) => m[1]))].filter((p) => p in params);
-  const tables = [...new Set(reads(sql))].filter((t) => t in SOURCES);
   const steps = modelsOf(def.sql).map((m) => `<code>${m}</code>${DEFS.get(m).version ? ` v${DEFS.get(m).version}` : ''}`).join(', ');
   const origin = def.from === 'lakehouse'
     ? `<b>Definition:</b> version ${def.version} of <code>${esc(def.id)}</code> in the lakehouse's <code>market.semantic.metric_definitions</code>${def.validFrom ? `, in use since ${esc(def.validFrom)} UTC` : ''}${def.changedBy ? ` (${esc(def.changedBy)})` : ''}${steps ? `; its shared steps: ${steps}` : ''}.`
     : '<b>Definition:</b> the built-in copy in <code>markets-metrics.js</code>, because the lakehouse\'s definitions haven\'t been published to MEDUSA yet.';
-  return `<div class="mkt-q">
-    <p class="what"><b>${esc(def.name)}</b>: ${esc(def.description)}</p>
-    <p class="faint">${origin}</p>
-    <div class="mkt-sql"><div class="h"><span>The query, exactly as this page runs it</span><span class="b">
+  return `<p class="faint">${origin}</p>
+    <div class="mkt-sql"><div class="h"><span>The query, exactly as the Markets page runs it</span><span class="b">
       <button class="btn btn-sm" type="button" data-mkt="copy" data-sql="${esc(key)}" data-db="d1">Copy for MEDUSA (D1)</button>
       <button class="btn btn-sm" type="button" data-mkt="copy" data-sql="${esc(key)}" data-db="dbx">Copy for Databricks</button></span></div>
       <pre>${esc(sql)}</pre></div>
-    ${used.length ? `<p class="mkt-params"><b>Parameters</b> ${used.map((p) => `<code>:${p}</code> = <code>${esc(literal(params[p]))}</code> <span class="faint">${PARAM_WORDS[p] || ''}</span>`).join(' · ')}</p>` : ''}
-    ${rawResult(res)}
+    ${used.length ? `<p class="mkt-params"><b>Parameters</b> ${used.map((p) => `<code>:${p}</code> = <code>${esc(literal(params[p]))}</code> <span class="faint">${PARAM_WORDS[p] || ''}</span>`).join(' · ')}</p>` : ''}`;
+}
+
+/** A number's result now, exactly as the engine returned it, and where each table comes from. */
+function queryLive(id, key = id) {
+  const tables = [...new Set(reads(assemble(DEFS.get(id))))].filter((t) => t in SOURCES);
+  return `${rawResult(S.res.get(key))}
     <table class="mkt-legend"><thead><tr><th>Table</th><th>What it is</th></tr></thead><tbody>${tables.map((t) => `<tr><td><code>${t}</code></td><td>${SOURCES[t]()}</td></tr>`).join('')}</tbody></table>
-    <p class="faint">The steps in <code>WITH</code> are shared by every number on this view (change one and every number that reads it changes). <code>live_prices</code> and <code>binance_markets</code> exist only in this browser, so the copies write them in as <code>VALUES</code>, as they were at the last run, and fill in the parameters: they run in MEDUSA's D1 or in Databricks and return this result.</p>
+    <p class="faint">The steps in <code>WITH</code> are shared by every number on the Markets page (change one and every number that reads it changes). <code>live_prices</code> and <code>binance_markets</code> exist only in the browser, so the copies write them in as <code>VALUES</code>, as they were at the last run, and fill in the parameters: they run in MEDUSA's D1 or in Databricks and return this result.</p>
     <p><button class="btn btn-sm" type="button" data-mkt="csv" data-key="${esc(key)}" data-what="result">Download the result (CSV)</button>
-      <button class="btn btn-sm" type="button" data-mkt="csv" data-key="${esc(key)}" data-what="inputs">Download the inputs (CSV)</button></p>
-  </div>`;
+      <button class="btn btn-sm" type="button" data-mkt="csv" data-key="${esc(key)}" data-what="inputs">Download the inputs (CSV)</button></p>`;
+}
+
+/** What each ‹› button opens in its own window: the numbers whose calculation it shows. */
+const WINDOWS = {
+  breadth: ['breadth'], median_move: ['median_move'], unusual_count: ['unusual_count'], bitcoin: ['bitcoin'],
+  unusual: ['unusual'], movers: ['gainers', 'losers'], markets: ['markets'], market: ['market'], patterns: ['unusual_all_types'],
+};
+
+/** A ‹› button: the number's calculation in its own window. Pressing it again brings that window to the
+ * front as it is (it isn't reloaded). */
+function openWindow(panel, symbol) {
+  const name = `medusa-calc-${panel}${symbol ? `-${symbol}` : ''}`;
+  const url = `/markets-window?${new URLSearchParams({ panel, kind: S.kind, ...(symbol ? { symbol } : {}) })}`;
+  const w = window.open('', name, 'popup,width=1000,height=880');
+  if (!w) { api.toast('The window was blocked: allow pop-ups for MEDUSA in the browser, then press ‹› again.', 'error'); return; }
+  let fresh = true;
+  try { fresh = w.location.href === 'about:blank'; } catch { /* that window is on another site */ }
+  if (fresh) w.location.href = url;
+  w.focus();
+  api.log('markets', `Opened how ${panel}${symbol ? ` (${symbol})` : ''} is calculated, in its own window`, null, 'debug');
 }
 
 /** The text for Copy: the query made to run in MEDUSA's D1 or in Databricks. */
@@ -423,7 +448,7 @@ function copyText(key, db) {
 
 const CSS = `
 .mkt-bar { display: flex; flex-wrap: wrap; gap: 8px 14px; justify-content: space-between; align-items: center; }
-.mkt-bar .toggle, .mkt-tools .toggle { flex-wrap: wrap; gap: 6px; }
+.mkt-bar .toggle, .mkt-tools .toggle, .mkt-win-head .toggle { flex-wrap: wrap; gap: 6px; }
 .mkt-status { flex-direction: column; gap: 4px; }
 .mkt-status .row { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
 .mkt-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); margin-right: 7px; vertical-align: 1px; }
@@ -466,7 +491,7 @@ table.mkt-table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 .mkt-tools .input { width: 170px; height: 38px; }
 @media (max-width: 640px) {
   .mkt-tools .input { width: 100%; }
-  .mkt-bar .toggle button, .mkt-tools .toggle button { height: 32px; padding: 0 10px; font-size: 13.5px; }
+  .mkt-bar .toggle button, .mkt-tools .toggle button, .mkt-win-head .toggle button { height: 32px; padding: 0 10px; font-size: 13.5px; }
 }
 .mkt-empty { padding: 18px 2px; color: var(--text-2); }
 .mkt-more-btn { margin-top: 12px; }
@@ -485,9 +510,9 @@ table.mkt-table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 .mkt-src-btn[aria-pressed="true"] { background: #2b2b2b; }
 .card-head .mkt-src-btn { margin-left: 0; }
 .mkt-kpis .kpi .k { display: flex; align-items: center; gap: 6px; }
+.mkt-calc { display: flex; align-items: center; gap: 10px; margin: 12px 0 6px; color: var(--text-3); }
+.mkt-calc .mkt-src-btn { margin-left: 0; }
 .mkt-src { margin: 0 0 14px; padding: 12px 14px 6px; border-radius: 9px; background: #1b1b1b; border: 1px dashed var(--border-2); color: var(--text-2); font-size: 13.5px; line-height: 1.55; }
-#mkt-kpi-src:empty, .mkt-src-slot:empty { display: none; }
-#mkt-kpi-src .mkt-src { margin: 0; }
 .mkt-src p { margin: 0 0 8px; }
 .mkt-src b, .mkt-more h4 { color: var(--text); }
 .mkt-src code, .mkt-more code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--text); word-break: break-all; }
@@ -511,9 +536,23 @@ table.mkt-result td, table.mkt-result th { white-space: nowrap; font-family: ui-
 .mkt-raw summary { cursor: pointer; color: var(--text-2); }
 .mkt-raw code { display: block; margin: 6px 0; }
 .mkt-sql pre { margin: 0; padding: 10px 12px; overflow-x: auto; max-height: 420px; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; line-height: 1.5; color: #d4d4d8; background: #161616; }
+/* a ‹› window (markets-window.html) */
+.mkt-win { max-width: 1100px; margin: 0 auto; padding: 18px 16px 40px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.mkt-win-head { display: flex; flex-wrap: wrap; gap: 10px 16px; justify-content: space-between; align-items: center; }
+.mkt-win-head h1 { font-size: 22px; font-weight: 700; }
+.mkt-win-head p { margin-top: 2px; font-size: 13.5px; }
+.mkt-win .card-head { margin-bottom: 4px; }
+.mkt-win .card-head h2 { font-size: 20px; }
+.mkt-win-h { margin: 16px 0 8px; font-size: 14px; font-weight: 600; color: var(--text-2); }
+.mkt-win .mkt-src { margin: 0; max-height: none; }
+.kpis.mkt-win-card { grid-template-columns: minmax(0, 340px); }
+.mkt-win-note { margin-top: 6px; font-size: 13px; }
+.mkt-msg { margin: 6px 0 10px; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; line-height: 1.5; color: #d4d4d8; background: #161616; }
+@media (max-width: 640px) { .mkt-win { padding: 10px 10px 30px; gap: 10px; } .mkt-win .card { padding: 16px 14px; } }
 `;
 
 function shell() {
+  if (S.win) { windowShell(); return; }
   host.innerHTML = `
   <div class="mkt-bar">
     <div class="toggle" role="group" aria-label="View">
@@ -527,15 +566,12 @@ function shell() {
   <div class="banner mkt-status" id="mkt-status" aria-live="polite"></div>
   <div id="mkt-today" class="view">
     <section class="kpis mkt-kpis" id="mkt-kpis" aria-label="The markets today"></section>
-    <div id="mkt-kpi-src"></div>
     <section class="card">
       <div class="card-head"><div><h2>Unusual right now</h2><p>Markets that have moved at least ${RULE.z} of their usual daily moves today, and what similar moves did next. Tap a row for the details and how its numbers are calculated.</p></div>${srcBtn('unusual')}</div>
-      <div class="mkt-src-slot" id="mkt-unusual-src"></div>
       <div id="mkt-unusual"></div>
     </section>
     <section class="card">
       <div class="card-head"><div><h2>Movers today</h2><p>The biggest moves since yesterday's close (UTC)</p></div>${srcBtn('movers')}</div>
-      <div class="mkt-src-slot" id="mkt-movers-src"></div>
       <div id="mkt-movers"></div>
     </section>
     <section class="card">
@@ -549,10 +585,9 @@ function shell() {
             <button data-mkt="sort" data-v="down" aria-pressed="false">Losers</button>
             <button data-mkt="sort" data-v="vol" aria-pressed="false">Volume</button>
           </div>
-          ${srcBtn('every')}
+          ${srcBtn('markets')}
         </div>
       </div>
-      <div class="mkt-src-slot" id="mkt-every-src"></div>
       <div id="mkt-all"></div>
     </section>
     <details class="card mkt-how">
@@ -561,7 +596,7 @@ function shell() {
         <li><b>The markets</b> are every Binance USDⓈ-M perpetual futures contract quoted in USDT: crypto coins and tokens, and the TradFi perpetuals on stocks, commodities, a currency and indices. The type next to each name comes from Binance's contract list.</li>
         <li><b>Each market's normal</b> comes from MEDUSA's market data lakehouse: the average and spread (σ) of its daily moves over its last 30 days with trades, built from Binance's checked daily files and published once a day (about 13:30 UTC).</li>
         <li><b>Live prices</b> come straight from Binance to this browser, about once a second. MEDUSA's server never sees them.</li>
-        <li><b>Every number here is calculated by SQL</b>, in a small SQLite database inside this browser that holds the lakehouse's tables and the live prices. The queries are kept in the lakehouse too, with every version, and published to MEDUSA with the data. They run about once a second; the <b>‹›</b> buttons show each one exactly as it runs, which version it is, its result, and a copy that runs in MEDUSA's database or in Databricks.</li>
+        <li><b>Every number here is calculated by SQL</b>, in a small SQLite database inside this browser that holds the lakehouse's tables and the live prices. The queries are kept in the lakehouse too, with every version, and published to MEDUSA with the data. They run about once a second; each <b>‹›</b> button opens one in its own window, live: the query exactly as it runs, which version it is, its result, and a copy that runs in MEDUSA's database or in Databricks.</li>
         <li><b>Today's move</b> is measured from yesterday's close (UTC). z is that move in the market's usual daily moves; ${RULE.z} or more (|z| ≥ ${RULE.z}) is flagged as unusual: the same rule the lakehouse applies to every hour since 2020.</li>
         <li><b>The evidence</b> shows what similar moves (same direction, size and liquidity) did over the next 1, 4 and 24 hours since 2020. Each side (follow the move or fade it) was chosen on 2020–2024 and checked on 2025 onwards, which played no part in choosing it, after 0.10% trading costs. Most kinds of move show no pattern that held; the Patterns view lists them all. Almost all of that history is crypto.</li>
         <li><b>Live numbers are unchecked</b> until the next day's batch run. History is no promise: costs differ by market and funding isn't counted. This is research, not trading advice.</li>
@@ -573,14 +608,15 @@ function shell() {
 }
 
 /** Replace a part of the page only when it changed (keeps focus, hover and text selection). A part is
- * held still while the pointer is over its details or sources, so they can be read, selected and copied.
- * The queries a part's panels registered are kept for Copy only when the part was redrawn. */
+ * held still while the pointer is over its details, or over a window's live result, so they can be read,
+ * selected and copied. The queries a part's panels registered are kept for Copy only when the part was
+ * redrawn. */
 function put(id, html) {
   const copies = PENDING;
   PENDING = [];
   if (S.html.get(id) === html) { for (const [k, v] of copies) S.sql.set(k, v); return; }
   const el = document.getElementById(id);
-  if (!el || el.querySelector('.mkt-src:hover, .mkt-more:hover')) return;
+  if (!el || el.querySelector('.mkt-more:hover') || (el.classList.contains('mkt-hold') && el.matches(':hover'))) return;
   S.html.set(id, html);
   el.innerHTML = html;
   for (const [k, v] of copies) S.sql.set(k, v);
@@ -616,10 +652,11 @@ function draw() {
   host.querySelectorAll('[data-mkt="view"], [data-mkt="kind"], [data-mkt="sort"]').forEach((b) => {
     b.setAttribute('aria-pressed', String(b.dataset.v === S[b.dataset.mkt]));
   });
-  host.querySelectorAll('[data-mkt="src"]').forEach((b) => b.setAttribute('aria-pressed', String(S.src === b.dataset.id)));
-  document.getElementById('mkt-kinds').hidden = S.view !== 'today';
-  document.getElementById('mkt-today').hidden = S.view !== 'today';
-  document.getElementById('mkt-patterns').hidden = S.view !== 'patterns';
+  if (!S.win) {
+    document.getElementById('mkt-kinds').hidden = S.view !== 'today';
+    document.getElementById('mkt-today').hidden = S.view !== 'today';
+    document.getElementById('mkt-patterns').hidden = S.view !== 'patterns';
+  }
   if (S.loadErr || !S.data) {
     put('mkt-status', S.loadErr
       ? `<div><b>The market data couldn't be loaded.</b> ${esc(S.loadErr)} <button class="btn btn-sm" data-mkt="retry">Try again</button></div>`
@@ -627,12 +664,12 @@ function draw() {
     return;
   }
   paintStatus();
+  if (S.win) { paintWindow(); return; }
   if (S.view === 'patterns') { paintPatterns(); return; }
   paintKpis();
   paintUnusual();
   paintMovers();
   paintAll();
-  paintSources();
 }
 
 function paintStatus() {
@@ -657,7 +694,7 @@ function paintStatus() {
     ? `<span class="warn"><b>The SQL engine couldn't start:</b> ${esc(S.eng.err)}</span> <button class="btn btn-sm" data-mkt="engine">Try again</button>`
     : !S.eng.ok ? 'Starting the SQL engine…'
       : S.runErr ? `<span class="warn">${esc(S.runErr)}</span>`
-        : S.lastRun ? `Numbers calculated by SQL in this browser: ${S.lastRun.n} queries at ${clockS(S.lastRun.at)} in ${S.lastRun.ms} ms, defined ${DEFS.get('breadth').from === 'lakehouse' ? 'in the lakehouse' : 'by the built-in copy'}` : 'Calculating…';
+        : S.lastRun ? `Numbers calculated by SQL in this browser: ${S.lastRun.n} quer${S.lastRun.n === 1 ? 'y' : 'ies'} at ${clockS(S.lastRun.at)} in ${S.lastRun.ms} ms, defined ${DEFS.get('breadth').from === 'lakehouse' ? 'in the lakehouse' : 'by the built-in copy'}` : 'Calculating…';
   put('mkt-status', `
     <div class="row"><span>${live}</span><span class="faint">${priced} markets priced</span></div>
     <div class="row faint"><span>Each market's normal: lakehouse day ${shortDay(pub.as_of)}${pub.published_at ? `, published ${clock(pub.published_at)}` : ''}</span><span>${ref}</span></div>
@@ -665,14 +702,16 @@ function paintStatus() {
     <div class="row faint"><span>Live numbers are unchecked until the next daily run; the evidence is history, not a trading signal.</span></div>`);
 }
 
+/** A summary card: its text filled in from its query's result. */
+function kpi(id, res, btn = '') {
+  const d = DEFS.get(id);
+  const v = res && res.error ? '<span class="neg">!</span>' : fillCard(d.card.value, res);
+  const s = res && res.error ? 'The query failed: see ‹›' : fillCard(d.card.sub, res);
+  return `<div class="kpi"><div class="k"><span class="kt">${esc(d.name)}</span>${btn}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+}
+
 function paintKpis() {
-  const card = (src, id) => {
-    const d = DEFS.get(id), res = S.res.get(id);
-    const v = res && res.error ? '<span class="neg">!</span>' : fillCard(d.card.value, res);
-    const s = res && res.error ? 'The query failed: see ‹›' : fillCard(d.card.sub, res);
-    return `<div class="kpi"><div class="k"><span class="kt">${esc(d.name)}</span>${srcBtn(src)}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
-  };
-  put('mkt-kpis', card('kpi-breadth', 'breadth') + card('kpi-median', 'median_move') + card('kpi-unusual', 'unusual_count') + card('kpi-btc', 'bitcoin'));
+  put('mkt-kpis', ['breadth', 'median_move', 'unusual_count', 'bitcoin'].map((id) => kpi(id, S.res.get(id), srcBtn(id))).join(''));
 }
 
 const KEY = `<p class="mkt-key"><b>z</b> = today's move ÷ the market's usual daily move (<b>σ</b>, the spread of its daily moves over its last 30 days); ${RULE.z}σ or more is unusual. <b>Next 1 h / 4 h / 24 h</b>: what moves of the same kind (direction, size, liquidity) did next since 2020. <b>Fade</b> or <b>Follow</b> with a result means the pattern held up on years held back from the choice, after costs; otherwise the verdict. The small line is every up (or down) move together, a wider group.</p>`;
@@ -731,17 +770,6 @@ function paintAll() {
   put('mkt-all', `${table}${picked}${more}`);
 }
 
-/** The "how this is calculated" panels of the summary cards and the tables. */
-const PANELS = {
-  'kpi-breadth': ['breadth'], 'kpi-median': ['median_move'], 'kpi-unusual': ['unusual_count'], 'kpi-btc': ['bitcoin'],
-  unusual: ['unusual'], movers: ['gainers', 'losers'], every: ['markets'],
-};
-function paintSources() {
-  const panel = (key) => `<div class="mkt-src">${PANELS[key].map((id) => queryPanel(id)).join('')}</div>`;
-  put('mkt-kpi-src', S.src && S.src.startsWith('kpi-') ? panel(S.src) : '');
-  for (const [slot, key] of [['mkt-unusual-src', 'unusual'], ['mkt-movers-src', 'movers'], ['mkt-every-src', 'every']]) put(slot, S.src === key ? panel(key) : '');
-}
-
 /** The evidence in words, for the details. */
 function evWords(e, h) {
   const span = h === 1 ? 'the next hour' : `the next ${h} hours`;
@@ -765,11 +793,13 @@ function evShort(e) {
   return esc(e.verdict);
 }
 
-/** A market's details: its move in words (from its query), the evidence when unusual, and its query. */
+/** A market's details: its move in words (from its query), the evidence when unusual, and a ‹› button
+ * for how its numbers are calculated. */
 function marketDetail(sym) {
   const key = `market:${sym}`, res = S.res.get(key);
+  const calc = `<p class="mkt-calc">${srcBtn('market', sym)}<span>How ${name(sym)}'s numbers are calculated, in their own window</span></p>`;
   if (!res) return '<div class="mkt-more"><p>Calculating…</p></div>';
-  if (res.error) return `<div class="mkt-more">${failed(res)}<div class="mkt-src">${queryPanel('market', key, { symbol: sym })}</div></div>`;
+  if (res.error) return `<div class="mkt-more">${failed(res)}${calc}</div>`;
   const r = objects(res)[0], b = S.data.base.get(sym), t = typeOf(sym), l = S.live.get(sym);
   const who = `${name(sym)}${t ? ` (${esc(t.label)})` : ''}`;
   let html;
@@ -783,9 +813,19 @@ function marketDetail(sym) {
       html += `<p><b>For comparison, a wider group</b>, every ${r.direction} move together (any size, any market): ${HORIZONS.map((h) => `next ${h} h ${evShort(S.data.ev.get(evKey(r.direction, 'all', 'all', h)))}`).join(' · ')}. ${name(sym)}'s own group is the closer match; the wider group has many more examples but mixes very different moves.</p>`;
     }
   }
-  const raw = l ? `<details class="mkt-raw"><summary>The Binance message behind the price</summary><code>${esc(JSON.stringify(l.raw))}</code><p class="faint">${l.via === 'stream' ? `From the live stream at ${clockS(l.t)}: <code>c</code> is the last price, <code>q</code> the USDT traded in the last 24 hours.` : `From the price snapshot of ${clockS(l.t)}: it hasn't traded since this page opened.`}</p></details>` : '';
-  const past = r && r.direction ? `<details class="mkt-raw"><summary>Every past move behind these verdicts (Databricks)</summary>${sqlBlock('Databricks SQL', `SELECT event_hour, symbol, z, move_so_far, fwd_return_1h, fwd_return_4h, fwd_return_24h, period\nFROM market.gold.intraday_events\nWHERE direction = '${r.direction}' AND z_band = '${r.z_band}' AND liquidity = '${r.liquidity}'\nORDER BY event_hour DESC;`)}<p class="faint">Built by ${ghLink('intraday_events.sql')}; it exists only in the lakehouse.</p></details>` : '';
-  return `<div class="mkt-more">${html}<div class="mkt-src">${queryPanel('market', key, { symbol: sym })}${raw}${past}</div></div>`;
+  return `<div class="mkt-more">${html}${calc}</div>`;
+}
+
+/** For one market's window: the Binance message behind its price, and the past moves behind its verdicts. */
+function marketExtras(sym) {
+  const r = objects(S.res.get(`market:${sym}`))[0], l = S.live.get(sym);
+  const raw = l
+    ? `<p>${l.via === 'stream' ? `From Binance's live stream at ${clockS(l.t)}: <code>c</code> is the last price, <code>q</code> the USDT traded in the last 24 hours.` : `From Binance's price snapshot of ${clockS(l.t)}: it hasn't traded since this window opened.`}</p><pre class="mkt-msg">${esc(JSON.stringify(l.raw))}</pre>`
+    : '<p class="faint">No price from Binance yet.</p>';
+  const past = r && r.direction
+    ? `<h3 class="mkt-win-h">Every past move behind its verdicts</h3>${sqlBlock('Databricks SQL', `SELECT event_hour, symbol, z, move_so_far, fwd_return_1h, fwd_return_4h, fwd_return_24h, period\nFROM market.gold.intraday_events\nWHERE direction = '${r.direction}' AND z_band = '${r.z_band}' AND liquidity = '${r.liquidity}'\nORDER BY event_hour DESC;`)}<p class="faint">Built by ${ghLink('intraday_events.sql')}; it exists only in the lakehouse.</p>`
+    : '';
+  return `<h3 class="mkt-win-h">The Binance message behind the price</h3>${raw}${past}`;
 }
 
 /* ---------- Patterns: every kind of move and what it did next ---------- */
@@ -846,10 +886,6 @@ function paintPatterns() {
   put('mkt-patterns', `
     <section class="card">
       <div class="card-head"><div><h2>What similar moves did next</h2><p>Every time a market's move during a day reached ${RULE.z} of its usual daily moves since January 2020, the lakehouse recorded what the price did over the next 1, 4 and 24 hours: about ${(total('up') + total('down')).toLocaleString('en-US')} moves (${total('up').toLocaleString('en-US')} up, ${total('down').toLocaleString('en-US')} down), almost all of them crypto. Lakehouse day ${shortDay(pub.as_of)}.</p></div>${srcBtn('patterns')}</div>
-      ${srcBox('patterns', `<p>Everything in this view comes from the lakehouse, except <b>Now</b> and <b>Right now</b>, which are live. Two dbt models build it on every daily run: ${ghLink('intraday_events.sql')} (every unusual move since 2020 and the price 1, 4 and 24 hours later) and ${ghLink('event_evidence.sql')} (the verdicts, judged by days, on 2020–2024 and then on 2025 onwards). The publish job copies the verdicts to MEDUSA's <code>market_evidence</code>${pub.published_at ? `, last at ${clock(pub.published_at)}` : ''}.</p>
-        ${sqlBlock('Every verdict (Databricks SQL)', 'SELECT direction, z_band, liquidity, horizon_hours, verdict, side, events, days,\n       in_sample_days, in_sample_t, held_back_days, held_back_t, held_back_net_after_cost\nFROM market.gold.event_evidence\nORDER BY direction, z_band, liquidity, horizon_hours;')}
-        ${sqlBlock('How many moves, and when (Databricks SQL)', 'SELECT direction, period, COUNT(*) AS moves, COUNT(DISTINCT event_date) AS days\nFROM market.gold.intraday_events\nGROUP BY direction, period\nORDER BY direction, period;')}
-        ${queryPanel('unusual_all_types')}`)}
       <div class="mkt-counts"><span><b>${count('held up')}</b> held up</span><span><b>${count('did not hold')}</b> did not hold</span><span><b>${count('no pattern')}</b> no pattern</span><span><b>${count('too few')}</b> too few</span><span>of <b>${evRows.length}</b> kinds of move and horizons</span></div>
     </section>
     <section class="card">
@@ -872,6 +908,74 @@ function paintPatterns() {
         <li>With ${evRows.length} groups tested, a few can pass by luck, which is why the held-back check matters and why the rules aren't tuned after looking at it (ADR-022). Costs are optimistic for small markets, funding isn't counted, and almost all the history is crypto. This is research, not trading advice.</li>
       </ul>
     </section>`);
+}
+
+/* ---------- a ‹› window: one number's calculation on its own (markets-window.html) ---------- */
+
+const WIN_TITLES = { movers: 'Movers today', patterns: 'Patterns: what similar moves did next' };
+
+function windowShell() {
+  const { panel, ids } = S.win;
+  const named = ids.length > 1 || panel === 'patterns';   // otherwise the window's title is the number's name
+  host.innerHTML = `
+  <header class="mkt-win-head">
+    <div><h1 id="mkt-win-title"></h1><p class="faint">How it is calculated, live: the query exactly as the Markets page runs it, on the same data and live prices.</p></div>
+    ${panel === 'market' || panel === 'patterns' ? '' : `<div class="toggle" role="group" aria-label="Markets" id="mkt-kinds">
+      ${KINDS.map(([v, l]) => `<button data-mkt="kind" data-v="${v}" aria-pressed="${v === S.kind}">${l}</button>`).join('')}
+    </div>`}
+  </header>
+  <div class="banner mkt-status" id="mkt-status" aria-live="polite"></div>
+  ${panel === 'patterns' ? '<section class="card"><div id="mkt-win-pat"></div></section>' : ''}
+  ${ids.map((id, i) => `
+  <section class="card">
+    <div class="card-head"><div>${named ? `<h2 id="mkt-win-name-${i}"></h2>` : ''}<p id="mkt-win-what-${i}"></p></div></div>
+    <h3 class="mkt-win-h">On the page now</h3>
+    <div id="mkt-win-shown-${i}"></div>
+    <h3 class="mkt-win-h">How it is calculated</h3>
+    <div class="mkt-src"><div id="mkt-win-head-${i}"></div><div id="mkt-win-live-${i}" class="mkt-hold"></div></div>
+  </section>`).join('')}
+  ${panel === 'market' ? '<section class="card"><div id="mkt-win-extra" class="mkt-hold"></div></section>' : ''}`;
+  S.html.clear();
+}
+
+/** A number as the Markets page shows it: the card, or the first rows of the table. */
+function shownAs(id, key) {
+  const d = DEFS.get(id), res = S.res.get(key);
+  if (!res) return pending();
+  if (res.error) return failed(res);
+  if (d.card) return `<div class="kpis mkt-kpis mkt-win-card">${kpi(id, res)}</div>`;
+  if (!res.rows.length) return `<div class="mkt-empty">${S.live.size ? 'No rows right now.' : 'Waiting for prices…'}</div>`;
+  let rows = res.rows;
+  const iz = res.columns.indexOf('z');
+  if (id === 'markets' && iz >= 0) rows = [...rows].sort((a, b) => Math.abs(b[iz] ?? -1) - Math.abs(a[iz] ?? -1));   // the page's first order
+  const n = 20;
+  return resultTable({ columns: res.columns, rows: rows.slice(0, n) }, d)
+    + (rows.length > n ? `<p class="faint mkt-win-note">The first ${n} of ${rows.length} rows${id === 'markets' ? ', most unusual first as on the page' : ''}; download the result below for all of them.</p>` : '');
+}
+
+/** Patterns' window: where the view's numbers come from (all but Now are the lakehouse's own tables). */
+function patternSources() {
+  const pub = S.data.published.market_evidence || {};
+  return `<p class="dim">Everything in the Patterns view comes from the lakehouse, except <b>Now</b> and <b>Right now</b>, which are live (below). Two dbt models build it on every daily run: ${ghLink('intraday_events.sql')} (every unusual move since 2020 and the price 1, 4 and 24 hours later) and ${ghLink('event_evidence.sql')} (the verdicts, judged by days, on 2020–2024 and then on 2025 onwards). The publish job copies the verdicts to MEDUSA's <code>market_evidence</code>${pub.published_at ? `, last at ${clock(pub.published_at)}` : ''}.</p>
+    ${sqlBlock('Every verdict (Databricks SQL)', 'SELECT direction, z_band, liquidity, horizon_hours, verdict, side, events, days,\n       in_sample_days, in_sample_t, held_back_days, held_back_t, held_back_net_after_cost\nFROM market.gold.event_evidence\nORDER BY direction, z_band, liquidity, horizon_hours;')}
+    ${sqlBlock('How many moves, and when (Databricks SQL)', 'SELECT direction, period, COUNT(*) AS moves, COUNT(DISTINCT event_date) AS days\nFROM market.gold.intraday_events\nGROUP BY direction, period\nORDER BY direction, period;')}`;
+}
+
+function paintWindow() {
+  const { panel, ids, symbol } = S.win;
+  const title = panel === 'market' ? `${String(symbol).replace(/USDT$/, '')}: one market` : WIN_TITLES[panel] || DEFS.get(ids[0]).name;
+  document.title = `${title} · how it is calculated · MEDUSA`;
+  put('mkt-win-title', esc(title));
+  if (panel === 'patterns') put('mkt-win-pat', patternSources());
+  ids.forEach((id, i) => {
+    const key = id === 'market' ? `market:${symbol}` : id, d = DEFS.get(id);
+    put(`mkt-win-name-${i}`, esc(d.name));
+    put(`mkt-win-what-${i}`, esc(d.description));
+    put(`mkt-win-shown-${i}`, shownAs(id, key));
+    put(`mkt-win-head-${i}`, queryHead(id, key, id === 'market' ? { symbol } : {}));
+    put(`mkt-win-live-${i}`, queryLive(id, key));
+  });
+  if (panel === 'market') put('mkt-win-extra', marketExtras(symbol));
 }
 
 /* ---------- data: the lakehouse's copy, market types, yesterday's closes, live prices ---------- */
@@ -1102,11 +1206,11 @@ function onClick(e) {
     return;
   }
   if (act === 'csv') { downloadCsv(el.dataset.key, el.dataset.what); return; }
+  if (act === 'win') { openWindow(el.dataset.panel, el.dataset.sym || null); return; }
   if (act === 'view') { S.view = el.dataset.v; api.store.set('mktView', S.view); }
-  else if (act === 'kind') { S.kind = el.dataset.v; S.limit = 50; api.store.set('mktKind', S.kind); }
+  else if (act === 'kind') { S.kind = el.dataset.v; S.limit = 50; if (!S.win) api.store.set('mktKind', S.kind); }   // a window's choice is its own
   else if (act === 'sort') { S.sort = el.dataset.v; S.limit = 50; draw(); return; }
   else if (act === 'more') { S.limit += 50; draw(); return; }
-  else if (act === 'src') { S.src = S.src === el.dataset.id ? null : el.dataset.id; draw(); return; }
   else if (act === 'row' && el.dataset.list === 'all') S.openAll = S.openAll === el.dataset.sym ? null : el.dataset.sym;
   else if (act === 'row') S.open = S.open === el.dataset.sym ? null : el.dataset.sym;
   else if (act === 'pat') { S.pat = S.pat === el.dataset.k ? null : el.dataset.k; draw(); return; }
@@ -1122,20 +1226,46 @@ function onInput(e) {
   draw();
 }
 
+const validKind = (k) => (KINDS.some(([v]) => v === k) ? k : 'all');
+
+function attach(el) {
+  if (!document.getElementById('mkt-css')) document.head.appendChild(Object.assign(document.createElement('style'), { id: 'mkt-css', textContent: CSS }));
+  host = el;
+  el.addEventListener('click', onClick);
+  el.addEventListener('input', onInput);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && !S.stopped) schedule(); });
+}
+
 /** Show the page (each time it is opened). */
 export function render(el, appApi) {
   api = appApi;
-  if (!document.getElementById('mkt-css')) document.head.appendChild(Object.assign(document.createElement('style'), { id: 'mkt-css', textContent: CSS }));
   if (host !== el) {
-    host = el;
+    attach(el);
     S.view = api.store.get('mktView', 'today') === 'patterns' ? 'patterns' : 'today';
-    S.kind = KINDS.some(([v]) => v === api.store.get('mktKind', 'all')) ? api.store.get('mktKind', 'all') : 'all';
-    el.addEventListener('click', onClick);
-    el.addEventListener('input', onInput);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden && !S.stopped) schedule(); });
+    S.kind = validKind(api.store.get('mktKind', 'all'));
   }
   if (!document.getElementById('mkt-status')) shell();
   S.stopped = false;
+  paint();
+  start();
+}
+
+/** A ‹› window (markets-window.html): one number's calculation, with its own data, SQL engine and live
+ * prices, so it keeps going while the Markets page is hidden, on another page or closed. Only that
+ * number's queries run. */
+export function renderWindow(el, appApi, { panel, symbol = null, kind = 'all' }) {
+  api = appApi;
+  const ids = WINDOWS[panel];
+  if (!ids || (panel === 'market' && !/^[A-Z0-9_]{2,40}$/.test(symbol || ''))) {
+    el.innerHTML = '<div class="banner"><div><b>Nothing to show here.</b> Open this window with a ‹› button on MEDUSA\'s Markets page.</div></div>';
+    return;
+  }
+  S.win = { panel, ids, symbol: panel === 'market' ? symbol : null };
+  S.kind = validKind(kind);
+  attach(el);
+  shell();
+  S.stopped = false;
+  api.log('markets', `Window: how ${panel}${symbol ? ` (${symbol})` : ''} is calculated`, null, 'debug');
   paint();
   start();
 }
