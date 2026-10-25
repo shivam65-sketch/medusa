@@ -19,7 +19,7 @@ resources:
   jobs:
     setup_ddl:
       name: lakehouse-setup-ddl
-      description: Creates the catalog, the layer schemas and the landing volume. Safe to run again.
+      description: Creates the catalog, the layer schemas, the landing volume and the metric definitions table. Safe to run again.
       tasks:
         - task_key: create_catalog
           sql_task:
@@ -42,6 +42,24 @@ resources:
             warehouse_id: ${var.warehouse_id}
             file:
               path: ./sql/ddl/003_volumes.sql
+
+        - task_key: create_semantic
+          depends_on:
+            - task_key: create_schemas
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/ddl/004_semantic.sql
+
+    seed_metric_definitions:
+      name: lakehouse-seed-metric-definitions
+      description: Loads version 1 of the Markets page's metric definitions. Safe to run again (it only adds what is missing).
+      tasks:
+        - task_key: seed_v1
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/seed/001_metric_definitions_v1.sql
 
   # Bronze: loads new landing files into market.bronze. Runs when started, then stops.
   pipelines:

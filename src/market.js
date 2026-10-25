@@ -1,4 +1,6 @@
-// MEDUSA's copy of the market data lakehouse's small gold tables, for the live scanner.
+// MEDUSA's copy of the market data lakehouse's small tables, for the live scanner: each market's normal
+// (market_baseline), the evidence (market_evidence) and the definition of every number on the page
+// (market_metrics).
 //
 // Once a day the lakehouse's publish job sends each table here: POST /api/market/ingest with
 //   Authorization: Bearer <MARKET_INGEST_TOKEN>
@@ -17,7 +19,8 @@ import { json, fail, SECURITY } from './http.js';
 const MAX_BYTES = 2 * 1024 * 1024;
 
 // The tables the lakehouse may publish: their key, their columns and what each column holds.
-const TEXT = 'text', NUM = 'num', INT = 'int', DATE = 'date';
+// TEXT is a short value (a symbol, a label); LONG a longer one (a query, a description, JSON).
+const TEXT = 'text', LONG = 'long', NUM = 'num', INT = 'int', DATE = 'date', TIME = 'time';
 export const TABLES = {
   market_baseline: {
     maxRows: 3000,
@@ -41,13 +44,26 @@ export const TABLES = {
       side: TEXT, held_back_net_after_cost: NUM, verdict: TEXT, round_trip_cost: NUM,
     },
   },
+  // The definition of every number on the Markets page: the current version of each row of the
+  // lakehouse's market.semantic.metric_definitions (lakehouse step 27). The page runs these queries.
+  market_metrics: {
+    maxRows: 200,
+    key: ['metric_id'],
+    required: ['metric_id', 'version', 'kind', 'name', 'sql_text'],
+    columns: {
+      metric_id: TEXT, version: INT, kind: TEXT, name: LONG, description: LONG, sql_text: LONG,
+      display: LONG, valid_from: TIME, changed_by: TEXT, change_note: LONG,
+    },
+  },
 };
 
 const fits = {
   [TEXT]: (v) => typeof v === 'string' && v.length <= 40,
+  [LONG]: (v) => typeof v === 'string' && v.length <= 20000,
   [NUM]: (v) => typeof v === 'number' && Number.isFinite(v),
   [INT]: (v) => Number.isInteger(v),
   [DATE]: (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v),
+  [TIME]: (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/.test(v),
 };
 
 /** The first problem with the rows, or null: unknown or wrongly typed columns, missing keys, repeats. */
@@ -156,16 +172,24 @@ const readAnswer = (body, from) => new Response(body, {
   },
 });
 
-/** Both market tables and their publish records, read in one batch: one transaction, so the tables and
- * their records always belong together. */
-async function buildAnswer(env) {
-  const names = Object.keys(TABLES);
+/** The market tables and their publish records, read in one batch: one transaction, so the tables and
+ * their records always belong together. Before migration 004 has run there is no market_metrics, and the
+ * answer goes without it (the page then uses its built-in definitions). */
+async function buildAnswer(env, names = Object.keys(TABLES)) {
   const db = env.DB;
-  const results = await db.batch([
-    ...names.map((t) => db.prepare(
-      `SELECT ${Object.keys(TABLES[t].columns).join(', ')} FROM ${t} ORDER BY ${TABLES[t].key.join(', ')}`)),
-    db.prepare('SELECT tbl, as_of, rows, published_at FROM market_publish'),
-  ]);
+  let results;
+  try {
+    results = await db.batch([
+      ...names.map((t) => db.prepare(
+        `SELECT ${Object.keys(TABLES[t].columns).join(', ')} FROM ${t} ORDER BY ${TABLES[t].key.join(', ')}`)),
+      db.prepare('SELECT tbl, as_of, rows, published_at FROM market_publish'),
+    ]);
+  } catch (e) {
+    if (names.includes('market_metrics') && /no such table: market_metrics/i.test(String(e && e.message))) {
+      return buildAnswer(env, names.filter((t) => t !== 'market_metrics'));
+    }
+    throw e;
+  }
   const answer = { published: Object.fromEntries(results.at(-1).results.map(({ tbl, ...p }) => [tbl, p])) };
   names.forEach((t, i) => {
     const columns = Object.keys(TABLES[t].columns);

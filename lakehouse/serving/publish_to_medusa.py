@@ -1,4 +1,5 @@
-"""Copy the live scanner's gold tables into MEDUSA's database (the serving layer, step 24).
+"""Copy the live scanner's tables into MEDUSA's database (the serving layer, step 24): two gold tables,
+and the current version of every metric definition (market.semantic, step 27).
 
 After the daily `dbt build`, the transform workflow runs this script. For each table it:
   1. reads the gold table from Databricks (the SQL Statement API, through the Databricks CLI, which
@@ -38,6 +39,12 @@ TABLES = {
                held_back_avg_continuation, held_back_t, held_back_hit_rate, side, held_back_net_after_cost,
                verdict, round_trip_cost
         from market.gold.event_evidence""",
+    # Only the version in use of each definition; the full history stays in the lakehouse.
+    "market_metrics": """
+        select metric_id, version, kind, name, description, sql_text, display,
+               date_format(valid_from, 'yyyy-MM-dd HH:mm:ss') as valid_from, changed_by, change_note
+        from market.semantic.metric_definitions
+        where is_current""",
 }
 # The day the copy reflects: the newest day in the lakehouse.
 AS_OF = "select cast(max(trade_date) as string) as as_of from market.gold.coin_daily"
@@ -142,7 +149,7 @@ def main():
             # reads D1 until the next publish (the data is still right, ADR-026).
             served = answer.get("served", "-")
             summary.append((table, len(rows), answer.get("rows"), "OK" if ok else "MISMATCH", served))
-            print(f"{table}: gold {len(rows)} rows, MEDUSA {answer.get('rows')} rows: {'OK' if ok else 'MISMATCH'}; scanner answer from {served}")
+            print(f"{table}: lakehouse {len(rows)} rows, MEDUSA {answer.get('rows')} rows: {'OK' if ok else 'MISMATCH'}; scanner answer from {served}")
             failed |= not ok
         except Exception as e:
             summary.append((table, None, None, "FAILED", "-"))
@@ -152,7 +159,7 @@ def main():
     # A small table on the run's summary page in GitHub.
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
-            f.write(f"### Published to MEDUSA (lakehouse day {as_of})\n\n| Table | Gold rows | MEDUSA rows | Check | Scanner answer |\n|---|---|---|---|---|\n")
+            f.write(f"### Published to MEDUSA (lakehouse day {as_of})\n\n| Table | Lakehouse rows | MEDUSA rows | Check | Scanner answer |\n|---|---|---|---|---|\n")
             for t, g, m, s, v in summary:
                 f.write(f"| `{t}` | {g if g is not None else '-'} | {m if m is not None else '-'} | {s} | {v} |\n")
     return 1 if failed else 0

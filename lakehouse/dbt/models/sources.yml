@@ -21,3 +21,54 @@ sources:
           text. Loaded once for history (January 2020 onward), so it isn't checked for freshness.
         config:
           freshness: null
+
+  - name: semantic
+    description: >
+      Definitions of the numbers MEDUSA shows, written by people rather than built by dbt: loaded
+      first by sql/seed/001_metric_definitions_v1.sql, later changed from MEDUSA's Markets page.
+      Every change adds a new version (SCD Type 2), so nothing is overwritten.
+    database: market
+    schema: semantic
+    tables:
+      - name: metric_definitions
+        description: >
+          One row per version of each definition behind MEDUSA's Markets page: the shared steps
+          (models) and the numbers and tables (metrics). The rules in
+          tests/assert_metric_definitions_*.sql keep it consistent.
+        columns:
+          - name: metric_id
+            description: Stable id the page uses, e.g. breadth. It never changes.
+            data_tests: [not_null]
+          - name: version
+            description: 1 for the first definition, then 2, 3 ... one row per change.
+            data_tests: [not_null]
+          - name: kind
+            description: model (a shared step other queries read by name) or metric (a number or table on the page).
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ['model', 'metric']
+          - name: name
+            description: The name shown on the page.
+            data_tests: [not_null]
+          - name: description
+            description: What the number means, in plain words.
+          - name: sql_text
+            description: The query, in SQLite's dialect and kept portable to Databricks. One read-only statement.
+            data_tests: [not_null]
+          - name: display
+            description: How the result is shown, as JSON (a card's text, or each column's label and format). Empty for models.
+          - name: valid_from
+            description: When this version came into use.
+            data_tests: [not_null]
+          - name: valid_to
+            description: When a newer version replaced it; empty while it is current.
+          - name: is_current
+            description: True for the one version in use.
+            data_tests: [not_null]
+          - name: changed_by
+            description: Who made this version (a name, never an email).
+            data_tests: [not_null]
+          - name: change_note
+            description: Why it changed.

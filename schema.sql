@@ -233,9 +233,24 @@ CREATE TABLE IF NOT EXISTS market_evidence (
   PRIMARY KEY (direction, z_band, liquidity, horizon_hours)
 );
 
+-- The definition of every number on the Markets page (the current version of each row of the lakehouse's
+-- market.semantic.metric_definitions). The page runs these queries in its own SQLite engine.
+CREATE TABLE IF NOT EXISTS market_metrics (
+  metric_id TEXT PRIMARY KEY,        -- e.g. breadth
+  version INTEGER NOT NULL,          -- the version in use
+  kind TEXT NOT NULL,                -- model (a shared step) | metric (a number or table on the page)
+  name TEXT NOT NULL,
+  description TEXT,
+  sql_text TEXT NOT NULL,            -- the query the page runs
+  display TEXT,                      -- JSON: a card's text, or each column's label and format
+  valid_from TEXT,                   -- when this version came into use (UTC)
+  changed_by TEXT,
+  change_note TEXT
+);
+
 -- One row per market table: when it was last published, for which day, and how many rows it holds.
 CREATE TABLE IF NOT EXISTS market_publish (
-  tbl TEXT PRIMARY KEY,              -- market_baseline | market_evidence
+  tbl TEXT PRIMARY KEY,              -- market_baseline | market_evidence | market_metrics
   as_of TEXT,                        -- the lakehouse day the copy reflects
   rows INTEGER NOT NULL,
   published_at INTEGER NOT NULL      -- ms since 1970

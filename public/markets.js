@@ -9,11 +9,13 @@
 //   live   prices straight from Binance to this browser: one stream with every market that changed,
 //          about once a second. MEDUSA's server never sees them.
 //
-// Every number on the Today view is calculated by SQL: the queries in markets-metrics.js run in a
-// SQLite database inside the browser (markets-sql.js, a background worker) that holds the lakehouse's
-// two tables, the live prices and Binance's contract list. This file only feeds those tables, runs the
-// queries about once a second and draws what they return; each number's query is shown under it,
-// exactly as it runs. The rule is the lakehouse's own (intraday_events.sql), so the evidence describes
+// Every number on the Today view is calculated by SQL: the queries run in a SQLite database inside the
+// browser (markets-sql.js, a background worker) that holds the lakehouse's two tables, the live prices
+// and Binance's contract list. The queries themselves are kept in the lakehouse
+// (market.semantic.metric_definitions, every version) and published to MEDUSA with the data
+// (market_metrics); markets-metrics.js is the built-in copy, used until they arrive. This file only
+// feeds the tables, runs the queries about once a second and draws what they return; each number's
+// query is shown under it, exactly as it runs. The rule is the lakehouse's own (intraday_events.sql), so the evidence describes
 // exactly the moves flagged here. Live numbers are unchecked: the next daily run replaces them.
 //
 // Two views: Today (the live scan) and Patterns (every kind of move and what it did next).
@@ -46,7 +48,28 @@ export function marketType(underlyingType, subTypes) {
 
 /* ---------- the queries: a definition plus the shared steps (models) it reads ---------- */
 
-const DEFS = new Map(DEFINITIONS.map((d) => [d.id, d]));
+// The definitions in use: the lakehouse's published ones over the built-in copy (markets-metrics.js),
+// which fills in until they arrive and for any id they don't have.
+const BUILT_IN = new Map(DEFINITIONS.map((d) => [d.id, { ...d, from: 'built-in' }]));
+let DEFS = BUILT_IN;
+
+/** The published definitions (rows of market_metrics), each over the built-in one with the same id.
+ * A display that isn't valid JSON, or lacks what the page needs, keeps the built-in display. */
+export function definitionsFrom(rows) {
+  const defs = new Map(BUILT_IN);
+  for (const r of rows) {
+    let display = null;
+    try { display = r.display ? JSON.parse(r.display) : null; } catch { display = null; }
+    const base = BUILT_IN.get(r.metric_id) || {};
+    defs.set(r.metric_id, {
+      id: r.metric_id, kind: r.kind, name: r.name, description: r.description || '', sql: r.sql_text,
+      columns: (display && Array.isArray(display.columns) && display.columns) || base.columns,
+      card: (display && display.card && display.card.value != null && display.card) || base.card,
+      version: r.version, validFrom: r.valid_from, changedBy: r.changed_by, note: r.change_note, from: 'lakehouse',
+    });
+  }
+  return defs;
+}
 const BROWSER_TABLES = {   // column -> type, for an empty value in the first row of VALUES
   live_prices: { symbol: 'STRING', price: 'DOUBLE', quote_volume_24h: 'DOUBLE' },
   binance_markets: { symbol: 'STRING', market_type: 'STRING', yesterday_close: 'DOUBLE' },
@@ -357,8 +380,13 @@ function queryPanel(id, key = id, extra = {}) {
   PENDING.push([key, { id, params, frozen: S.frozen }]);
   const used = [...new Set([...sql.matchAll(/:([a-z_]+)\b/g)].map((m) => m[1]))].filter((p) => p in params);
   const tables = [...new Set(reads(sql))].filter((t) => t in SOURCES);
+  const steps = modelsOf(def.sql).map((m) => `<code>${m}</code>${DEFS.get(m).version ? ` v${DEFS.get(m).version}` : ''}`).join(', ');
+  const origin = def.from === 'lakehouse'
+    ? `<b>Definition:</b> version ${def.version} of <code>${esc(def.id)}</code> in the lakehouse's <code>market.semantic.metric_definitions</code>${def.validFrom ? `, in use since ${esc(def.validFrom)} UTC` : ''}${def.changedBy ? ` (${esc(def.changedBy)})` : ''}${steps ? `; its shared steps: ${steps}` : ''}.`
+    : '<b>Definition:</b> the built-in copy in <code>markets-metrics.js</code>, because the lakehouse\'s definitions haven\'t been published to MEDUSA yet.';
   return `<div class="mkt-q">
     <p class="what"><b>${esc(def.name)}</b>: ${esc(def.description)}</p>
+    <p class="faint">${origin}</p>
     <div class="mkt-sql"><div class="h"><span>The query, exactly as this page runs it</span><span class="b">
       <button class="btn btn-sm" type="button" data-mkt="copy" data-sql="${esc(key)}" data-db="d1">Copy for MEDUSA (D1)</button>
       <button class="btn btn-sm" type="button" data-mkt="copy" data-sql="${esc(key)}" data-db="dbx">Copy for Databricks</button></span></div>
@@ -533,7 +561,7 @@ function shell() {
         <li><b>The markets</b> are every Binance USDⓈ-M perpetual futures contract quoted in USDT: crypto coins and tokens, and the TradFi perpetuals on stocks, commodities, a currency and indices. The type next to each name comes from Binance's contract list.</li>
         <li><b>Each market's normal</b> comes from MEDUSA's market data lakehouse: the average and spread (σ) of its daily moves over its last 30 days with trades, built from Binance's checked daily files and published once a day (about 13:30 UTC).</li>
         <li><b>Live prices</b> come straight from Binance to this browser, about once a second. MEDUSA's server never sees them.</li>
-        <li><b>Every number here is calculated by SQL</b>, in a small SQLite database inside this browser that holds the lakehouse's tables and the live prices. The queries run about once a second; the <b>‹›</b> buttons show each one exactly as it runs, with its result and a copy that runs in MEDUSA's database or in Databricks.</li>
+        <li><b>Every number here is calculated by SQL</b>, in a small SQLite database inside this browser that holds the lakehouse's tables and the live prices. The queries are kept in the lakehouse too, with every version, and published to MEDUSA with the data. They run about once a second; the <b>‹›</b> buttons show each one exactly as it runs, which version it is, its result, and a copy that runs in MEDUSA's database or in Databricks.</li>
         <li><b>Today's move</b> is measured from yesterday's close (UTC). z is that move in the market's usual daily moves; ${RULE.z} or more (|z| ≥ ${RULE.z}) is flagged as unusual: the same rule the lakehouse applies to every hour since 2020.</li>
         <li><b>The evidence</b> shows what similar moves (same direction, size and liquidity) did over the next 1, 4 and 24 hours since 2020. Each side (follow the move or fade it) was chosen on 2020–2024 and checked on 2025 onwards, which played no part in choosing it, after 0.10% trading costs. Most kinds of move show no pattern that held; the Patterns view lists them all. Almost all of that history is crypto.</li>
         <li><b>Live numbers are unchecked</b> until the next day's batch run. History is no promise: costs differ by market and funding isn't counted. This is research, not trading advice.</li>
@@ -629,7 +657,7 @@ function paintStatus() {
     ? `<span class="warn"><b>The SQL engine couldn't start:</b> ${esc(S.eng.err)}</span> <button class="btn btn-sm" data-mkt="engine">Try again</button>`
     : !S.eng.ok ? 'Starting the SQL engine…'
       : S.runErr ? `<span class="warn">${esc(S.runErr)}</span>`
-        : S.lastRun ? `Numbers calculated by SQL in this browser: ${S.lastRun.n} queries at ${clockS(S.lastRun.at)} in ${S.lastRun.ms} ms` : 'Calculating…';
+        : S.lastRun ? `Numbers calculated by SQL in this browser: ${S.lastRun.n} queries at ${clockS(S.lastRun.at)} in ${S.lastRun.ms} ms, defined ${DEFS.get('breadth').from === 'lakehouse' ? 'in the lakehouse' : 'by the built-in copy'}` : 'Calculating…';
   put('mkt-status', `
     <div class="row"><span>${live}</span><span class="faint">${priced} markets priced</span></div>
     <div class="row faint"><span>Each market's normal: lakehouse day ${shortDay(pub.as_of)}${pub.published_at ? `, published ${clock(pub.published_at)}` : ''}</span><span>${ref}</span></div>
@@ -860,6 +888,7 @@ async function load() {
       if (S.data && (S.data.published.market_baseline || {}).as_of !== (published.market_baseline || {}).as_of) S.ref = null;   // a new day arrived
       const empty = { columns: [], rows: [] };
       S.data = { published, base, ev, at: Date.now(), raw: { market_baseline: d.market_baseline || empty, market_evidence: d.market_evidence || empty } };
+      DEFS = definitionsFrom(rowsOf(d.market_metrics));
       S.loadErr = base.size ? null : 'The lakehouse hasn\'t published its tables to MEDUSA yet.';
     } catch (e) {
       if (e.message !== 'Signed out') {

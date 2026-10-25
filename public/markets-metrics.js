@@ -1,5 +1,10 @@
 // MEDUSA Markets: every number on the Today view, defined as SQL.
 //
+// This is the built-in copy. The master copy, with every version, is the lakehouse's table
+// market.semantic.metric_definitions (lakehouse step 27): it was first filled from this file, and the
+// page uses the versions published from it (market_metrics), falling back to this file only until they
+// arrive or for an id they don't have. Change a definition in the lakehouse, not here.
+//
 // The page doesn't calculate these numbers in JavaScript. It runs these queries in a SQLite database
 // inside the browser (markets-sql.js) and shows what they return: change a query here and the number
 // on the page changes with it. Each query is shown on the page under its number, exactly as it runs.

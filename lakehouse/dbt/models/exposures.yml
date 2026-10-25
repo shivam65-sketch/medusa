@@ -16,15 +16,18 @@ exposures:
       job copies coin_baseline and event_evidence to MEDUSA's D1 as market_baseline and
       market_evidence (ADR-024). The page compares Binance's live prices with each market's normal
       from coin_baseline, flags the unusual moves and looks up what similar moves did next in
-      event_evidence. Its calculation panels show each number as one SQL query over these two
-      tables that runs in D1 or in Databricks.
+      event_evidence. Every number on it is a SQL query from semantic.metric_definitions (the
+      current version of each, published as market_metrics) that the page runs in the browser over
+      these two tables and the live prices; each panel shows its query, which also runs in D1 or
+      in Databricks.
     depends_on:
       - ref('coin_baseline')
       - ref('event_evidence')
+      - source('semantic', 'metric_definitions')
     owner:
       name: Shivam
     config:
       tags: [serving]
       meta:
-        served_as: [market_baseline, market_evidence]
+        served_as: [market_baseline, market_evidence, market_metrics]
         refreshed: daily, by the publish step after the transform (about 13:30 UTC)
