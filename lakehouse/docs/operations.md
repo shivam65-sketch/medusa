@@ -26,9 +26,13 @@ All `databricks` commands run from the `lakehouse/` folder.
 | Run only bronze and dbt (and publish to MEDUSA) | GitHub → Actions → **Lakehouse transform** → Run workflow |
 | See what MEDUSA holds | From the `medusa` folder: `npx wrangler@4 d1 execute medusa --remote --command "SELECT * FROM market_publish"` (one row per table: lakehouse day, rows, publish time) |
 | See the Markets page's metric definitions | Databricks SQL editor: `SELECT metric_id, version, kind, name, valid_from, changed_by FROM market.semantic.metric_definitions WHERE is_current ORDER BY kind, metric_id` (14 rows); every version: leave out `WHERE is_current`; every change to the table: `DESCRIBE HISTORY market.semantic.metric_definitions`. What MEDUSA runs: `npx wrangler@4 d1 execute medusa --remote --command "SELECT metric_id, version, valid_from FROM market_metrics"` |
-| Check the metric definitions | From `lakehouse/dbt/`: `../.venv/Scripts/dbt test --select source:semantic` (11 tests; `dbt build` runs them every day before the publish) |
+| Check the metric definitions | From `lakehouse/dbt/`: `../.venv/Scripts/dbt test --select source:semantic` (20 tests: 11 on the shared definitions, 9 on the accounts' own; `dbt build` runs them every day before the publish) |
 | Re-load version 1 of the definitions | `databricks bundle run seed_metric_definitions` (a `MERGE`: it adds only versions that aren't in the table, so it is harmless to repeat) |
-| Change a metric definition | From the Markets page, from step 28. A change adds a version (`version + 1`, `is_current = true`) and closes the old one (`valid_to`, `is_current = false`); never `UPDATE` the SQL of an existing version. The next publish sends it to MEDUSA |
+| Change a metric definition | On the Markets page: press ‹› on the number, edit its SQL in the window, **Preview**, then **Save** with a note ([step 28](steps/28-editing-the-definitions.md)). The owner's account saves the shared version; any other account its own. A save adds a version (`version + 1`, `is_current = true`) and closes the old one (`valid_to`, `is_current = false`), and MEDUSA uses it at once. Never `UPDATE` or `DELETE` a version by hand |
+| See a definition's history | In its window: **History** (every version, who, when, why, its SQL). In Databricks: `SELECT version, is_current, valid_from, valid_to, changed_by, change_note FROM market.semantic.metric_definitions WHERE metric_id = 'breadth' ORDER BY version DESC`; every change to the table: `DESCRIBE HISTORY market.semantic.metric_definitions` (a save shows as a `MERGE` by the service principal) |
+| Undo a change to a definition | In its window: **History** → **Use this version again** on the version wanted → **Save**. The old SQL becomes the next version, with the note *Back to … version N*; nothing is deleted |
+| See the accounts' own versions | Databricks: `SELECT account_id, metric_id, version, is_current, valid_from, changed_by, change_note FROM market.semantic.user_metric_definitions ORDER BY account_id, metric_id, version`. What MEDUSA runs: `npx wrangler@4 d1 execute medusa --remote --command "SELECT user_id, metric_id, version, valid_from FROM market_user_metrics"` |
+| Bring a change made in Databricks to MEDUSA now | The owner's account, in any calculation window: **Reload definitions from the lakehouse** (both tables replaced from Databricks within seconds). Otherwise the next publish does it, or re-run **Lakehouse transform** |
 | See the Markets page's ready-made answer | From the `medusa` folder: `npx wrangler@4 kv key get "market/scanner.json" --binding LAB --remote` (the JSON the page loads; its `published` part should match `market_publish`) |
 | Make MEDUSA rebuild that answer | Re-run **Lakehouse transform** (the publish rebuilds it), or delete it: `npx wrangler@4 kv key delete "market/scanner.json" --binding LAB --remote` (the next page load reads D1 and keeps that answer for 10 minutes) |
 | Check what feeds the Markets page | From `lakehouse/dbt/`: `../.venv/Scripts/dbt ls --select +exposure:markets_page --output name`; before changing a model, `../.venv/Scripts/dbt ls --select <model>+ --resource-type exposure` says whether the change reaches the page |
@@ -38,7 +42,7 @@ All `databricks` commands run from the `lakehouse/` folder.
 | Rebuild bronze from every file | `databricks bundle run bronze --full-refresh-all`. Use only after changing a bronze definition: it reloads everything. |
 | See what's in the landing volume | `databricks fs ls dbfs:/Volumes/market/landing/binance/klines_1m` |
 | Deploy a change to a job or pipeline | `databricks bundle validate`, then `databricks bundle deploy` |
-| Re-create the catalog, schemas, volume and semantic table | `databricks bundle run setup_ddl` (4 tasks, harmless if they already exist) |
+| Re-create the catalog, schemas, volume and semantic tables | `databricks bundle run setup_ddl` (5 tasks, harmless if they already exist) |
 | Check the dbt connection | From `lakehouse/dbt/`: `../.venv/Scripts/dbt debug` |
 | Check bronze is fresh | From `lakehouse/dbt/`: `../.venv/Scripts/dbt source freshness` (warns after 36 h, errors after 72 h) |
 | Build silver and run its tests | From `lakehouse/dbt/`: `../.venv/Scripts/dbt build` (incremental: only new bronze rows) |
@@ -74,6 +78,8 @@ A complete day has about 872 coins × 1,440 rows. A data-health table will autom
 | Publish: `MISMATCH` | MEDUSA stored a different number of rows than gold sent | Re-run the transform; if it repeats, compare `market_publish` with the gold table |
 | `dbt build` fails on `assert_metric_definitions_*` or a `source_..._semantic_metric_definitions_...` test | A metric definition breaks a rule: two current versions, a gap in the versions, a second statement in its SQL, display that isn't JSON. The publish doesn't run, so MEDUSA keeps the last checked definitions (and yesterday's data) | Run the failing test's SQL from `lakehouse/dbt/target/compiled/` in the SQL editor to see the rows, fix them with a new version (or by closing the extra current one), then re-run **Lakehouse transform** |
 | Publish: `market_metrics` failed with `MEDUSA answered 400` or `500` | MEDUSA's D1 doesn't have `market_metrics` (migration 004 not applied), or the app wasn't redeployed after step 27 | From the `medusa` folder: `npx wrangler@4 d1 execute medusa --remote --file=migrations/004_metrics.sql`, then `npx wrangler@4 deploy`, then re-run the transform |
+| Publish: `market_user_metrics` failed with `MEDUSA answered 400` or `500` | Migration 005 not applied, or the app wasn't redeployed after step 28 | `npx wrangler@4 d1 execute medusa --remote --file=migrations/005_user_metrics.sql`, then `npx wrangler@4 deploy`, then re-run the transform |
+| `dbt build` fails on `assert_user_metric_definitions_valid` or a `source_..._user_metric_definitions_...` test | An account's own version breaks a rule (usually after a hand change in Databricks); the publish doesn't run | Run the failing test's SQL from `lakehouse/dbt/target/compiled/` to see the rows; close the extra current version (or fix the gap) in the SQL editor and note why, then re-run **Lakehouse transform** |
 | Publish summary: **Scanner answer** `d1` | The tables were replaced, but saving the Markets page's ready-made answer in KV failed (for example KV's 1,000 writes a day were used up), so MEDUSA removed the old answer | Nothing is wrong with the data: page loads read D1 until the next publish rebuilds the answer. If it repeats, check KV's usage in Cloudflare's dashboard |
 | The workflow doesn't appear under Actions | The workflow file isn't in `.github/workflows/` at the repository root | Move it there (`git mv`) |
 | Scheduled runs stopped | GitHub pauses schedules in public repositories after 60 days without commits | Actions → the workflow → **Enable workflow** |
@@ -102,15 +108,37 @@ the page calculated correctly and any surprise is in the data. Start there.
 | A panel says **Definition: the built-in copy** (and the status line *defined by the built-in copy*) | `SELECT * FROM market_publish` in D1 (see Common tasks): is there a `market_metrics` row? | No row: the definitions haven't been published since the table was added; re-run **Lakehouse transform**. A row: the browser still has an older answer for up to 5 minutes; reload with **Disable cache** ticked |
 | `x-cache: D1` on every load (DevTools → Network → `scanner`) | Tick **Disable cache** and wait a minute: the browser keeps its copy for 5 minutes, and KV remembers a missing key for up to a minute | Still `D1`: the ready-made answer is missing; see the publish summary's **Scanner answer**, or re-run **Lakehouse transform** |
 
+## When saving a definition fails
+
+A calculation window shows the server's message in its save form. Nothing is half saved: either the
+`MERGE` added the version or it changed nothing.
+
+| Message (HTTP status) | Cause | Fix |
+|---|---|---|
+| *Saving isn't set up on this MEDUSA* (503); no **Save** button | `DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID` or `DATABRICKS_CLIENT_SECRET` is missing in Cloudflare | Save the three secrets (README, "Saving the Markets definitions") and deploy |
+| *A query must start with SELECT or WITH*, *Only one statement*, *… isn't a parameter the page fills in* (400) | The query breaks one of the three rules (the window checks them first, so this means an old window) | Fix the query; a comment can go after `SELECT`, not before it |
+| *There is no definition with that name* (404) | The window was opened for a definition MEDUSA doesn't have | Reload the Markets page |
+| *… changed since this window loaded it* (409) | Someone (or another window) saved a newer version first | Reload the window: it shows the version now in use. Your text stays in the editor until the window closes, so copy it first |
+| *The lakehouse's definitions haven't been published to MEDUSA yet* (409) | D1 has no `market_metrics` | Apply migration 004 and re-run **Lakehouse transform** |
+| *You've saved 20 times today* or *MEDUSA has saved as many times today …* (429) | The daily allowance (20 per account, 300 in all; history reads and reloads: 60 and 600) | Wait until the next day; the counts are kept in D1's `attempts` table (`kind` `metricSave` or `metricRead`) |
+| *Databricks refused MEDUSA's sign-in* (502) | The service principal's OAuth secret was deleted or expired, or the client id is wrong | Generate a new secret on the service principal's **Secrets** tab, then `npx wrangler@4 secret put DATABRICKS_CLIENT_SECRET` |
+| *MEDUSA's Databricks login can't use the Serverless Starter Warehouse* (502) | The service principal lost **Can use** on the warehouse, or the warehouse was renamed | Give it **Can use** again, or set `DATABRICKS_WAREHOUSE_ID` |
+| *Databricks couldn't run it (… INSUFFICIENT_PERMISSIONS …)* (502) | A grant on `market.semantic` or a definitions table is missing | Run the `GRANT`s in "The Markets save login" below |
+| *Databricks took too long to answer* (502) | The warehouse took more than about a minute and a half to wake | Try again; if Databricks saved it after all, it appears with the next publish or **Reload** |
+| *Saved … (MEDUSA's copy catches up with the next daily publish)* | Databricks has the version, but writing MEDUSA's copy failed | Nothing to fix: the next publish, or the owner's **Reload**, copies it |
+| *Only the owner's account reloads the definitions* (403) | **Reload** was called by another account | Expected: other accounts get changes made in Databricks with the daily publish |
+
 ## Incidents
 
 | Date | What happened | Cause | Fix |
 |---|---|---|---|
+| 2026-10-25 | The first real save, version 2 of `bitcoin`, was removed by hand in the Databricks SQL editor (a `DELETE` of version 2 and an `UPDATE` making version 1 current again). MEDUSA kept running version 2 until **Lakehouse transform** republished the definitions at 05:46 UTC. | MEDUSA's copy changes only with a save from the page or a publish, so a hand change in Databricks waited for the next publish. | Undo now means **Use this version again**, which saves the old SQL as the next version; the owner's **Reload** brings any hand change to MEDUSA in seconds ([step 28](steps/28-editing-the-definitions.md)). |
 | 2026-10-21 | The first scheduled daily load (for 2026-10-20) failed in the download step: `FAILED metrics ATHUSDT 2026-10-20: [Errno 104] Connection reset by peer` (1,527 saved, 280 missing, 1 failed). Re-run at 21:51 UTC: all 872 coins loaded and every test passed; no data was lost. | 1. The downloader retried a connection that failed to open, but not one that dropped mid-download. 2. GitHub started the 06:00 schedule at 11:19, before Binance had finished publishing: 88 coins' candle files appeared only at 11:55. Without the network error, the day would have loaded without those coins. | Mid-download errors are retried; the schedule moved to 13:00 UTC; the download step refuses a day that isn't fully published ([ADR-021](decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)). |
 
 ## The Markets save login (service principal)
 
-Saving a definition from a Markets window (step 28) makes MEDUSA's server write to Databricks. It signs
+Saving a definition from a Markets window (step 28), reading its history and the owner's **Reload**
+make MEDUSA's server work in Databricks. It signs
 in as its own service principal, `medusa-markets-writer`, never with a person's token, and that login
 can do nothing else:
 

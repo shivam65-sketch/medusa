@@ -36,7 +36,9 @@ entry replaces it and the old one is marked *Superseded*.
 | 026 | [The scanner's answer is kept ready-made in Workers KV](#adr-026-the-scanners-answer-is-kept-ready-made-in-workers-kv) | Accepted; replaces the caching in ADR-025 |
 | 027 | [The live layer runs in each browser](#adr-027-the-live-layer-runs-in-each-browser) | Accepted |
 | 028 | [Every number is a SQL query, run in the browser](#adr-028-every-number-is-a-sql-query-run-in-the-browser) | Accepted; where the definitions are kept: ADR-029 |
-| 029 | [Metric definitions are kept in Databricks and published with the data](#adr-029-metric-definitions-are-kept-in-databricks-and-published-with-the-data) | Accepted |
+| 029 | [Metric definitions are kept in Databricks and published with the data](#adr-029-metric-definitions-are-kept-in-databricks-and-published-with-the-data) | Accepted; how edits reach it: ADR-031 |
+| 030 | [Each number's calculation runs in its own window, with the filter's values in the SQL](#adr-030-each-numbers-calculation-runs-in-its-own-window-with-the-filters-values-in-the-sql) | Accepted |
+| 031 | [Edits are saved to Databricks by MEDUSA's server, as shared or personal versions](#adr-031-edits-are-saved-to-databricks-by-medusas-server-as-shared-or-personal-versions) | Accepted |
 
 ---
 
@@ -597,3 +599,91 @@ of version 1 exist (the table and the built-in file), so the built-in copy can f
 matters before the first publish. The ingest token can now also replace `market_metrics`: a leak could
 change the queries the page runs, but they run read-only in each browser's own database, which holds
 only public market data.
+
+## ADR-030: Each number's calculation runs in its own window, with the filter's values in the SQL
+
+**Status:** Accepted, 2026-10-25 (step 28).
+
+**Context:** Until step 28 each number's query opened in a panel inside the Markets page. The owner
+wanted to edit the SQL and see the result next to the number, which needs room for an editor, a preview
+and the current result side by side, and asked for the calculation to open in a window of its own that
+stays useful while the page is used for something else. A second problem: the query on screen kept
+`:kind` and `:yesterday` as names, so it didn't show what actually ran for the type chosen.
+
+**Decision:**
+- Each ‹› button opens `/markets-window?panel=…` in a window of its own. The window runs the page's
+  own code (`renderWindow()` in `markets.js`) with its own copy of the data, its own SQL engine and its
+  own live prices, but only the queries of the number it shows, so it stays live when the page is
+  hidden or closed. An open window is brought to the front, not reloaded. Windows and the page tell
+  each other about saves through a `BroadcastChannel`.
+- The editor lives in that window. **Preview** runs the edited queries on that screen only, after the
+  same checks as the dbt tests (one statement, starting with `SELECT` or `WITH`, no `;`, only the
+  page's parameters) and a check that no shared step reads itself, with a 5-second limit that restarts
+  the engine.
+- Before a query runs, its parameters are written in as values (`fill()`): `:kind IN ('all', col)`
+  becomes `col = 'crypto'`, or `TRUE` for All; `:yesterday` a date and `:symbol` a market. The values
+  come only from the page's own lists (5 types, a date, Binance's markets) and are quoted with `'`
+  doubled. The definitions keep the parameters; the editor shows them as stored.
+
+**Alternatives:** A bigger panel inside the page (no room beside the numbers, and it disappears with
+the page). One window that only mirrors the page's results (it would stop when the page is closed or
+hidden, and couldn't run a preview without changing the page). Real bound parameters instead of
+written-in values (the query on screen would still not be the one that runs, and the D1 and Databricks
+copies need literal values anyway).
+
+**Consequences:** Every open window is a second copy of the data, a second engine and a second
+connection to Binance; that is fine for a few windows, not for dozens. A browser that blocks pop-ups
+blocks the window, so the page says so. The SQL on screen and in the copies is exactly what ran, and
+changing the filter visibly changes the query. Because the values are written in, the query text
+changes with the filter, so the engine prepares a new statement per choice (the worker keeps at most
+64).
+
+## ADR-031: Edits are saved to Databricks by MEDUSA's server, as shared or personal versions
+
+**Status:** Accepted, 2026-10-25 (step 28). How edits reach the table of [ADR-029](#adr-029-metric-definitions-are-kept-in-databricks-and-published-with-the-data).
+
+**Context:** The owner wants an edited query, saved on the Markets page, to be stored in Databricks'
+definitions table, with the information about it (who, when, why) updated. A browser can't write to
+Databricks: it would need a token that every visitor could read. MEDUSA has several accounts, so a save
+by any account could change what everyone sees. Free Edition has a daily compute quota, and every
+statement wakes the SQL warehouse.
+
+**Decision:**
+- **Who saves what.** The owner's account (Cloudflare secret `MARKET_OWNER_ID`) saves the shared
+  definition in `market.semantic.metric_definitions`. Every other account saves a personal version in
+  `market.semantic.user_metric_definitions`, which only its own page uses, and can go back to the
+  shared one. The owner chose this over owner-only saving and over every account changing the shared
+  definition.
+- **How the server writes.** MEDUSA's Worker calls the Databricks SQL Statement API as a service
+  principal, `medusa-markets-writer`, signed in with OAuth client credentials and the `sql` scope.
+  Its grants are the minimum: **Can use** on the warehouse, `USE CATALOG`/`USE SCHEMA`, and
+  `SELECT, MODIFY` on the two definitions tables only.
+- **What it runs.** One `MERGE` per save that closes the current version and adds the next, with
+  every value (the SQL text included) as a named parameter, so the text is stored as data and never
+  run by Databricks. The save carries the version it edited (`:base`); if that is no longer the version
+  in use, the `MERGE` changes nothing and the server answers 409 (optimistic concurrency).
+- **Checks before Databricks.** The server applies the page's rules again (one read-only statement,
+  only the page's parameters, at most 20,000 characters), rejects unknown definitions from D1, and
+  counts the save against a daily limit (20 per account, 300 in all; reads of the history 60 and 600).
+- **MEDUSA's copy.** After Databricks accepts a save, the Worker reads the new version back and
+  writes it into D1 (`market_user_metrics`, or `market_metrics` and the scanner's answer in KV). The
+  daily publish replaces both copies from Databricks, so they always end up equal. The owner's
+  **Reload** does the same on demand, for changes made in Databricks itself.
+- **Going back.** History reads every version from Databricks. **Use this version again** saves an
+  old version as the next one; nothing is updated in place or deleted. Deleting a MEDUSA account
+  deletes its personal versions from Databricks and D1.
+
+**Alternatives:**
+- *A person's access token as a Cloudflare secret.* Simpler, but it carries everything that person
+  can do in the workspace, and it expires every 90 days.
+- *Save to D1 and copy to Databricks every night.* Databricks would no longer be the master copy, and
+  two places would be edited.
+- *Revert by updating or deleting rows.* It loses the history that ADR-029 keeps on purpose.
+- *Let the browser call Databricks.* Impossible without handing every visitor a credential.
+
+**Consequences:** A save takes a few seconds, or up to about a minute when the warehouse is asleep, and
+uses the free quota, hence the limits. The owner's shared save reaches everyone at once, with no review
+step; the checks, the preview and the full history are the safety net. A personal version is checked by
+the page and the server when saved, and by the dbt tests at the next build. The service principal's
+OAuth secret is a new credential to keep and renew. A save that Databricks accepted but MEDUSA failed to
+copy reaches MEDUSA with the next publish or reload, and the window says so.

@@ -32,14 +32,14 @@ The data engineering terms used in this project, in plain words.
 | **Held-back test (out-of-sample)** | Choosing a rule on one period and checking it on another that played no part in choosing it | `event_evidence` (2025 on) |
 | **Hive-style partition** | A folder named `column=value`, read as a column | `date=2026-10-19` |
 | **Idempotent** | Running something again gives the same result and does no harm | DDL, downloader, uploads, the metric definitions' seed (`MERGE ... WHEN NOT MATCHED`) |
-| **Informational constraint** | A key declared so readers and tools know what a row means, but not enforced by the database (SQL Server: `NOT ENFORCED`); something else checks it | `metric_definitions`' primary key, checked by dbt tests |
 | **Incremental model** | A dbt model that, after its first full build, processes only new data and merges it in | `fct_candle_1m` |
+| **Informational constraint** | A key declared so readers and tools know what a row means, but not enforced by the database (SQL Server: `NOT ENFORCED`); something else checks it | `metric_definitions`' primary key, checked by dbt tests |
 | **Lakehouse** | Data stored as open-format files in cheap storage, with warehouse features (tables, SQL, transactions) on top | The whole platform |
 | **Lambda architecture** | A slow, complete and checked batch layer plus a fast, approximate live layer, combined where the data is served; the batch layer later replaces the live numbers | The live scanner: this lakehouse plus Binance's live stream, combined in each browser ([ADR-027](decisions.md#adr-027-the-live-layer-runs-in-each-browser)) |
 | **Landing zone** | Where raw files arrive, unchanged, before any processing | `market.landing.binance` |
+| **Least privilege** | Giving each credential only the access its job needs, so a leak does as little harm as possible | MEDUSA's ingest token can only replace the serving tables ([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)); the save login can only use the warehouse and the two definitions tables |
 | **Lineage** | Knowing where each piece of data came from, and what uses it | `source_file`, `loaded_at`; each Markets number's query; the `markets_page` exposure |
 | **Liquid clustering** | Delta's way of keeping data files grouped by chosen columns as data arrives, replacing partitions and Z-ordering | Silver tables |
-| **Least privilege** | Giving each credential only the access its job needs, so a leak does as little harm as possible | MEDUSA's ingest token can only replace two market tables ([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)) |
 | **Look-ahead bias** | Using information that wasn't available at the time, which makes history look better than live results | Avoided: each day's normal uses only earlier days |
 | **Manifest** | A list of the files a load produced, with each file's fingerprint, kept so the load can be checked against the source later | `manifests/date=…/manifest.csv` ([ADR-023](decisions.md#adr-023-re-check-loaded-days-against-binance-for-a-week)) |
 | **Matrix job** | GitHub Actions running the same job once per value in a list, several at a time | The backfill |
@@ -47,20 +47,25 @@ The data engineering terms used in this project, in plain words.
 | **MERGE (upsert)** | Insert new rows and update existing ones by a key, in one statement | Incremental models; `live_prices` on the Markets page (`INSERT ... ON CONFLICT DO UPDATE`) |
 | **Metrics layer (semantic layer)** | Defining each business number once, as data (name, definition, SQL), on shared steps (models), so every report computes it the same way | `market.semantic.metric_definitions`, run by the Markets page ([ADR-028](decisions.md#adr-028-every-number-is-a-sql-query-run-in-the-browser), [ADR-029](decisions.md#adr-029-metric-definitions-are-kept-in-databricks-and-published-with-the-data)) |
 | **Multiple testing** | Testing many ideas at once: some pass by luck, so each needs a stricter check | 60 rows in `event_evidence` |
+| **OAuth client credentials (machine to machine)** | How a program signs in without a person: it trades its client id and secret for a short-lived token, limited to a *scope* (what the token may be used for) | MEDUSA's server gets a one-hour token for its service principal with the `sql` scope (Free Edition refuses `all-apis`) |
+| **Optimistic concurrency** | Instead of locking a row while someone edits it, the change says which version it was based on, and is refused if the row changed in the meantime. SQL Server: checking a `rowversion` in the `WHERE` clause | A save carries `:base`, the version the window edited; if someone saved first, the `MERGE` changes nothing and the window is told to reload (409) |
+| **Parameterized statement** | A SQL statement sent with its values separately, as named parameters, so a value is always treated as data and can never change the statement itself (no SQL injection). SQL Server: `sp_executesql` with parameters | Every save: the edited SQL is the parameter `:sql_text`, stored by Databricks and never run there ([ADR-031](decisions.md#adr-031-edits-are-saved-to-databricks-by-medusas-server-as-shared-or-personal-versions)) |
 | **Push and pull** | Push: the source sends data as it happens (streaming). Pull: the reader asks for data when it wants it (batch) | Binance pushes live prices; the Markets page pulls the daily tables |
 | **Query parameter** | A named value a query takes when it runs (`:kind`), like a report parameter in SSRS | The Markets page's type filter, yesterday's date, one market |
+| **Rate limit** | A cap on how often something may be done in a period, so one user (or a bug) can't use up a shared resource | Saves to Databricks: 20 a day per account and 300 in all; history reads 60 and 600 (every one wakes the SQL warehouse) |
 | **Reconciliation test** | A check that two layers add up to the same totals | `assert_candle_1h_reconciles_with_1m` |
 | **Rescued data** | A column that catches values that didn't fit the expected file layout, instead of losing them | `_rescued_data` |
 | **Retention** | How long each kind of data is kept | [ADR-011](decisions.md#adr-011-keep-1-minute-candles-for-a-limited-time) |
 | **Reusable workflow** | A GitHub Actions workflow other workflows call, so shared steps live in one place | `lakehouse-load-day.yml` |
 | **Reverse ETL / serving layer** | Copying finished warehouse tables to where an app can serve them | `market_baseline` and `market_evidence` in MEDUSA's D1, published after each transform |
-| **SCD Type 2** | Keeping the full history of a dimension's changes, one row per version, with when each was valid | `dim_coin`; `metric_definitions` (`version`, `valid_from`, `valid_to`, `is_current`) |
-| **Seed** | Fixed starting data loaded by a script kept in the repository, so a new environment gets the same rows | [`sql/seed/`](../sql/seed/): version 1 of the metric definitions |
-| **Single source of truth (master copy)** | One place where a piece of information is kept and changed; every other copy is made from it and never edited | `metric_definitions` in Databricks; MEDUSA's `market_metrics` and the page's built-in copy follow it |
+| **SCD Type 2** | Keeping the full history of a dimension's changes, one row per version, with when each was valid | `dim_coin`; `metric_definitions` and `user_metric_definitions` (`version`, `valid_from`, `valid_to`, `is_current`) |
 | **Schema drift** | A source changing its columns or format over time | Caught by `_rescued_data` |
 | **Schema-on-read** | Applying column names and types when reading files, not when storing them | `read_files` in bronze |
+| **Seed** | Fixed starting data loaded by a script kept in the repository, so a new environment gets the same rows | [`sql/seed/`](../sql/seed/): version 1 of the metric definitions |
 | **Serverless** | Compute that starts when needed and stops afterwards, with nothing to manage | Pipeline, SQL warehouse |
+| **Service principal** | A Databricks identity for a program rather than a person, with its own grants and secrets; it keeps working when people change, and can be given exactly the access its job needs | `medusa-markets-writer`: Can use on the warehouse, and `SELECT, MODIFY` on the two definitions tables only |
 | **Settling (contract)** | Binance's status for a futures contract it has delisted and is closing out. The archive keeps publishing flat, zero-volume candles for it | Why status comes from trades ([ADR-018](decisions.md#adr-018-a-coin-trades-only-if-it-has-trades)) |
+| **Single source of truth (master copy)** | One place where a piece of information is kept and changed; every other copy is made from it and never edited | `metric_definitions` in Databricks; MEDUSA's `market_metrics` and the page's built-in copy follow it |
 | **Snapshot (dbt)** | dbt's built-in way to record changes to a table over time as SCD Type 2 | `dim_coin` |
 | **Source freshness** | dbt's check of how long ago a source table last received data | `sources.yml` |
 | **Storage / compute separation** | Data sits in storage; engines (warehouses) start up to work on it and can be stopped | Databricks |
@@ -74,5 +79,5 @@ The data engineering terms used in this project, in plain words.
 | **WebAssembly** | A compact program format browsers run at near-native speed, which lets software written for computers (like SQLite) run in a web page | The Markets page's SQL engine |
 | **WebSocket** | A connection that stays open so the server can send messages whenever it has something new, instead of the browser asking again and again | Binance's live stream to the Markets page |
 | **Window frame** | The rows a window function looks at, e.g. the 30 rows before the current one | `unusual_moves` |
-| **Write-through cache** | A ready-made copy that is rebuilt whenever the data is written, so readers never get an old one | The scanner's answer in Workers KV ([ADR-026](decisions.md#adr-026-the-scanners-answer-is-kept-ready-made-in-workers-kv)) |
+| **Write-through cache** | A ready-made copy that is rebuilt whenever the data is written, so readers never get an old one | The scanner's answer in Workers KV ([ADR-026](decisions.md#adr-026-the-scanners-answer-is-kept-ready-made-in-workers-kv)); a saved definition, written into MEDUSA's D1 as soon as Databricks has it |
 | **z-score** | How many standard deviations a value is from the average | `unusual_moves` |

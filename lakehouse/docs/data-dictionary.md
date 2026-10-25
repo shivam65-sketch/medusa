@@ -430,35 +430,79 @@ Unity Catalog). Version 1 came from [a seed](../sql/seed/001_metric_definitions_
 | `changed_by` | STRING, not null | Who made the version: a name, never an email |
 | `change_note` | STRING | Why it changed |
 
+Since [step 28](steps/28-editing-the-definitions.md) new versions are added by the Markets page's
+**Save** (the owner's account), through MEDUSA's server and the service principal
+`medusa-markets-writer`: one `MERGE` that closes the current version and adds the next, with
+`changed_by` set to the account's name in MEDUSA. A save never changes `kind`, `name` or `display`;
+they carry over from the version in use.
+
 **What the data looks like (2026-10-25):** 14 rows, all version 1 and current since 2026-10-24
 23:34 UTC: 4 models (`market_now`, `today`, `flagged`, `verdicts`; 360 to 1,154 characters of SQL) and
-10 metrics (115 to 633 characters of SQL, displays up to 828 characters).
+10 metrics (115 to 633 characters of SQL, displays up to 828 characters). The first real save (version
+2 of `bitcoin`, 05:22 UTC) was removed by hand in the SQL editor; Delta's history keeps it (`MERGE` by
+the service principal, then `DELETE` and `UPDATE` by a person).
+
+## Semantic: `market.semantic.user_metric_definitions`
+
+Each MEDUSA account's own versions of the definitions above
+([step 28](steps/28-editing-the-definitions.md),
+[ADR-031](decisions.md#adr-031-edits-are-saved-to-databricks-by-medusas-server-as-shared-or-personal-versions);
+[DDL](../sql/ddl/005_user_metrics.sql)). Any account other than the owner's that presses **Save** on
+the Markets page writes here, and only that account's page uses the version; the shared definitions
+stay as they are. SCD Type 2 like `metric_definitions`; closing the current version without adding
+one (**Use the shared version again**) sends the account back to the shared definition. Key
+`account_id`, `metric_id`, `version` (declared, enforced by 9 dbt tests). Rows are deleted only when
+their MEDUSA account is deleted.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `account_id` | BIGINT, not null | The MEDUSA account the version belongs to: its number, never its email |
+| `metric_id` | STRING, not null | The definition it changes: a `metric_id` of `metric_definitions` (dbt `relationships` test) |
+| `version` | INT, not null | 1 for the account's first version of this definition, then 2, 3 ... with no gaps |
+| `sql_text` | STRING, not null | The query, under the same rules as the shared ones: one read-only statement, only `:kind`, `:yesterday`, `:symbol` |
+| `description` | STRING | What the number means with this query; empty keeps the shared description |
+| `based_on` | INT | The shared version (`metric_definitions.version`) the account started from |
+| `valid_from` | TIMESTAMP, not null | When this version came into use |
+| `valid_to` | TIMESTAMP | When it was replaced or given up; empty while current |
+| `is_current` | BOOLEAN, not null | True for the version in use; none current means the account uses the shared definition |
+| `changed_by` | STRING, not null | The name the account gave in MEDUSA, or `account N`: never an email |
+| `change_note` | STRING | Why it changed (the note typed on Save; *Back to shared version 1* when an old version is used again) |
+
+**What the data looks like (2026-10-25):** empty. The table was created at 04:03 UTC, and no account
+other than the owner's has saved a version yet.
 
 ## Serving: MEDUSA's copy (Cloudflare D1)
 
 After every transform, the publish job ([step 24](steps/24-publish-job.md)) copies two gold tables,
 and the current version of every metric definition ([step 27](steps/27-metric-definitions.md)), into
 MEDUSA's database through `POST /api/market/ingest`
-([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)). Each table is replaced as
-a whole in one transaction. They are shared by every account and have no `user_id`
+([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)), and since step 28 the
+current personal versions as well. Each table is replaced as a whole in one transaction. All but
+`market_user_metrics` are shared by every account and have no `user_id`
 ([`migrations/003_market.sql`](../../migrations/003_market.sql),
-[`migrations/004_metrics.sql`](../../migrations/004_metrics.sql)).
+[`migrations/004_metrics.sql`](../../migrations/004_metrics.sql),
+[`migrations/005_user_metrics.sql`](../../migrations/005_user_metrics.sql)). A save on the Markets page
+also writes the new version straight into `market_metrics` or `market_user_metrics`, and the owner's
+**Reload** replaces both from Databricks on demand
+([ADR-031](decisions.md#adr-031-edits-are-saved-to-databricks-by-medusas-server-as-shared-or-personal-versions)).
 
 | D1 table | Key | From | Columns |
 |---|---|---|---|
 | `market_baseline` | `symbol` | `gold.coin_baseline` | `symbol`, `base_asset`, `status`, `as_of_date`, `last_close`, `history_days`, `avg_return_30d`, `sd_return_30d`, `avg_abs_return_30d`, `avg_quote_volume_30d`, `avg_log_volume_30d`, `sd_log_volume_30d`, `avg_abs_hour_return_30d` |
 | `market_evidence` | `direction`, `z_band`, `liquidity`, `horizon_hours` | `gold.event_evidence` | The key, `events`, `days`, `avg_continuation`, `median_continuation`, `hit_rate`, `in_sample_days`, `in_sample_avg_continuation`, `in_sample_t`, `held_back_days`, `held_back_avg_continuation`, `held_back_t`, `held_back_hit_rate`, `side`, `held_back_net_after_cost`, `verdict`, `round_trip_cost` |
 | `market_metrics` | `metric_id` | `semantic.metric_definitions`, current versions only | `metric_id`, `version`, `kind`, `name`, `description`, `sql_text`, `display`, `valid_from` (`YYYY-MM-DD HH:MM:SS` text, UTC), `changed_by`, `change_note` |
+| `market_user_metrics` | `user_id`, `metric_id` | `semantic.user_metric_definitions`, current versions only | `user_id` (the account), `metric_id`, `version`, `sql_text`, `description`, `based_on`, `valid_from`, `changed_by`, `change_note`. Read only by its own account (`GET /api/market/metrics/mine`); never part of the scanner's shared answer |
 | `market_publish` | `tbl` | Written by the endpoint | `tbl`, `as_of` (the lakehouse day), `rows`, `published_at` (ms) |
 
 Types follow SQLite: text, `REAL` for numbers, `INTEGER` for counts; dates are `YYYY-MM-DD` text.
 
 **What the data looks like (2026-10-22 23:46 UTC):** `market_baseline` 748 rows and `market_evidence`
-60 rows, lakehouse day 2026-10-21, matching gold exactly.
+60 rows, lakehouse day 2026-10-21, matching gold exactly. On 2026-10-25 at 09:21 UTC the owner's
+**Reload** replaced `market_metrics` (14 rows) and `market_user_metrics` (0 rows).
 
 ### The scanner's answer, ready-made (Workers KV)
 
-After replacing a table, the ingest saves the read endpoint's whole answer in Workers KV, key
+After replacing a shared table (and after a shared save or a **Reload**), MEDUSA saves the read endpoint's whole answer in Workers KV, key
 `market/scanner.json` in the Lab's namespace
 ([ADR-026](decisions.md#adr-026-the-scanners-answer-is-kept-ready-made-in-workers-kv)). It is what
 `GET /api/market/scanner` returns (about 160 KB):
@@ -466,7 +510,11 @@ After replacing a table, the ingest saves the read endpoint's whole answer in Wo
 | Part | Holds |
 |---|---|
 | `published` | One entry per table: `as_of`, `rows`, `published_at`, as in `market_publish` |
-| `market_baseline`, `market_evidence`, `market_metrics` | `columns` (the D1 columns, in order) and `rows` (one list of values per row, in key order). `market_metrics` is left out while D1 doesn't have the table (before migration 004) |
+| `market_baseline`, `market_evidence`, `market_metrics` | `columns` (the D1 columns, in order) and `rows` (one list of values per row, in key order). `market_metrics` is left out while D1 doesn't have the table (before migration 004). `market_user_metrics` is never in it: the answer is the same for every account |
+
+Each browser keeps the answer for 5 minutes (`private, max-age=300`). After a shared save or a
+**Reload**, the page that made it fetches the answer once past that copy, so windows opened next get the
+new version.
 
 ## On the Markets page (browser only)
 
@@ -482,7 +530,9 @@ anywhere: closing the tab deletes it.
 | `binance_markets` | `symbol` | Binance's contract list (once a day) and Binance's daily candles | `symbol`, `market_type` (`crypto`, `stock`, `commodity` or `other`), `yesterday_close` (only while the lakehouse doesn't have yesterday) |
 
 The shared steps (models) every Today number reads, defined in `market.semantic.metric_definitions`
-(above; the page's built-in copy is `public/markets-metrics.js`):
+(above; the page's built-in copy is `public/markets-metrics.js`). Where an account has its own version
+of a definition (`market_user_metrics`), its page runs that SQL instead, and a preview in a calculation
+window runs the edited SQL on that screen only:
 
 | Model | Grain | Columns |
 |---|---|---|

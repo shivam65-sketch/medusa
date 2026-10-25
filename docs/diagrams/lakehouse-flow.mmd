@@ -16,6 +16,7 @@ flowchart TB
     BR[("bronze<br>klines_1m, metrics, klines_1h<br>streaming tables")]
     SI[("silver<br>fct_candle_1m, fct_metrics_5m,<br>fct_candle_1h, hourly archive,<br>one hourly series since 2020, dim_coin")]
     GO[("gold<br>coin_daily, market_daily, data_health,<br>unusual_moves, hour_profile, coin_baseline,<br>intraday_events, event_evidence")]
+    SE[("semantic<br>metric_definitions,<br>user_metric_definitions<br>every version kept")]
     L -->|"Auto Loader"| BR
     BR -->|"dbt incremental MERGE"| SI
     SI -->|"dbt"| GO
@@ -26,4 +27,8 @@ flowchart TB
   HI -->|"databricks fs cp"| L
   TR -.->|"runs"| BR
   TR -.->|"runs"| SI
-  GO -.->|"daily copy of coin_baseline and event_evidence,<br>through a write-only endpoint"| WEB["MEDUSA on Cloudflare (D1)<br>market_baseline, market_evidence<br>for the live scanner (next)"]
+  GO -.->|"daily copy of coin_baseline and event_evidence,<br>through a write-only endpoint"| WEB["MEDUSA on Cloudflare<br>D1: market_baseline, market_evidence,<br>market_metrics, market_user_metrics<br>KV: the scanner's ready-made answer"]
+  SE -.->|"current versions, same publish"| WEB
+  WEB --> PG["Markets page, in each browser<br>SQLite: the copy + Binance's live prices<br>every number calculated by the published SQL"]
+  PG -->|"Save in a calculation window"| WEB
+  WEB -->|"service principal, SQL Statement API,<br>one parameterized MERGE"| SE

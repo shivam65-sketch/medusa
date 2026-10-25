@@ -6,6 +6,8 @@ lakehouse, where the history is kept and analysed. MEDUSA's **Markets** page, a 
 each market's move today with its own history from these tables ([step 25](docs/steps/25-scanner-page.md)),
 and every number on it is calculated by SQL in the browser ([step 26](docs/steps/26-numbers-built-by-sql.md))
 from definitions kept, versioned, in the lakehouse ([step 27](docs/steps/27-metric-definitions.md)).
+Those definitions can be edited, previewed and saved back to the lakehouse from the page itself, as the
+shared version or an account's own ([step 28](docs/steps/28-editing-the-definitions.md)).
 
 It lives inside the [MEDUSA](../README.md) repository: MEDUSA is the trading journal and backtesting
 app; this folder is its market data platform.
@@ -20,10 +22,11 @@ flowchart LR
     C --> E["Bronze<br>Lakeflow pipeline + Auto Loader"]
     E --> F["Silver<br>dbt models"]
     F --> G["Gold<br>dbt models"]
-    S["Semantic<br>metric definitions, versioned"]
+    S["Semantic<br>metric definitions, versioned<br>shared + each account's own"]
   end
   G -.->|daily copy, publish job| I
   S -.->|current versions, publish job| I["MEDUSA Markets page (live scanner)<br>Cloudflare D1 + KV, live Binance stream<br>numbers calculated by SQL in the browser"]
+  I -->|"Save: MEDUSA's server, service principal,<br>one parameterized MERGE"| S
 ```
 
 | Layer | Holds | Built by |
@@ -32,7 +35,7 @@ flowchart LR
 | Bronze | Every file line as a row, all columns as text, plus lineage | [`pipelines/bronze/`](pipelines/bronze/) (Lakeflow Declarative Pipeline) |
 | Silver | Typed, checked facts and dimensions | [`dbt/models/silver/`](dbt/models/silver/) (dbt Core) |
 | Gold | Daily tables the dashboards read | [`dbt/models/gold/`](dbt/models/gold/) (dbt Core) |
-| Semantic | The definitions of the numbers MEDUSA shows (name, meaning, SQL), every version kept | [`sql/ddl/004_semantic.sql`](sql/ddl/004_semantic.sql), checked by dbt tests |
+| Semantic | The definitions of the numbers MEDUSA shows (name, meaning, SQL), every version kept: the shared ones and each MEDUSA account's own | [`sql/ddl/004_semantic.sql`](sql/ddl/004_semantic.sql) and [`005_user_metrics.sql`](sql/ddl/005_user_metrics.sql), checked by dbt tests, written by the Markets page's Save |
 
 ## Documentation
 
@@ -76,8 +79,8 @@ flowchart LR
 | [25. Scanner page](docs/steps/25-scanner-page.md) | The live scanner, MEDUSA's Markets page (release 1.6.0, signed-in accounts): live Binance prices against each market's normal, the evidence, Patterns, and where every number comes from | Done |
 | [26. Numbers built by SQL](docs/steps/26-numbers-built-by-sql.md) | Every number on the Markets page calculated by SQL in the browser (SQLite) from the live prices and the serving copy; the scanner's answer kept ready-made in Workers KV; a dbt exposure tying the page to its gold models | Done |
 | [27. Metric definitions in Databricks](docs/steps/27-metric-definitions.md) | Each number's name, meaning and SQL in a versioned table (`market.semantic.metric_definitions`, SCD Type 2), checked by 11 dbt tests, published to MEDUSA with the data, and run by the Markets page | Done |
-| 28. Editing the definitions | Change a number's SQL on the page: a preview for everyone, saved by the owner to Databricks with its history | Next |
-| 29. Patterns on SQL, release 1.7.0 | The Patterns view on the same engine; MEDUSA 1.7.0 | Planned |
+| [28. Editing the definitions](docs/steps/28-editing-the-definitions.md) | Each number's calculation in its own window; edit and preview its SQL there (the query follows the filter); Save writes a new version to Databricks through MEDUSA's server as a service principal (the owner's account: the shared version; any other: its own, in `user_metric_definitions`); History, Use this version again, and the owner's Reload | Done |
+| 29. Patterns on SQL, release 1.7.0 | The Patterns view on the same engine; MEDUSA 1.7.0 | Next |
 
 ## Folder layout
 
@@ -85,7 +88,7 @@ flowchart LR
 lakehouse/
 ├─ README.md                 this page
 ├─ databricks.yml            Asset Bundle: every job and pipeline, defined as code
-├─ sql/ddl/                  numbered, re-runnable DDL (catalog, schemas, volume, the semantic table)
+├─ sql/ddl/                  numbered, re-runnable DDL (catalog, schemas, volume, the two semantic tables)
 ├─ sql/seed/                 data loaded once and safe to re-run (version 1 of the metric definitions)
 ├─ ingest/                   the downloader that GitHub Actions runs
 ├─ pipelines/bronze/         the bronze Lakeflow pipeline (SQL)

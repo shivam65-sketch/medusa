@@ -23,10 +23,10 @@ Short answers to the questions people ask first, with links to the detailed page
 2. **Recheck (one to two minutes)**: compare the manifests of the 7 days before yesterday with
    Binance's fingerprints now, and load any file Binance changed or added since.
 3. **Transform (about 5 minutes)**: the bronze pipeline loads only the new files; `dbt source
-   freshness` checks bronze is recent; `dbt build` updates silver and gold and runs 122 tests.
-4. **Publish to MEDUSA (about 5 seconds)**: `coin_baseline` and `event_evidence` are copied into
-   MEDUSA's database through its write-only endpoint, and MEDUSA must report the same row counts as
-   gold.
+   freshness` checks bronze is recent; `dbt build` updates silver and gold and runs 131 tests.
+4. **Publish to MEDUSA (about 7 seconds)**: `coin_baseline`, `event_evidence` and the current metric
+   definitions (the shared ones and each account's own) are copied into MEDUSA's database through its
+   write-only endpoint, and MEDUSA must report the same row counts as the lakehouse.
 
 A failure at any point stops the rest and sends GitHub's failure email.
 
@@ -173,3 +173,38 @@ that data, puts them into its SQLite database's queries and runs them about once
 panel says which version it ran. Until definitions have been published, the page uses its built-in
 copy (`public/markets-metrics.js`) and says so. In SQL Server terms: the report's queries are kept
 in a versioned table instead of inside the report, and the report reads them from there.
+
+Since [step 28](steps/28-editing-the-definitions.md) a definition is changed from the page itself
+(below), and each window's **History** lists every version.
+
+## What happens when I press Save on the Markets page?
+
+1. **In your browser.** The window has already previewed your query on your screen. Save first runs
+   every number your change touches (not only the window's) once with it; if one would break, nothing
+   is sent.
+2. **MEDUSA's server** checks that you are signed in, that the query is one read-only statement with
+   only the page's parameters (the same rules as the dbt tests), that the definition exists, and that
+   you haven't used up the day's 20 saves.
+3. **It signs in to Databricks** as its own service principal, `medusa-markets-writer`, which can only
+   use the SQL warehouse and the two definitions tables (OAuth, a one-hour token).
+4. **One `MERGE`** closes the version in use and adds the next one, with your query, your note, your
+   name and the time. The query goes as a parameter, so Databricks stores it as text and never runs
+   it. If someone saved a newer version since your window loaded, the `MERGE` changes nothing and you
+   are asked to reload.
+5. **MEDUSA's copy** is updated straight away, and your window, the Markets page and your other open
+   windows switch to the new version. The next daily publish copies it from Databricks again, so the
+   two can never drift apart.
+
+Which table it goes to depends on the account: the owner's saves change the shared definition
+(`metric_definitions`) that everyone uses; any other account's saves become its own version
+(`user_metric_definitions`), used only on its own page. In SQL Server terms: an `UPDATE` of the current
+row and an `INSERT` of the new one inside one transaction, through a stored procedure that runs under
+its own login with permissions on two tables only.
+
+## Can someone else's edit change the numbers I see?
+
+Only the owner's. A save from any other account becomes that account's own version and changes nothing
+for anyone else. The owner's save changes the shared definition, and every page uses it from then on;
+its **History** keeps the old version, and **Use this version again** puts it back as the next version.
+Your own versions stay yours until you press **Use the shared version again** (or delete your
+account, which deletes them from Databricks and MEDUSA).
