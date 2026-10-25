@@ -35,7 +35,8 @@ entry replaces it and the old one is marked *Superseded*.
 | 025 | [The scanner is for signed-in accounts](#adr-025-the-scanner-is-for-signed-in-accounts) | Accepted; replaces "public" in ADR-013; caching superseded by ADR-026 |
 | 026 | [The scanner's answer is kept ready-made in Workers KV](#adr-026-the-scanners-answer-is-kept-ready-made-in-workers-kv) | Accepted; replaces the caching in ADR-025 |
 | 027 | [The live layer runs in each browser](#adr-027-the-live-layer-runs-in-each-browser) | Accepted |
-| 028 | [Every number is a SQL query, run in the browser](#adr-028-every-number-is-a-sql-query-run-in-the-browser) | Accepted |
+| 028 | [Every number is a SQL query, run in the browser](#adr-028-every-number-is-a-sql-query-run-in-the-browser) | Accepted; where the definitions are kept: ADR-029 |
+| 029 | [Metric definitions are kept in Databricks and published with the data](#adr-029-metric-definitions-are-kept-in-databricks-and-published-with-the-data) | Accepted |
 
 ---
 
@@ -533,7 +534,8 @@ shows only the daily numbers.
 
 ## ADR-028: Every number is a SQL query, run in the browser
 
-**Status:** Accepted, 2026-10-25.
+**Status:** Accepted, 2026-10-25. Since step 27 the definitions are kept in Databricks and
+`public/markets-metrics.js` is their built-in copy ([ADR-029](#adr-029-metric-definitions-are-kept-in-databricks-and-published-with-the-data)).
 
 **Context:** Release 1.6.0 showed every number on the Markets page as a SQL query, but JavaScript
 did the calculating and wrote the query to match, with the prices on screen pasted in. The rule
@@ -562,3 +564,36 @@ answers in SQLite and Databricks. It costs a 700 KB download the first time (cac
 about 50 ms of work a second. Queries must stay portable between SQLite and Databricks: no
 SQLite-only functions, `CAST` where SQLite divides whole numbers, `NULLIF` against division by zero.
 Search, sorting and pages in Every market stay in the page: they don't change any number.
+
+## ADR-029: Metric definitions are kept in Databricks and published with the data
+
+**Status:** Accepted, 2026-10-25. Where ADR-028's definitions are kept.
+
+**Context:** After step 26 every number on the Markets page was a SQL query, but the queries lived in
+`public/markets-metrics.js`: changing a definition meant changing code and deploying MEDUSA, and
+nothing recorded what a number meant last week. The owner wants the definitions (name, meaning, SQL)
+stored in Databricks, changed from the page (step 28), and the page to follow the change. The page
+can't read Databricks itself: a warehouse query takes seconds, wakes the warehouse, uses the daily
+quota and needs a token a browser can't hold.
+
+**Decision:**
+- A table, `market.semantic.metric_definitions`, is the master copy: one row per definition and
+  version (`metric_id`, `version`, `kind`, `name`, `description`, `sql_text`, `display`), with
+  SCD Type 2 columns (`valid_from`, `valid_to`, `is_current`) and who changed it and why. A change
+  adds a version and closes the old one; nothing is overwritten or deleted.
+- The primary key is declared (informational in Unity Catalog), and dbt tests are the contract: one
+  current version per id, versions without gaps, plain ids, one read-only statement per query, valid
+  JSON for the display. They run in every `dbt build`, before the publish.
+- The daily publish copies the current version of each to MEDUSA's D1 (`market_metrics`, replaced
+  as a whole) through the same write-only endpoint (ADR-024), and the scanner's answer in KV carries
+  it to the page (ADR-026). The history stays in Databricks.
+- The page runs the published definitions. `public/markets-metrics.js` stays as the built-in copy,
+  used until definitions are published, and the page says which one it is using.
+
+**Consequences:** A definition changes without a deploy, every version is kept with its author and
+reason, and a broken definition stops at the tests instead of reaching the page. A change made in
+Databricks reaches the page with the next publish, not at once; step 28 publishes on save. Two copies
+of version 1 exist (the table and the built-in file), so the built-in copy can fall behind; it only
+matters before the first publish. The ingest token can now also replace `market_metrics`: a leak could
+change the queries the page runs, but they run read-only in each browser's own database, which holds
+only public market data.

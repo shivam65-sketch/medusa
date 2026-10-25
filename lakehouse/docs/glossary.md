@@ -19,6 +19,7 @@ The data engineering terms used in this project, in plain words.
 | **CI/CD** | Automatically checking and deploying code when it changes | Planned |
 | **Clustering by day** | Averaging each day's events first and doing the statistics over days, because events on the same day (coins moving together) aren't independent | `event_evidence` |
 | **Continuation** | The return after a move, in the move's direction: positive means it kept going, negative means it turned back | `event_evidence` |
+| **Data contract** | The rules data must meet before a consumer gets it, checked automatically; data that breaks them doesn't reach the consumer | The dbt tests on `metric_definitions`: a broken definition stops the publish |
 | **Data observability** | A pipeline reporting on its own data: completeness, freshness, unexpected changes | `data_health` |
 | **Declarative** | Describing what should exist and letting the tool work out how | Bundles, pipelines |
 | **Dimension / fact** | Kimball's split: facts are measurements (candles), dimensions describe what is measured (coins) | `dim_coin`, `fct_candle_1m` |
@@ -30,7 +31,8 @@ The data engineering terms used in this project, in plain words.
 | **Grain** | What one row of a table means, e.g. one coin per hour | `fct_candle_1h` |
 | **Held-back test (out-of-sample)** | Choosing a rule on one period and checking it on another that played no part in choosing it | `event_evidence` (2025 on) |
 | **Hive-style partition** | A folder named `column=value`, read as a column | `date=2026-10-19` |
-| **Idempotent** | Running something again gives the same result and does no harm | DDL, downloader, uploads |
+| **Idempotent** | Running something again gives the same result and does no harm | DDL, downloader, uploads, the metric definitions' seed (`MERGE ... WHEN NOT MATCHED`) |
+| **Informational constraint** | A key declared so readers and tools know what a row means, but not enforced by the database (SQL Server: `NOT ENFORCED`); something else checks it | `metric_definitions`' primary key, checked by dbt tests |
 | **Incremental model** | A dbt model that, after its first full build, processes only new data and merges it in | `fct_candle_1m` |
 | **Lakehouse** | Data stored as open-format files in cheap storage, with warehouse features (tables, SQL, transactions) on top | The whole platform |
 | **Lambda architecture** | A slow, complete and checked batch layer plus a fast, approximate live layer, combined where the data is served; the batch layer later replaces the live numbers | The live scanner: this lakehouse plus Binance's live stream, combined in each browser ([ADR-027](decisions.md#adr-027-the-live-layer-runs-in-each-browser)) |
@@ -43,7 +45,7 @@ The data engineering terms used in this project, in plain words.
 | **Matrix job** | GitHub Actions running the same job once per value in a list, several at a time | The backfill |
 | **Medallion architecture** | Organising data into bronze, silver and gold layers | The schemas |
 | **MERGE (upsert)** | Insert new rows and update existing ones by a key, in one statement | Incremental models; `live_prices` on the Markets page (`INSERT ... ON CONFLICT DO UPDATE`) |
-| **Metrics layer (semantic layer)** | Defining each business number once, as data (name, definition, SQL), on shared steps (models), so every report computes it the same way | `public/markets-metrics.js`; Databricks in step 27 ([ADR-028](decisions.md#adr-028-every-number-is-a-sql-query-run-in-the-browser)) |
+| **Metrics layer (semantic layer)** | Defining each business number once, as data (name, definition, SQL), on shared steps (models), so every report computes it the same way | `market.semantic.metric_definitions`, run by the Markets page ([ADR-028](decisions.md#adr-028-every-number-is-a-sql-query-run-in-the-browser), [ADR-029](decisions.md#adr-029-metric-definitions-are-kept-in-databricks-and-published-with-the-data)) |
 | **Multiple testing** | Testing many ideas at once: some pass by luck, so each needs a stricter check | 60 rows in `event_evidence` |
 | **Push and pull** | Push: the source sends data as it happens (streaming). Pull: the reader asks for data when it wants it (batch) | Binance pushes live prices; the Markets page pulls the daily tables |
 | **Query parameter** | A named value a query takes when it runs (`:kind`), like a report parameter in SSRS | The Markets page's type filter, yesterday's date, one market |
@@ -52,7 +54,9 @@ The data engineering terms used in this project, in plain words.
 | **Retention** | How long each kind of data is kept | [ADR-011](decisions.md#adr-011-keep-1-minute-candles-for-a-limited-time) |
 | **Reusable workflow** | A GitHub Actions workflow other workflows call, so shared steps live in one place | `lakehouse-load-day.yml` |
 | **Reverse ETL / serving layer** | Copying finished warehouse tables to where an app can serve them | `market_baseline` and `market_evidence` in MEDUSA's D1, published after each transform |
-| **SCD Type 2** | Keeping the full history of a dimension's changes, one row per version | `dim_coin` |
+| **SCD Type 2** | Keeping the full history of a dimension's changes, one row per version, with when each was valid | `dim_coin`; `metric_definitions` (`version`, `valid_from`, `valid_to`, `is_current`) |
+| **Seed** | Fixed starting data loaded by a script kept in the repository, so a new environment gets the same rows | [`sql/seed/`](../sql/seed/): version 1 of the metric definitions |
+| **Single source of truth (master copy)** | One place where a piece of information is kept and changed; every other copy is made from it and never edited | `metric_definitions` in Databricks; MEDUSA's `market_metrics` and the page's built-in copy follow it |
 | **Schema drift** | A source changing its columns or format over time | Caught by `_rescued_data` |
 | **Schema-on-read** | Applying column names and types when reading files, not when storing them | `read_files` in bronze |
 | **Serverless** | Compute that starts when needed and stops afterwards, with nothing to manage | Pipeline, SQL warehouse |

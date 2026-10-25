@@ -1,6 +1,6 @@
 # Step 26: Every number on the Markets page built by SQL
 
-[← Lakehouse home](../../README.md) · [← Step 25](25-scanner-page.md)
+[← Lakehouse home](../../README.md) · [← Step 25](25-scanner-page.md) · Next: [Step 27 →](27-metric-definitions.md)
 
 | | |
 |---|---|

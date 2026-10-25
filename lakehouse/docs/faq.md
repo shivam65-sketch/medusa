@@ -23,7 +23,7 @@ Short answers to the questions people ask first, with links to the detailed page
 2. **Recheck (one to two minutes)**: compare the manifests of the 7 days before yesterday with
    Binance's fingerprints now, and load any file Binance changed or added since.
 3. **Transform (about 5 minutes)**: the bronze pipeline loads only the new files; `dbt source
-   freshness` checks bronze is recent; `dbt build` updates silver and gold and runs 111 tests.
+   freshness` checks bronze is recent; `dbt build` updates silver and gold and runs 122 tests.
 4. **Publish to MEDUSA (about 5 seconds)**: `coin_baseline` and `event_evidence` are copied into
    MEDUSA's database through its write-only endpoint, and MEDUSA must report the same row counts as
    gold.
@@ -157,3 +157,19 @@ D1 itself runs one query at a time per database, so requests queue instead of co
 the only write is the daily publish: one transaction per table, so a reader gets the whole old copy or
 the whole new one. What a free plan does limit is volume: D1 allows 5 million rows read a day, which is
 why the answer moved to KV (100,000 reads a day).
+
+## Where are the Markets page's queries kept, and what happens when one changes?
+
+In Databricks, in `market.semantic.metric_definitions`: one row per number (or shared step) and
+version, with its name, its meaning in words, its SQL and how its result is shown
+([ADR-029](decisions.md#adr-029-metric-definitions-are-kept-in-databricks-and-published-with-the-data)).
+A change adds a version and closes the old one, so every earlier definition is kept with who changed
+it and why.
+
+The page doesn't query Databricks. After every `dbt build`, whose tests check that each definition
+can run (one current version, one read-only statement, valid display), the publish job copies the
+current versions to MEDUSA's `market_metrics`, alongside the daily data. The page receives them with
+that data, puts them into its SQLite database's queries and runs them about once a second. Each ‹›
+panel says which version it ran. Until definitions have been published, the page uses its built-in
+copy (`public/markets-metrics.js`) and says so. In SQL Server terms: the report's queries are kept
+in a versioned table instead of inside the report, and the report reads them from there.

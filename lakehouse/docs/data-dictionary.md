@@ -406,18 +406,49 @@ spreads and t-statistics are over days, not events: each day's events are averag
 up*, all fades: down 4–6σ on mid-sized coins over 1 hour (held back: +4.11% after cost), up 6σ+ on
 mid-sized coins over 24 hours (+12.20%), and every up move over 1 hour (+0.23%) and 4 hours (+0.66%).
 
+## Semantic: `market.semantic.metric_definitions`
+
+The definition of every number on MEDUSA's Markets page, kept as data, with every version
+([step 27](steps/27-metric-definitions.md),
+[ADR-029](decisions.md#adr-029-metric-definitions-are-kept-in-databricks-and-published-with-the-data);
+[DDL](../sql/ddl/004_semantic.sql)). A change never overwrites a row: it closes the current version and
+adds the next (SCD Type 2). Key `metric_id`, `version` (declared; enforced by the dbt tests, not by
+Unity Catalog). Version 1 came from [a seed](../sql/seed/001_metric_definitions_v1.sql).
+
+| Column | Type | Meaning |
+|---|---|---|
+| `metric_id` | STRING, not null | Stable id the page uses (`breadth`, `market_now`): lowercase letters, digits and `_`. It never changes |
+| `version` | INT, not null | 1 for the first definition, then 2, 3 ... with no gaps |
+| `kind` | STRING, not null | `model`: a shared step other queries read by name, like a view; `metric`: a card or table on the page |
+| `name` | STRING, not null | The title the page shows |
+| `description` | STRING | What the number means, in plain words |
+| `sql_text` | STRING, not null | The query: one read-only statement (`SELECT` or `WITH`, no `;`) in SQLite's dialect, kept portable to Databricks. It may use the parameters `:kind`, `:yesterday` and `:symbol` and read the models by name |
+| `display` | STRING (JSON) | How the result is shown: `{"card": {"value": ..., "sub": ...}}` with `{column:format}` placeholders, or `{"columns": [{"name": ..., "label": ..., "format": ...}, ...]}` for a table. Empty for models |
+| `valid_from` | TIMESTAMP, not null | When this version came into use |
+| `valid_to` | TIMESTAMP | When a newer version replaced it; empty while current |
+| `is_current` | BOOLEAN, not null | True for the one version in use (exactly one per `metric_id`) |
+| `changed_by` | STRING, not null | Who made the version: a name, never an email |
+| `change_note` | STRING | Why it changed |
+
+**What the data looks like (2026-10-25):** 14 rows, all version 1 and current since 2026-10-24
+23:34 UTC: 4 models (`market_now`, `today`, `flagged`, `verdicts`; 360 to 1,154 characters of SQL) and
+10 metrics (115 to 633 characters of SQL, displays up to 828 characters).
+
 ## Serving: MEDUSA's copy (Cloudflare D1)
 
-After every transform, the publish job ([step 24](steps/24-publish-job.md)) copies two gold tables
-into MEDUSA's database through `POST /api/market/ingest`
+After every transform, the publish job ([step 24](steps/24-publish-job.md)) copies two gold tables,
+and the current version of every metric definition ([step 27](steps/27-metric-definitions.md)), into
+MEDUSA's database through `POST /api/market/ingest`
 ([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)). Each table is replaced as
 a whole in one transaction. They are shared by every account and have no `user_id`
-([`migrations/003_market.sql`](../../migrations/003_market.sql)).
+([`migrations/003_market.sql`](../../migrations/003_market.sql),
+[`migrations/004_metrics.sql`](../../migrations/004_metrics.sql)).
 
 | D1 table | Key | From | Columns |
 |---|---|---|---|
 | `market_baseline` | `symbol` | `gold.coin_baseline` | `symbol`, `base_asset`, `status`, `as_of_date`, `last_close`, `history_days`, `avg_return_30d`, `sd_return_30d`, `avg_abs_return_30d`, `avg_quote_volume_30d`, `avg_log_volume_30d`, `sd_log_volume_30d`, `avg_abs_hour_return_30d` |
 | `market_evidence` | `direction`, `z_band`, `liquidity`, `horizon_hours` | `gold.event_evidence` | The key, `events`, `days`, `avg_continuation`, `median_continuation`, `hit_rate`, `in_sample_days`, `in_sample_avg_continuation`, `in_sample_t`, `held_back_days`, `held_back_avg_continuation`, `held_back_t`, `held_back_hit_rate`, `side`, `held_back_net_after_cost`, `verdict`, `round_trip_cost` |
+| `market_metrics` | `metric_id` | `semantic.metric_definitions`, current versions only | `metric_id`, `version`, `kind`, `name`, `description`, `sql_text`, `display`, `valid_from` (`YYYY-MM-DD HH:MM:SS` text, UTC), `changed_by`, `change_note` |
 | `market_publish` | `tbl` | Written by the endpoint | `tbl`, `as_of` (the lakehouse day), `rows`, `published_at` (ms) |
 
 Types follow SQLite: text, `REAL` for numbers, `INTEGER` for counts; dates are `YYYY-MM-DD` text.
@@ -435,7 +466,7 @@ After replacing a table, the ingest saves the read endpoint's whole answer in Wo
 | Part | Holds |
 |---|---|
 | `published` | One entry per table: `as_of`, `rows`, `published_at`, as in `market_publish` |
-| `market_baseline`, `market_evidence` | `columns` (the D1 columns, in order) and `rows` (one list of values per row, in key order) |
+| `market_baseline`, `market_evidence`, `market_metrics` | `columns` (the D1 columns, in order) and `rows` (one list of values per row, in key order). `market_metrics` is left out while D1 doesn't have the table (before migration 004) |
 
 ## On the Markets page (browser only)
 
@@ -450,7 +481,8 @@ anywhere: closing the tab deletes it.
 | `live_prices` | `symbol` | Binance's live stream, upserted about once a second (and one price snapshot when the page opens) | `symbol`, `price` (last price), `quote_volume_24h` (USDT traded in the last 24 hours; empty until the market's first stream message) |
 | `binance_markets` | `symbol` | Binance's contract list (once a day) and Binance's daily candles | `symbol`, `market_type` (`crypto`, `stock`, `commodity` or `other`), `yesterday_close` (only while the lakehouse doesn't have yesterday) |
 
-The shared steps (models) every Today number reads, defined in `public/markets-metrics.js`:
+The shared steps (models) every Today number reads, defined in `market.semantic.metric_definitions`
+(above; the page's built-in copy is `public/markets-metrics.js`):
 
 | Model | Grain | Columns |
 |---|---|---|
