@@ -81,7 +81,11 @@ flowchart LR
 | [27. Metric definitions in Databricks](docs/steps/27-metric-definitions.md) | Each number's name, meaning and SQL in a versioned table (`market.semantic.metric_definitions`, SCD Type 2), checked by 11 dbt tests, published to MEDUSA with the data, and run by the Markets page | Done |
 | [28. Editing the definitions](docs/steps/28-editing-the-definitions.md) | Each number's calculation in its own window; edit and preview its SQL there (the query follows the filter); Save writes a new version to Databricks through MEDUSA's server as a service principal (the owner's account: the shared version; any other: its own, in `user_metric_definitions`); History, Use this version again, and the owner's Reload | Done |
 | [29. Patterns on SQL, release 1.7.0](docs/steps/29-patterns-on-sql-and-release.md) | The Patterns view calculated by three versioned SQL definitions (seeded as version 1 by a second idempotent seed), editable in its window like Today; MEDUSA release 1.7.0 | Done |
-| 30. More Markets tabs | A market's history, a live chart per market, and data health, from more gold tables published to MEDUSA | Next |
+| 30. Catalog layout | One catalog per kind of data and permission boundary: `market` (unchanged), `journal` (private trades), `ops` (logs); clearer comments, tags and naming rules, no renames | Next |
+| 31. Pipeline and app log tables | `ops` tables for every build, ETL and publish failure and for MEDUSA's serving-side errors | Planned |
+| 32. Journal trades in the lakehouse | A daily copy of each account's trades into a private `journal` catalog, journal statistics and trades against the market, published back to MEDUSA | Planned |
+| 33. Lab history from the lakehouse | Backtests on the lakehouse's checked history plus the last hours from Binance, with the dataset recorded in each result | Planned |
+| 34. More Markets tabs | A market's history, a live chart per market, and data health, from more gold tables published to MEDUSA | Planned |
 
 ## Folder layout
 

@@ -87,7 +87,7 @@ h1, h2, h3, p { margin: 0; }
 /* The name next to an icon when the menu is collapsed */
 .side-item::after { content: attr(data-tip); position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%); padding: 5px 9px; border-radius: 6px; background: #111; border: 1px solid var(--border-2); color: var(--text); font-size: 12.5px; font-weight: 600; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.1s; z-index: 60; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); }
 .sidenav.collapsed .side-item:hover::after, .sidenav.collapsed .side-item:focus-visible::after { opacity: 1; }
-/* Narrow windows and phones: a slim bar of icons, so the page keeps the width. The button at the bottom
+/* Narrow windows and phones: a slim bar of icons, so the page keeps the width. The button at the top
    slides the full menu over the page (it closes when a page is picked or on a tap outside it). */
 @media (max-width: 700px) {
   .shell { grid-template-columns: 50px minmax(0, 1fr); }
@@ -233,6 +233,7 @@ h1, h2, h3, p { margin: 0; }
 .kpi .pair > div { display: grid; }
 .kpi .pair .v { margin-top: 0; }
 .kpi .v.zero { color: var(--text-2); }
+.kpi .s.fee { white-space: normal; }   /* the amount may go to its own line on a narrow card */
 .kpi .short-label { display: none; }
 @media (max-width: 640px) { .kpi .v { font-size: 21px; } .kpi .k, .kpi .s { font-size: 13.5px; } }
 

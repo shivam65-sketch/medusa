@@ -1,11 +1,9 @@
 {
-  "version": "1.7.0",
+  "version": "1.8.0",
   "date": "2026-10-25",
   "changes": [
-    "Markets: every number on Today and Patterns is calculated by SQL in your browser, from definitions kept, with every version, in the market data lakehouse",
-    "Markets: each ‹› button opens that number's calculation in its own window, live beside the page, with the query exactly as it runs for the type you chose",
-    "Markets: edit a number's SQL in its window and preview your version on your screen, next to the numbers in use",
-    "Markets: save your version to the lakehouse: it becomes your account's own (the owner's saves are the shared version), with every earlier version a click away and Use this version again to go back",
-    "Markets: Patterns runs on the same SQL engine, so its counts, the patterns that held up and every kind of move can be opened, edited and saved like Today's numbers"
+    "Journal: under Net PnL, the same trades before fees and funding",
+    "The menu's Collapse button is now at the top, where it is easy to find: the menu shrinks to a strip of icons and stays that way on this device",
+    "Opening a page or address that isn't there, or one that needs you to sign in, now shows a proper MEDUSA page with a way back, instead of a bare error"
   ]
 }

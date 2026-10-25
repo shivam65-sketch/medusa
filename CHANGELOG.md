@@ -3,6 +3,12 @@
 Every release of MEDUSA, newest first. The current version is in `public/version.json` (shown in the
 app's menu and on the sign-in page); each release adds a section here with the same number.
 
+## 1.8.0 (2026-10-25)
+
+- Journal: the **Net PnL** card shows, right under the net amount, the same trades **before fees and funding** (the sum of CoinDCX's own P&L for each trade, the trade details' *P&L before fees*); the trade count moves one line down. On a narrow card the amount goes to its own line instead of being cut off. The card's (i) explains it.
+- Menu: the **Collapse** button moved from the bottom of the left menu to the top, above a divider. It shrinks the menu to a strip of icons (200 → 58 pixels) and the choice is remembered on the device; on a phone the same button slides the full menu over the page.
+- **Error pages**: a person who opens an address in the browser that needs a signed-in account, doesn't exist or fails on the server now gets a MEDUSA page in the app's own look (*Sign in to continue*, *Page not found* or *Something went wrong*), with the status code (401, 404, 500) and a button back into the app, instead of a bare `{"error": ...}` or an empty page. The app's own calls and any other program still get the JSON errors, unchanged. The page is decided by the browser's `Sec-Fetch-Mode: navigate` header (or an HTML-only `Accept`), carries no script and a policy that allows none, and is never cached. Missing files that aren't pages (an image, a script) keep the plain 404.
+
 ## 1.7.0 (2026-10-25)
 
 The Markets page's numbers are now SQL you can read, change and keep: every number on Today and Patterns is calculated by a query in the browser, the queries are versioned definitions in the market data lakehouse, and each one can be opened in its own window, edited, previewed and saved back (lakehouse steps 26 to 29).

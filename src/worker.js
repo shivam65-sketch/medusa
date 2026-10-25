@@ -7,7 +7,7 @@ import { importStep, importInfo, resetImport } from './sync.js';
 import { pickLevels } from './trades.js';
 import { logoResponse } from './logos.js';
 import { loadCreds, saveCreds, credsInfo, deleteCreds, canStore } from './vault.js';
-import { json, fail, readBody } from './http.js';
+import { json, fail, readBody, wantsPage, errorPage } from './http.js';
 import { labRoute, bodyLimit } from './lab.js';
 import { logsRoute } from './logs.js';
 import { marketIngest, marketScanner } from './market.js';
@@ -352,12 +352,15 @@ async function route(req, env, url) {
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
-    if (!url.pathname.startsWith('/api/') && !url.pathname.startsWith('/logo/')) return env.ASSETS.fetch(req);
+    // A person who opens an address in the browser gets MEDUSA's error page instead of the JSON error
+    // (or the asset server's empty one); the app's own calls keep getting JSON.
+    const page = (res) => (res.status >= 400 && wantsPage(req) ? errorPage(res.status) : res);
+    if (!url.pathname.startsWith('/api/') && !url.pathname.startsWith('/logo/')) return page(await env.ASSETS.fetch(req));
     try {
-      return await route(req, env, url);
+      return page(await route(req, env, url));
     } catch (e) {
       console.error(e && e.stack ? e.stack : e);
-      return fail(500, 'Something went wrong on the server. Try again.');
+      return page(fail(500, 'Something went wrong on the server. Try again.'));
     }
   },
 

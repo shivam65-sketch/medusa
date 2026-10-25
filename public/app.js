@@ -170,7 +170,7 @@
 
   /* What each number means, for the (i) buttons. */
   const INFO = {
-    net: ['Net PnL', 'Your total profit or loss from the closed trades in this range, after trading fees and funding.'],
+    net: ['Net PnL', 'Your total profit or loss from the closed trades in this range, after trading fees and funding. Under it, the same trades before fees and funding.'],
     win: ['Win rate', 'The share of trades that made money. Trades that closed at exactly zero are left out.'],
     pf: ['Profit factor', 'Money made on winning trades divided by money lost on losing trades. Above 1 means you made more than you lost.'],
     avg: ['Average win and loss', 'The average profit of a winning trade and the average loss of a losing trade. The number in the title is the first divided by the second.'],
@@ -737,7 +737,10 @@
     const { s } = current();
     const zero = (v) => (!v ? ' zero' : '');
     const k = (ic, text, key) => `<div class="k">${icon(ic)}<span class="kt">${text}</span>${infoBtn(key)}</div>`;
-    const net = `<div class="kpi">${k('bank', 'Net PnL', 'net')}<div class="v ${cls(s.net)}${zero(s.net)}">${money(s.net)}</div><div class="s">${plural(s.n, 'Trade')}</div></div>`;
+    // Right under the net: the same trades before fees and funding (CoinDCX's own P&L for each trade).
+    const gross = s.trades.reduce((a, t) => a + (isNum(t.gross) ? t.gross : t.net + t.feesPaid), 0);
+    const net = `<div class="kpi">${k('bank', 'Net PnL', 'net')}<div class="v ${cls(s.net)}${zero(s.net)}">${money(s.net)}</div>
+      <div class="s fee">Before fees: <span class="${cls(gross)}">${money(gross)}</span></div><div class="s">${plural(s.n, 'Trade')}</div></div>`;
     const win = `<div class="kpi">${k('percent', 'Win Rate', 'win')}<div class="v">${((s.winRate || 0) * 100).toFixed(1)}%</div><div class="s">${s.wins} wins / ${s.losses} losses</div></div>`;
     const pf = `<div class="kpi">${k('factor', 'Profit factor', 'pf')}<div class="v">${s.pf === Infinity ? '∞' : (s.pf || 0).toFixed(2)}</div><div class="s">${money(s.grossWin)} / ${money(s.grossLoss)}</div></div>`;
     // On phones this card takes a whole row, so both amounts fit side by side.
