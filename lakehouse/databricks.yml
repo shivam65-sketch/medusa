@@ -19,7 +19,7 @@ resources:
   jobs:
     setup_ddl:
       name: lakehouse-setup-ddl
-      description: Creates the catalog, the layer schemas, the landing volume and the metric definitions tables (shared and personal). Safe to run again.
+      description: Creates the catalogs (market, ops, journal), the layer schemas with their descriptions and tags, the landing volume and the metric definitions tables (shared and personal). Safe to run again.
       tasks:
         - task_key: create_catalog
           sql_task:
@@ -58,6 +58,25 @@ resources:
             warehouse_id: ${var.warehouse_id}
             file:
               path: ./sql/ddl/005_user_metrics.sql
+
+        - task_key: create_layout
+          depends_on:
+            - task_key: create_user_metrics
+            - task_key: create_volumes
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/ddl/006_layout.sql
+
+    tag_tables:
+      name: lakehouse-tag-tables
+      description: Tags the bronze and semantic tables (domain, layer, personal_data); dbt tags silver and gold itself. Run after setup_ddl and the first bronze run. Safe to run again.
+      tasks:
+        - task_key: tag_tables
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/governance/001_table_tags.sql
 
     seed_metric_definitions:
       name: lakehouse-seed-metric-definitions

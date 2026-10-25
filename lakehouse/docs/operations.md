@@ -39,10 +39,15 @@ All `databricks` commands run from the `lakehouse/` folder.
 | Load the hourly history | GitHub → Actions → **Lakehouse history** → Run workflow, first and last year (2020 to 2026 was loaded on 2026-10-20; one job per year, two at a time). Bronze and `dbt build` run at the end. Needed again only if the history must be rebuilt. |
 | Load a particular day | GitHub → Actions → Lakehouse daily load → **Run workflow**, type the date (`YYYY-MM-DD`). Safe to repeat: files are re-uploaded identically. |
 | Load new files into bronze | `databricks bundle run bronze` (only files not loaded before are read) |
-| Rebuild bronze from every file | `databricks bundle run bronze --full-refresh-all`. Use only after changing a bronze definition: it reloads everything. |
+| Rebuild bronze from every file | `databricks bundle run bronze --full-refresh-all`. Use only after changing a bronze definition: it reloads everything. Then `databricks bundle run tag_tables`. |
+| Check a bronze change without loading | `databricks bundle run bronze --validate-only` (checks the pipeline's definitions against the tables; reads no files) |
 | See what's in the landing volume | `databricks fs ls dbfs:/Volumes/market/landing/binance/klines_1m` |
 | Deploy a change to a job or pipeline | `databricks bundle validate`, then `databricks bundle deploy` |
-| Re-create the catalog, schemas, volume and semantic tables | `databricks bundle run setup_ddl` (5 tasks, harmless if they already exist) |
+| Re-create the catalogs, schemas, volume and semantic tables | `databricks bundle run setup_ddl` (6 tasks, harmless if they already exist; the last, `create_layout`, writes the schema descriptions and tags and creates `ops`, `ops.logs` and `journal`) |
+| Tag the bronze and semantic tables | `databricks bundle run tag_tables` (after setup_ddl and the first bronze run, and again after a bronze full refresh or a re-created semantic table; dbt tags silver and gold itself on every build) |
+| See a table's descriptions and tags | Catalog Explorer, or the SQL editor: `DESCRIBE TABLE EXTENDED market.gold.coin_daily`; every tag: `SELECT * FROM market.information_schema.table_tags ORDER BY schema_name, table_name, tag_name` |
+| Add a column to a dbt model | Describe it in the model's YAML in the same change: `persist_docs` writes the description into Databricks on the next build; a column left out shows with an empty comment ([step 30](steps/30-catalog-layout.md)) |
+| Add a column to a bronze table | Declare it in the pipeline file with its type and `COMMENT`, in the table's column order |
 | Check the dbt connection | From `lakehouse/dbt/`: `../.venv/Scripts/dbt debug` |
 | Check bronze is fresh | From `lakehouse/dbt/`: `../.venv/Scripts/dbt source freshness` (warns after 36 h, errors after 72 h) |
 | Build silver and run its tests | From `lakehouse/dbt/`: `../.venv/Scripts/dbt build` (incremental: only new bronze rows) |
@@ -81,6 +86,7 @@ A complete day has about 872 coins × 1,440 rows. A data-health table will autom
 | Publish: `market_user_metrics` failed with `MEDUSA answered 400` or `500` | Migration 005 not applied, or the app wasn't redeployed after step 28 | `npx wrangler@4 d1 execute medusa --remote --file=migrations/005_user_metrics.sql`, then `npx wrangler@4 deploy`, then re-run the transform |
 | `dbt build` fails on `assert_user_metric_definitions_valid` or a `source_..._user_metric_definitions_...` test | An account's own version breaks a rule (usually after a hand change in Databricks); the publish doesn't run | Run the failing test's SQL from `lakehouse/dbt/target/compiled/` to see the rows; close the extra current version (or fix the gap) in the SQL editor and note why, then re-run **Lakehouse transform** |
 | Publish summary: **Scanner answer** `d1` | The tables were replaced, but saving the Markets page's ready-made answer in KV failed (for example KV's 1,000 writes a day were used up), so MEDUSA removed the old answer | Nothing is wrong with the data: page loads read D1 until the next publish rebuilds the answer. If it repeats, check KV's usage in Cloudflare's dashboard |
+| `dbt build` fails while writing comments (`COMMENT ON COLUMN …`, a column that can't be found) | A column described in a model's YAML no longer exists in the table (renamed or removed) | Rename or remove it in the YAML too, then re-run **Lakehouse transform** |
 | The workflow doesn't appear under Actions | The workflow file isn't in `.github/workflows/` at the repository root | Move it there (`git mv`) |
 | Scheduled runs stopped | GitHub pauses schedules in public repositories after 60 days without commits | Actions → the workflow → **Enable workflow** |
 

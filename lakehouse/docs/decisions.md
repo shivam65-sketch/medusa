@@ -39,6 +39,7 @@ entry replaces it and the old one is marked *Superseded*.
 | 029 | [Metric definitions are kept in Databricks and published with the data](#adr-029-metric-definitions-are-kept-in-databricks-and-published-with-the-data) | Accepted; how edits reach it: ADR-031 |
 | 030 | [Each number's calculation runs in its own window, with the filter's values in the SQL](#adr-030-each-numbers-calculation-runs-in-its-own-window-with-the-filters-values-in-the-sql) | Accepted |
 | 031 | [Edits are saved to Databricks by MEDUSA's server, as shared or personal versions](#adr-031-edits-are-saved-to-databricks-by-medusas-server-as-shared-or-personal-versions) | Accepted |
+| 032 | [One catalog per kind of data, described and tagged in place, no renames](#adr-032-one-catalog-per-kind-of-data-described-and-tagged-in-place-no-renames) | Accepted |
 
 ---
 
@@ -687,3 +688,45 @@ step; the checks, the preview and the full history are the safety net. A persona
 the page and the server when saved, and by the dbt tests at the next build. The service principal's
 OAuth secret is a new credential to keep and renew. A save that Databricks accepted but MEDUSA failed to
 copy reaches MEDUSA with the next publish or reload, and the window says so.
+
+## ADR-032: One catalog per kind of data, described and tagged in place, no renames
+
+**Status:** Accepted, 2026-10-25 (step 30).
+
+**Context:** Everything lived in one catalog, `market`, whose schemas Catalog Explorer lists
+alphabetically (`bronze`, `default`, `gold`, `landing`, `semantic`, `silver`), so the flow couldn't be
+read from it. 15 of the 20 tables and views had no description in Databricks and none had tags. Two new
+kinds of data were coming: logs of every pipeline and of MEDUSA (step 31), and each account's private
+trades (step 32). The owner asked for an order and grouping that make sense.
+
+**Decision:**
+- **A catalog per kind of data**, each its own permission boundary: `market` (public market data, as
+  it is), `journal` (each account's trades, personal data) and `ops` (logs, schema `logs`). Inside a
+  catalog, schemas are layers. The empty `default` schema Databricks makes in every catalog is dropped.
+- **Order through descriptions, not names.** Each `market` schema's description starts with its place
+  in the flow ("1 of 5 · Landing" to "5 of 5 · Semantic"). Nothing is renamed.
+- **Every table and column described in Databricks.** dbt writes its YAML descriptions as comments on
+  every build (`persist_docs`); the bronze pipeline declares each column with its comment; the semantic
+  tables keep theirs from their DDL.
+- **Three tags on every table:** `domain`, `layer` and `personal_data`, set by dbt for what it builds and
+  by a governance SQL file (`sql/governance/001_table_tags.sql`, job `tag_tables`) for the rest.
+- **Naming rules written down** (step 30 page): source names in bronze, `fct_`/`dim_`/`int_` in silver,
+  business names in gold, units in column names.
+
+**Alternatives:**
+- *Rename the schemas `01_landing` … `05_semantic`, or the catalog.* It would order the list, but it
+  would break dbt, the pipeline, the publish job, the grants, the page's copies and the docs at once, and
+  every query would carry the number.
+- *Put logs and trades in new schemas of `market`.* A single grant on `market` would then open personal
+  data, and the catalog's description ("no personal data") would stop being true.
+- *One catalog per environment (`dev`, `prod`) with domains as schemas.* The usual layout in a company
+  with several environments. Free Edition runs one environment, so it would add a level that means
+  nothing here; if a second environment comes, the domain catalogs can take an environment suffix.
+
+**Consequences:** A reader sees the flow, every table's meaning and which tables hold personal data
+without opening the code. Access can be granted per domain: a future reader of market data needs
+nothing in `journal`. Descriptions now live in two places for bronze (the pipeline file) and one for
+silver and gold (dbt YAML), and a new column without a description shows up as an empty comment, so the
+YAML-against-columns comparison of step 30 is worth repeating. Tags on the bronze and semantic tables
+are set by a job, not by the code that creates the tables, so a re-created table needs `tag_tables` run
+again.

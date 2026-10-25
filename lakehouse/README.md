@@ -37,6 +37,11 @@ flowchart LR
 | Gold | Daily tables the dashboards read | [`dbt/models/gold/`](dbt/models/gold/) (dbt Core) |
 | Semantic | The definitions of the numbers MEDUSA shows (name, meaning, SQL), every version kept: the shared ones and each MEDUSA account's own | [`sql/ddl/004_semantic.sql`](sql/ddl/004_semantic.sql) and [`005_user_metrics.sql`](sql/ddl/005_user_metrics.sql), checked by dbt tests, written by the Markets page's Save |
 
+These five layers are the schemas of the catalog `market`, public market data. Logs go to a catalog of
+their own, `ops`, and each account's private trades to `journal`, so access is granted per kind of data
+([step 30](docs/steps/30-catalog-layout.md)). Every schema, table and column is described in Databricks
+itself, and every table is tagged with its domain, its layer and whether it holds personal data.
+
 ## Documentation
 
 | Page | What's in it |
@@ -81,8 +86,8 @@ flowchart LR
 | [27. Metric definitions in Databricks](docs/steps/27-metric-definitions.md) | Each number's name, meaning and SQL in a versioned table (`market.semantic.metric_definitions`, SCD Type 2), checked by 11 dbt tests, published to MEDUSA with the data, and run by the Markets page | Done |
 | [28. Editing the definitions](docs/steps/28-editing-the-definitions.md) | Each number's calculation in its own window; edit and preview its SQL there (the query follows the filter); Save writes a new version to Databricks through MEDUSA's server as a service principal (the owner's account: the shared version; any other: its own, in `user_metric_definitions`); History, Use this version again, and the owner's Reload | Done |
 | [29. Patterns on SQL, release 1.7.0](docs/steps/29-patterns-on-sql-and-release.md) | The Patterns view calculated by three versioned SQL definitions (seeded as version 1 by a second idempotent seed), editable in its window like Today; MEDUSA release 1.7.0 | Done |
-| 30. Catalog layout | One catalog per kind of data and permission boundary: `market` (unchanged), `journal` (private trades), `ops` (logs); clearer comments, tags and naming rules, no renames | Next |
-| 31. Pipeline and app log tables | `ops` tables for every build, ETL and publish failure and for MEDUSA's serving-side errors | Planned |
+| [30. Catalog layout](docs/steps/30-catalog-layout.md) | One catalog per kind of data and permission boundary: `market` (unchanged), `journal` (private trades), `ops` (logs); every schema, table and column described in Databricks (schemas numbered in the order data flows), every table tagged `domain`, `layer` and `personal_data`, naming rules written down, no renames | Done |
+| 31. Pipeline and app log tables | `ops` tables for every build, ETL and publish failure and for MEDUSA's serving-side errors | Next |
 | 32. Journal trades in the lakehouse | A daily copy of each account's trades into a private `journal` catalog, journal statistics and trades against the market, published back to MEDUSA | Planned |
 | 33. Lab history from the lakehouse | Backtests on the lakehouse's checked history plus the last hours from Binance, with the dataset recorded in each result | Planned |
 | 34. More Markets tabs | A market's history, a live chart per market, and data health, from more gold tables published to MEDUSA | Planned |
@@ -93,7 +98,8 @@ flowchart LR
 lakehouse/
 ├─ README.md                 this page
 ├─ databricks.yml            Asset Bundle: every job and pipeline, defined as code
-├─ sql/ddl/                  numbered, re-runnable DDL (catalog, schemas, volume, the two semantic tables)
+├─ sql/ddl/                  numbered, re-runnable DDL (catalogs, schemas, volume, the two semantic tables, the layout's descriptions and tags)
+├─ sql/governance/           tags on the tables dbt doesn't build (bronze, semantic)
 ├─ sql/seed/                 data loaded once and safe to re-run (version 1 of the metric definitions: Today's, then Patterns')
 ├─ ingest/                   the downloader that GitHub Actions runs
 ├─ pipelines/bronze/         the bronze Lakeflow pipeline (SQL)

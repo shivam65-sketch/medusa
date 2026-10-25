@@ -5,6 +5,34 @@
 Every dataset and table, with what the data really looks like. Numbers come from the loads of
 2026-10-18 and 2026-10-19.
 
+## Catalogs, descriptions and tags
+
+Everything below lives in the catalog `market`; two more catalogs hold what isn't market data
+([step 30](steps/30-catalog-layout.md),
+[ADR-032](decisions.md#adr-032-one-catalog-per-kind-of-data-described-and-tagged-in-place-no-renames)).
+
+| Catalog | Schemas | Holds | Tags |
+|---|---|---|---|
+| `market` | `landing`, `bronze`, `silver`, `gold`, `semantic` (descriptions start "1 of 5" to "5 of 5") | Public market data and the metric definitions | `domain=market`, `personal_data=false` |
+| `ops` | `logs` | Logs of the pipelines and of MEDUSA (tables in step 31) | `domain=ops`, `personal_data=false` |
+| `journal` | none yet | Each MEDUSA account's trades (step 32) | `domain=journal`, `personal_data=true` |
+
+The descriptions on this page are also in Databricks, as comments: on every schema, table and column
+(Catalog Explorer, `DESCRIBE TABLE EXTENDED`, `information_schema.columns.comment`). For silver and gold
+they come from dbt's YAML files on every build; for bronze from the pipeline's column declarations; for
+the semantic tables from their DDL.
+
+Every table carries three tags:
+
+| Tag | Values |
+|---|---|
+| `domain` | `market` (every table on this page), later `journal` and `ops` |
+| `layer` | `bronze`, `silver`, `gold` or `semantic` (schemas: also `landing` and `logs`) |
+| `personal_data` | `true` only for `market.semantic.user_metric_definitions` (account numbers and names) and everything in `journal`; `false` elsewhere |
+
+To list them: `SELECT * FROM market.information_schema.table_tags ORDER BY schema_name, table_name, tag_name`
+(and `catalog_tags`, `schema_tags`).
+
 ## Source: Binance's public archive
 
 Base address: `https://data.binance.vision/data/futures/um/`, then `daily/` for the daily files or

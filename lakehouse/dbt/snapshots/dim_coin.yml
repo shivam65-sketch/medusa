@@ -35,3 +35,7 @@ snapshots:
         description: When this version became true.
       - name: dbt_valid_to
         description: When it stopped being true; 9999-12-31 for the current version.
+      - name: dbt_scd_id
+        description: dbt's own key for this version (a hash of symbol and dbt_updated_at).
+      - name: dbt_updated_at
+        description: When dbt recorded this version.

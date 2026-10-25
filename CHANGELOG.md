@@ -3,6 +3,10 @@
 Every release of MEDUSA, newest first. The current version is in `public/version.json` (shown in the
 app's menu and on the sign-in page); each release adds a section here with the same number.
 
+## Unreleased
+
+- Market data lakehouse, **catalog layout** (step 30): one catalog per kind of data, each its own permission boundary: `market` (public market data, unchanged), `ops` (logs, schema `logs`, for step 31) and `journal` (each account's private trades, for step 32); the empty `market.default` schema is gone. Every schema, table and column now has a description in Databricks itself (each `market` schema's starts with its place in the flow, "1 of 5 · Landing" to "5 of 5 · Semantic"): dbt writes its YAML descriptions on every build (`persist_docs`), and the bronze pipeline declares each column with its comment. Every table is tagged `domain`, `layer` and `personal_data`. Nothing was renamed. No change to the app.
+
 ## 1.8.0 (2026-10-25)
 
 - Journal: the **Net PnL** card shows, right under the net amount, the same trades **before fees and funding** (the sum of CoinDCX's own P&L for each trade, the trade details' *P&L before fees*); the trade count moves one line down. On a narrow card the amount goes to its own line instead of being cut off. The card's (i) explains it.

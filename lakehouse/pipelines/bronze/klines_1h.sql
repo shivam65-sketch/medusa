@@ -10,6 +10,25 @@
 -- Bronze never drops a row. The EXPECT rules only count problems (the pipeline's data quality tab).
 
 CREATE OR REFRESH STREAMING TABLE klines_1h (
+  -- Every column with its description, in the order and types the table already has.
+  symbol                  STRING    COMMENT 'Coin, taken from the file name (the candle files have no coin column), e.g. BTCUSDT',
+  month                   STRING    COMMENT 'Month, from the folder name month=YYYY-MM',
+  open_time               STRING    COMMENT 'Start of the hour, milliseconds since 1970-01-01 UTC, as text (the text open_time on a header line)',
+  open                    STRING    COMMENT 'Price at the start of the hour, USDT, as text',
+  high                    STRING    COMMENT 'Highest price in the hour, USDT, as text',
+  low                     STRING    COMMENT 'Lowest price in the hour, USDT, as text',
+  close                   STRING    COMMENT 'Price at the end of the hour, USDT, as text',
+  volume                  STRING    COMMENT 'Amount traded in the hour, in the coin, as text',
+  close_time              STRING    COMMENT 'End of the hour, milliseconds since 1970-01-01 UTC, as text',
+  quote_volume            STRING    COMMENT 'Amount traded in the hour, in USDT, as text',
+  `count`                 STRING    COMMENT 'Number of trades in the hour, as text',
+  taker_buy_volume        STRING    COMMENT 'Aggressive buying (taker buys) in the hour, in the coin, as text',
+  taker_buy_quote_volume  STRING    COMMENT 'Aggressive buying in the hour, in USDT, as text',
+  ignore                  STRING    COMMENT 'Unused by Binance, always 0',
+  _rescued_data           STRING    COMMENT 'Anything in the line that did not fit the expected columns; empty when the line was as expected',
+  source_file             STRING    COMMENT 'Full path of the landing file the row came from (lineage)',
+  source_file_modified_at TIMESTAMP COMMENT 'When that landing file was uploaded',
+  loaded_at               TIMESTAMP COMMENT 'When the pipeline loaded the row',
   CONSTRAINT matches_file_layout EXPECT (_rescued_data IS NULL),
   CONSTRAINT has_symbol          EXPECT (symbol <> ''),
   CONSTRAINT is_data_row         EXPECT (open_time <> 'open_time')

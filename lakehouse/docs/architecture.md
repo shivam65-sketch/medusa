@@ -54,17 +54,26 @@ flowchart TB
 ## Catalog layout
 
 Unity Catalog names everything `catalog.schema.object`, like a database, schema and table in
-SQL Server.
+SQL Server. There is one catalog per kind of data, each its own permission boundary, and inside a
+catalog one schema per layer ([ADR-032](decisions.md#adr-032-one-catalog-per-kind-of-data-described-and-tagged-in-place-no-renames),
+[step 30](steps/30-catalog-layout.md)). Every catalog, schema, table and column carries a description in
+Databricks, and every table the tags `domain`, `layer` and `personal_data`.
 
 | Object | Kind | Purpose |
 |---|---|---|
-| `market` | Catalog | The whole platform |
-| `market.landing` | Schema | Raw files |
+| `market` | Catalog | Public market data, from Binance's files to the numbers MEDUSA shows. No personal data apart from the accounts' own definitions (tagged) |
+| `market.landing` | Schema, 1 of 5 | Raw files |
 | `market.landing.binance` | Volume (managed) | Daily files, one folder per dataset and day: `klines_1m/date=2026-10-19/BTCUSDT-1m-2026-10-19.csv.gz` |
-| `market.bronze` | Schema | Raw rows: `klines_1m`, `metrics`, `klines_1h` (monthly history files) |
-| `market.silver` | Schema | Typed, checked tables (dbt), including `fct_candle_1h_archive` and the continuous hourly series `int_candle_1h_all` |
-| `market.gold` | Schema | Tables the live scanner and analysis read (dbt): daily tables, each coin's `coin_baseline`, and the scanner's evidence (`intraday_events`, `event_evidence`) |
-| `market.semantic` | Schema | Definitions about the data, not data: `metric_definitions`, every version of each Markets number's name, meaning and SQL ([DDL](../sql/ddl/004_semantic.sql)), and `user_metric_definitions`, each MEDUSA account's own versions ([DDL](../sql/ddl/005_user_metrics.sql)) |
+| `market.bronze` | Schema, 2 of 5 | Raw rows: `klines_1m`, `metrics`, `klines_1h` (monthly history files), plus the pipeline's own internal tables |
+| `market.silver` | Schema, 3 of 5 | Typed, checked tables (dbt), including `fct_candle_1h_archive` and the continuous hourly series `int_candle_1h_all` |
+| `market.gold` | Schema, 4 of 5 | Tables the live scanner and analysis read (dbt): daily tables, each coin's `coin_baseline`, and the scanner's evidence (`intraday_events`, `event_evidence`) |
+| `market.semantic` | Schema, 5 of 5 | Definitions about the data, not data: `metric_definitions`, every version of each Markets number's name, meaning and SQL ([DDL](../sql/ddl/004_semantic.sql)), and `user_metric_definitions`, each MEDUSA account's own versions ([DDL](../sql/ddl/005_user_metrics.sql); tagged `personal_data=true`) |
+| `ops` | Catalog | Logs of the lakehouse pipelines and of MEDUSA ([DDL](../sql/ddl/006_layout.sql)) |
+| `ops.logs` | Schema | Append-only event logs: `pipeline_events` and `app_events` (step 31) |
+| `journal` | Catalog | Private: each MEDUSA account's trades (step 32), tagged `personal_data=true`; its schemas come with step 32 |
+
+The workspace's other catalogs (`prod`, another project; `workspace`, `samples` and `system`, Databricks'
+own) are not part of this platform.
 
 ## Daily timeline (UTC)
 

@@ -10,12 +10,35 @@ test-paths: ["tests"]
 clean-targets: ["target", "dbt_packages"]
 
 # Each folder of models writes to the schema of the same name in the market catalog.
+# persist_docs writes every description in the YAML files into Databricks as the table's and each
+# column's comment, so Catalog Explorer explains every table (lakehouse step 30). databricks_tags
+# labels each table with its domain, layer and whether it holds personal data.
 models:
   medusa_lakehouse:
+    +persist_docs:
+      relation: true
+      columns: true
+    +databricks_tags:
+      domain: market
+      personal_data: "false"
     silver:
       +schema: silver
+      +databricks_tags:
+        layer: silver
     gold:
       +schema: gold
+      +databricks_tags:
+        layer: gold
+
+snapshots:
+  medusa_lakehouse:
+    +persist_docs:
+      relation: true
+      columns: true
+    +databricks_tags:
+      domain: market
+      layer: silver
+      personal_data: "false"
 
 # Settings for the live scanner's evidence (intraday_events, event_evidence). Changing one needs
 # a rebuild of those two tables, which happens on every run anyway.

@@ -11,6 +11,25 @@
 -- pipeline's data quality tab); silver decides what to do about them.
 
 CREATE OR REFRESH STREAMING TABLE klines_1m (
+  -- Every column with its description, in the order and types the table already has.
+  symbol                  STRING    COMMENT 'Coin, taken from the file name (the candle files have no coin column), e.g. BTCUSDT',
+  date                    STRING    COMMENT 'Day, from the folder name date=YYYY-MM-DD',
+  open_time               STRING    COMMENT 'Start of the minute, milliseconds since 1970-01-01 UTC, as text',
+  open                    STRING    COMMENT 'Price at the start of the minute, USDT, as text',
+  high                    STRING    COMMENT 'Highest price in the minute, USDT, as text',
+  low                     STRING    COMMENT 'Lowest price in the minute, USDT, as text',
+  close                   STRING    COMMENT 'Price at the end of the minute, USDT, as text',
+  volume                  STRING    COMMENT 'Amount traded in the minute, in the coin, as text',
+  close_time              STRING    COMMENT 'End of the minute, milliseconds since 1970-01-01 UTC, as text',
+  quote_volume            STRING    COMMENT 'Amount traded in the minute, in USDT, as text',
+  `count`                 STRING    COMMENT 'Number of trades in the minute, as text',
+  taker_buy_volume        STRING    COMMENT 'Aggressive buying (taker buys) in the minute, in the coin, as text',
+  taker_buy_quote_volume  STRING    COMMENT 'Aggressive buying in the minute, in USDT, as text',
+  ignore                  STRING    COMMENT 'Unused by Binance, always 0',
+  _rescued_data           STRING    COMMENT 'Anything in the line that did not fit the expected columns; empty when the line was as expected',
+  source_file             STRING    COMMENT 'Full path of the landing file the row came from (lineage)',
+  source_file_modified_at TIMESTAMP COMMENT 'When that landing file was uploaded',
+  loaded_at               TIMESTAMP COMMENT 'When the pipeline loaded the row',
   CONSTRAINT matches_file_layout EXPECT (_rescued_data IS NULL),
   CONSTRAINT has_symbol          EXPECT (symbol <> '')
 )

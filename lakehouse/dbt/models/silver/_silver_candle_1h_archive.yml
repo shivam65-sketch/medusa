@@ -63,3 +63,21 @@ models:
           - accepted_values:
               arguments:
                 values: ['monthly_archive', 'minute_candles']
+      - name: open
+        description: The hour's opening price, USDT.
+      - name: high
+        description: Highest traded price in the hour, USDT.
+      - name: low
+        description: Lowest traded price in the hour, USDT.
+      - name: close
+        description: The hour's closing price, USDT.
+      - name: volume
+        description: Amount traded in the hour, in the coin.
+      - name: quote_volume
+        description: Amount traded in the hour, in USDT.
+      - name: trades
+        description: Number of trades in the hour.
+      - name: taker_buy_volume
+        description: Aggressive buying in the hour, in the coin.
+      - name: taker_buy_quote_volume
+        description: Aggressive buying in the hour, in USDT.

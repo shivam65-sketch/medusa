@@ -43,3 +43,22 @@ models:
         description: Landing file the row came from (lineage).
       - name: bronze_loaded_at
         description: When bronze loaded the row; incremental runs pick up rows newer than the latest one here.
+
+  - name: int_coin_status
+    description: >
+      View: each coin's current description, worked out from the hourly candles. What it is (base
+      asset and multiplier), when it first traded, and whether it trades now. The dim_coin snapshot
+      records every change to it.
+    columns:
+      - name: symbol
+        description: Binance symbol, e.g. 1000PEPEUSDT.
+      - name: base_asset
+        description: The coin itself, without the multiplier or USDT, e.g. PEPE.
+      - name: quote_asset
+        description: Always USDT here.
+      - name: multiplier
+        description: Coins per quoted unit, e.g. 1000 for 1000PEPEUSDT; 1 for most coins.
+      - name: first_candle_date
+        description: First day with candles in the lakehouse.
+      - name: status
+        description: trading, or not trading after 3 days without a single trade.

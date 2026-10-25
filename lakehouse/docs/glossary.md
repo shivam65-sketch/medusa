@@ -14,12 +14,13 @@ The data engineering terms used in this project, in plain words.
 | **Bitemporal** | Tracking both when something was true in the world and when the warehouse knew it | `dim_coin` after the backfill |
 | **Breadth** | The share of moving coins that went up | `market_daily.breadth` |
 | **Bronze / silver / gold** | The medallion layers: raw data, cleaned and typed data, business-ready tables | Schemas in `market` |
-| **Catalog** | Top level of Unity Catalog's `catalog.schema.table` names, roughly a database in SQL Server | `market` |
+| **Catalog** | Top level of Unity Catalog's `catalog.schema.table` names, roughly a database in SQL Server; here one per kind of data, each its own permission boundary | `market`, `journal`, `ops` ([ADR-032](decisions.md#adr-032-one-catalog-per-kind-of-data-described-and-tagged-in-place-no-renames)) |
 | **Checksum (SHA-256)** | A fingerprint of a file's bytes. If the fingerprint doesn't match the published one, the file is damaged | The downloader |
 | **CI/CD** | Automatically checking and deploying code when it changes | Planned |
 | **Clustering by day** | Averaging each day's events first and doing the statistics over days, because events on the same day (coins moving together) aren't independent | `event_evidence` |
 | **Continuation** | The return after a move, in the move's direction: positive means it kept going, negative means it turned back | `event_evidence` |
 | **Data contract** | The rules data must meet before a consumer gets it, checked automatically; data that breaks them doesn't reach the consumer | The dbt tests on `metric_definitions`: a broken definition stops the publish |
+| **Data domain** | One area of data with its own owner, meaning and access rules (market data, a person's trades, logs). Keeping domains apart means a grant on one never opens another | One catalog per domain: `market`, `journal`, `ops` |
 | **Data observability** | A pipeline reporting on its own data: completeness, freshness, unexpected changes | `data_health` |
 | **Declarative** | Describing what should exist and letting the tool work out how | Bundles, pipelines |
 | **Dimension / fact** | Kimball's split: facts are measurements (candles), dimensions describe what is measured (coins) | `dim_coin`, `fct_candle_1m` |
@@ -28,6 +29,7 @@ The data engineering terms used in this project, in plain words.
 | **Expectation** | A data-quality rule in a Lakeflow pipeline that counts, drops or fails on bad rows | Bronze (count only) |
 | **Exposure (dbt)** | A declaration that something outside dbt (a dashboard, an app) uses certain models, so the lineage reaches it and dbt can select everything it depends on | `markets_page` in [`exposures.yml`](../dbt/models/exposures.yml) |
 | **Generic / singular test** | dbt tests: a generic test is one line of YAML (`not_null`); a singular test is a SQL file returning bad rows (0 rows = pass) | `dbt/tests/` |
+| **Governance tag** | A `key = value` label on a catalog, schema, table or column that says what kind of data it is; searchable, queryable in `information_schema`, and what access rules and audits select on | `domain`, `layer`, `personal_data` on every table |
 | **Grain** | What one row of a table means, e.g. one coin per hour | `fct_candle_1h` |
 | **Held-back test (out-of-sample)** | Choosing a rule on one period and checking it on another that played no part in choosing it | `event_evidence` (2025 on) |
 | **Hive-style partition** | A folder named `column=value`, read as a column | `date=2026-10-19` |
@@ -45,11 +47,15 @@ The data engineering terms used in this project, in plain words.
 | **Matrix job** | GitHub Actions running the same job once per value in a list, several at a time | The backfill |
 | **Medallion architecture** | Organising data into bronze, silver and gold layers | The schemas |
 | **MERGE (upsert)** | Insert new rows and update existing ones by a key, in one statement | Incremental models; `live_prices` on the Markets page (`INSERT ... ON CONFLICT DO UPDATE`) |
+| **Metadata (technical)** | Data about the data: names, types, descriptions, owners, tags, lineage. Kept with the tables, it lets a reader understand a table without opening the code | Every catalog, schema, table and column described in Databricks (step 30) |
 | **Metrics layer (semantic layer)** | Defining each business number once, as data (name, definition, SQL), on shared steps (models), so every report computes it the same way | `market.semantic.metric_definitions`, run by the Markets page ([ADR-028](decisions.md#adr-028-every-number-is-a-sql-query-run-in-the-browser), [ADR-029](decisions.md#adr-029-metric-definitions-are-kept-in-databricks-and-published-with-the-data)) |
 | **Multiple testing** | Testing many ideas at once: some pass by luck, so each needs a stricter check | 60 rows in `event_evidence` |
+| **Naming convention** | Written rules for names, so a name says what a thing is: its layer, its kind (fact, dimension, building block), its grain and its units | `fct_candle_1m`, `dim_coin`, `int_candle_1h_all`, `_at`, `_usdt` ([step 30](steps/30-catalog-layout.md#naming-rules)) |
 | **OAuth client credentials (machine to machine)** | How a program signs in without a person: it trades its client id and secret for a short-lived token, limited to a *scope* (what the token may be used for) | MEDUSA's server gets a one-hour token for its service principal with the `sql` scope (Free Edition refuses `all-apis`) |
 | **Optimistic concurrency** | Instead of locking a row while someone edits it, the change says which version it was based on, and is refused if the row changed in the meantime. SQL Server: checking a `rowversion` in the `WHERE` clause | A save carries `:base`, the version the window edited; if someone saved first, the `MERGE` changes nothing and the window is told to reload (409) |
 | **Parameterized statement** | A SQL statement sent with its values separately, as named parameters, so a value is always treated as data and can never change the statement itself (no SQL injection). SQL Server: `sp_executesql` with parameters | Every save: the edited SQL is the parameter `:sql_text`, stored by Databricks and never run there ([ADR-031](decisions.md#adr-031-edits-are-saved-to-databricks-by-medusas-server-as-shared-or-personal-versions)) |
+| **Persist docs (dbt)** | dbt's option to write the descriptions in its YAML files into the database as table and column comments on every build, so one text in Git documents both dbt and the database | `+persist_docs` in `dbt_project.yml` |
+| **Personal data (PII)** | Anything that identifies or describes a person, here an account number or a name. It is labelled so it can be found, kept apart and deleted on request | `personal_data=true` on `user_metric_definitions` and the `journal` catalog |
 | **Push and pull** | Push: the source sends data as it happens (streaming). Pull: the reader asks for data when it wants it (batch) | Binance pushes live prices; the Markets page pulls the daily tables |
 | **Query parameter** | A named value a query takes when it runs (`:kind`), like a report parameter in SSRS | The Markets page's type filter, yesterday's date, one market |
 | **Rate limit** | A cap on how often something may be done in a period, so one user (or a bug) can't use up a shared resource | Saves to Databricks: 20 a day per account and 300 in all; history reads 60 and 600 (every one wakes the SQL warehouse) |
