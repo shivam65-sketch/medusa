@@ -12,6 +12,7 @@ import { labRoute, bodyLimit } from './lab.js';
 import { logsRoute } from './logs.js';
 import { marketIngest, marketScanner } from './market.js';
 import { myMetrics, saveMetric, resetMetric, metricHistory, reloadMetrics } from './metrics.js';
+import { opsEvents, noteAnswer, recordServerEvent, areaOf } from './ops.js';
 import {
   currentUser, accountInfo, confirmPassword, signup, login, recover, logout, changePassword, newRecovery,
   twoStepSetup, twoStepEnable, twoStepDisable, signOutOthers, deleteAccount,
@@ -273,6 +274,8 @@ async function route(req, env, url) {
   // The lakehouse's daily publish job (server to server, no browser and no cookie): its own token,
   // checked in market.js, and it can only replace the market tables.
   if (path === '/api/market/ingest' && method === 'POST') return marketIngest(req, env);
+  // The lakehouse's daily run reading MEDUSA's failures (step 31): its own read-only token, checked in ops.js.
+  if (path === '/api/ops/events' && method === 'GET') return opsEvents(req, env, url);
 
   if (method !== 'GET' && method !== 'HEAD') {
     // Only this app's own pages may change anything (blocks cross-site form posts).
@@ -350,16 +353,25 @@ async function route(req, env, url) {
 }
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     // A person who opens an address in the browser gets MEDUSA's error page instead of the JSON error
     // (or the asset server's empty one); the app's own calls keep getting JSON.
     const page = (res) => (res.status >= 400 && wantsPage(req) ? errorPage(res.status) : res);
     if (!url.pathname.startsWith('/api/') && !url.pathname.startsWith('/logo/')) return page(await env.ASSETS.fetch(req));
     try {
-      return page(await route(req, env, url));
+      const res = await route(req, env, url);
+      // Errors on the server's side, and refused ingest tokens, go to server_events (ops.js, step 31),
+      // after the answer has gone out. A signed-out 401 or a 404 is not a failure of MEDUSA's.
+      if (res.status >= 500 || (res.status === 401 && url.pathname === '/api/market/ingest')) {
+        ctx.waitUntil(noteAnswer(env, req, url, res.clone()));
+      }
+      return page(res);
     } catch (e) {
       console.error(e && e.stack ? e.stack : e);
+      const where = String((e && e.stack) || '').split('\n')[1];
+      ctx.waitUntil(recordServerEvent(env, areaOf(url.pathname), (e && e.message) || 'Unexpected error',
+        { method: req.method, path: url.pathname, status: 500, where: where ? where.trim().slice(0, 200) : null }));
       return page(fail(500, 'Something went wrong on the server. Try again.'));
     }
   },
@@ -377,6 +389,7 @@ export default {
           await importStep(env, uid, coindcx(await loadCreds(env, uid), env));
         } catch (e) {
           console.error('scheduled import:', e && e.message);
+          await recordServerEvent(env, 'import', `Scheduled import failed: ${(e && e.message) || 'unknown error'}`, null, 6 * 3_600_000);
         }
       }
     })());

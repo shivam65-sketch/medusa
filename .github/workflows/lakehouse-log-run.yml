@@ -2,7 +2,8 @@
 # The last job of every lakehouse workflow (step 31). It runs whether the jobs before it succeeded,
 # failed or were cancelled, reads each job of this run and its steps from GitHub, and writes one row
 # per job into ops.logs.pipeline_events in Databricks: succeeded, failed (at which step), cancelled or
-# skipped. Logging never fails the run: if Databricks can't be reached, the step only warns.
+# skipped. The daily load also copies MEDUSA's failures since the last copy into ops.logs.app_events.
+# Logging never fails the run: if Databricks or MEDUSA can't be reached, the step only warns.
 name: Lakehouse log run
 
 on:
@@ -13,6 +14,11 @@ on:
         type: string
         required: false
         default: ""
+      ship_app_events:
+        description: "Also copy MEDUSA's failures into ops.logs.app_events (the daily load)"
+        type: boolean
+        required: false
+        default: false
 
 # Reads the repository and this run's jobs; writes nothing to GitHub.
 permissions:
@@ -26,6 +32,8 @@ jobs:
     defaults:
       run:
         working-directory: lakehouse
+    env:
+      MEDUSA_URL: ${{ secrets.MEDUSA_URL }}
     steps:
       - name: Get the code
         uses: actions/checkout@v7
@@ -47,3 +55,14 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           DATA_DATE: ${{ inputs.data_date }}
         run: python ops/log_pipeline_run.py jobs --data-date "$DATA_DATE"
+
+      # The daily load only: the errors MEDUSA's pages reported and its server hit since the last copy
+      # (MEDUSA's read-only ops export). Skipped where MEDUSA isn't set up (no MEDUSA_URL secret).
+      - name: Copy MEDUSA's failures to ops.logs.app_events
+        if: ${{ inputs.ship_app_events && env.MEDUSA_URL != '' }}
+        continue-on-error: true
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          MEDUSA_OPS_TOKEN: ${{ secrets.MEDUSA_OPS_TOKEN }}
+        run: python ops/ship_app_events.py

@@ -7,7 +7,7 @@
 // the Markets page is hidden, on another page or closed. It needs no more than the page does: the
 // signed-in session (the same cookie) and the app's local storage.
 
-import { renderWindow } from './markets.js?v=10';
+import { renderWindow } from './markets.js?v=11';
 
 const root = document.getElementById('mkt-win');
 

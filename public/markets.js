@@ -173,7 +173,8 @@ const S = {
   eng: { w: null, ready: null, ok: false, err: null, seq: 0, wait: new Map(), loadedAt: null, marketsVer: -1 },
   sent: new Map(), sentMarkets: [],                  // what the engine's live_prices and binance_markets hold now
   res: new Map(), lastRun: null, running: false, again: false, urgent: false, runErr: null,
-  frozen: null,                                      // the engine's browser-only tables as of the last run, for Copy
+  logged: new Set(),                                 // failures already in the log ("key\nerror"): each once per page
+  frozen: null,                                     // the engine's browser-only tables as of the last run, for Copy
   seen: new Map(),                                   // symbol -> when this page first saw it unusual
   view: 'today', kind: 'all', sort: 'z', q: '', limit: 50, open: null, openAll: null, pat: null,
   sql: new Map(),                                    // each calculation panel's query, for Copy
@@ -362,6 +363,14 @@ function jobs(preview = true) {
   return out;
 }
 
+/** An error into the app's log, once per page for the same thing and message. */
+function logOnce(key, error, msg, data = null) {
+  const k = `${key}\n${error}`;
+  if (S.logged.has(k) || S.logged.size >= 200) return;
+  S.logged.add(k);
+  api.log('markets', msg.slice(0, 400), data, 'error');
+}
+
 /** Bring the engine's tables up to date (only what changed) and run the queries. */
 async function run() {
   const e = S.eng;
@@ -392,6 +401,14 @@ async function run() {
   S.frozen = { prices: new Map(S.sent), markets: S.sentMarkets, at: S.lastMsg };
   S.lastRun = { at: Date.now(), ms: Math.round(performance.now() - t0), n: msg.jobs.length };
   S.res = new Map(Object.entries(out));
+  // A query that failed goes into the log once per page (queries run every second), so the lakehouse's
+  // ops.logs.app_events gets it with the daily copy. A preview's failures are the editor's to show.
+  for (const [key, res] of S.res) {
+    if (!res || !res.error || key.startsWith('preview:')) continue;
+    const d = DEFS.get(key.split(':')[0]);
+    logOnce(key, res.error, `The query ${key} failed: ${res.error}`,
+      { definition: d ? d.id : key, version: d ? (d.own ? `own ${d.own.version}` : d.version || 'built-in') : null });
+  }
   // When this page first saw each market unusual (kept by the page, not by a query).
   if (!S.res.has('unusual_all_types')) return;
   const now = Date.now(), flagged = new Set(objects(S.res.get('unusual_all_types')).map((r) => r.market));
@@ -1100,7 +1117,7 @@ function paint() {
   if (S.running) { S.again = true; return; }
   S.running = true;
   S.urgent = false;
-  run().then(() => { S.runErr = null; }, (e) => { S.runErr = e.message; })
+  run().then(() => { S.runErr = null; }, (e) => { S.runErr = e.message; logOnce('run', e.message, `The queries couldn't run: ${e.message}`); })
     .finally(() => {
       S.running = false;
       draw();

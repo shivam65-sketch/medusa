@@ -14,7 +14,7 @@
 // That answer is the same for everyone, so it is built once when the data changes and kept ready-made
 // in Workers KV (ADR-026): page loads read one KV value, not D1.
 
-import { json, fail, SECURITY } from './http.js';
+import { json, fail, hasBearer, SECURITY } from './http.js';
 
 const MAX_BYTES = 2 * 1024 * 1024;
 
@@ -103,23 +103,10 @@ function checkRows(spec, rows) {
   return null;
 }
 
-/** Whether the request carries the ingest token. Both sides are hashed first, so the comparison
- * takes the same time whatever the token, and it never says how much of a guess was right. */
-async function hasToken(req, env) {
-  const got = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  if (!got) return false;
-  const enc = new TextEncoder();
-  const [a, b] = await Promise.all([
-    crypto.subtle.digest('SHA-256', enc.encode(env.MARKET_INGEST_TOKEN)),
-    crypto.subtle.digest('SHA-256', enc.encode(got)),
-  ]);
-  return crypto.subtle.timingSafeEqual(a, b);
-}
-
 /** POST /api/market/ingest: replace one market table with the rows sent. */
 export async function marketIngest(req, env) {
   if (!env.MARKET_INGEST_TOKEN) return fail(503, 'Market data is not set up: the MARKET_INGEST_TOKEN secret is missing.');
-  if (!(await hasToken(req, env))) return fail(401, 'Wrong or missing token.');
+  if (!(await hasBearer(req, env.MARKET_INGEST_TOKEN))) return fail(401, 'Wrong or missing token.');
   if (Number(req.headers.get('content-length') || 0) > MAX_BYTES) return fail(413, 'That request is too big.');
   const text = await req.text();
   if (text.length > MAX_BYTES) return fail(413, 'That request is too big.');

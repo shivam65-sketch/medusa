@@ -17,6 +17,20 @@ export const fail = (status, error, more = {}) => json({ error, ...more }, statu
 
 export const readBody = (req) => req.json().catch(() => ({}));
 
+/** Whether the request carries `Authorization: Bearer <secret>`, for the endpoints programs call with
+ * their own token. Both sides are hashed first, so the comparison takes the same time whatever the
+ * token, and it never says how much of a guess was right. */
+export async function hasBearer(req, secret) {
+  const got = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!got || !secret) return false;
+  const enc = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(secret)),
+    crypto.subtle.digest('SHA-256', enc.encode(got)),
+  ]);
+  return crypto.subtle.timingSafeEqual(a, b);
+}
+
 /* ---------- error pages, for a person who opens an address in the browser ---------- */
 
 /** True when a person opened the address in the browser (typed it, followed a link), not when the app's
