@@ -17,9 +17,10 @@ on:
         required: true
         default: "2026"
 
-# The jobs only read the repository; they never write to it.
+# The jobs only read the repository (and the log job this run's jobs); they never write to GitHub.
 permissions:
   contents: read
+  actions: read
 
 # Never run two history loads at the same time.
 concurrency:
@@ -109,4 +110,11 @@ jobs:
   transform:
     needs: load
     uses: ./.github/workflows/lakehouse-transform.yml
+    secrets: inherit
+
+  # Last, whatever happened: one row per job of this run in ops.logs.pipeline_events (step 31).
+  log:
+    needs: [years, load, transform]
+    if: ${{ always() }}
+    uses: ./.github/workflows/lakehouse-log-run.yml
     secrets: inherit

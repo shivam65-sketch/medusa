@@ -1,0 +1,49 @@
+# MEDUSA lakehouse: log a run (a reusable workflow).
+# The last job of every lakehouse workflow (step 31). It runs whether the jobs before it succeeded,
+# failed or were cancelled, reads each job of this run and its steps from GitHub, and writes one row
+# per job into ops.logs.pipeline_events in Databricks: succeeded, failed (at which step), cancelled or
+# skipped. Logging never fails the run: if Databricks can't be reached, the step only warns.
+name: Lakehouse log run
+
+on:
+  workflow_call:
+    inputs:
+      data_date:
+        description: "The day of market data the run loaded: YYYY-MM-DD, 'yesterday' (the daily load), or empty"
+        type: string
+        required: false
+        default: ""
+
+# Reads the repository and this run's jobs; writes nothing to GitHub.
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: lakehouse
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install the Databricks CLI
+        uses: databricks/setup-cli@v1.21.0
+
+      # The day goes through an environment variable, not straight into the command.
+      - name: Write this run's jobs to ops.logs.pipeline_events
+        continue-on-error: true
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          DATA_DATE: ${{ inputs.data_date }}
+        run: python ops/log_pipeline_run.py jobs --data-date "$DATA_DATE"

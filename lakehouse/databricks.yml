@@ -19,7 +19,7 @@ resources:
   jobs:
     setup_ddl:
       name: lakehouse-setup-ddl
-      description: Creates the catalogs (market, ops, journal), the layer schemas with their descriptions and tags, the landing volume and the metric definitions tables (shared and personal). Safe to run again.
+      description: Creates the catalogs (market, ops, journal), the layer schemas with their descriptions and tags, the landing volume, the metric definitions tables (shared and personal) and the ops log tables. Safe to run again.
       tasks:
         - task_key: create_catalog
           sql_task:
@@ -67,6 +67,24 @@ resources:
             warehouse_id: ${var.warehouse_id}
             file:
               path: ./sql/ddl/006_layout.sql
+
+        - task_key: create_ops_logs
+          depends_on:
+            - task_key: create_layout
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/ddl/007_ops_logs.sql
+
+    ops_views:
+      name: lakehouse-ops-views
+      description: Creates the ops views that read the bronze pipeline's own event log (ops.logs.bronze_loads). Run after setup_ddl and the first bronze run. Safe to run again.
+      tasks:
+        - task_key: bronze_loads
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/ops/001_bronze_loads.sql
 
     tag_tables:
       name: lakehouse-tag-tables

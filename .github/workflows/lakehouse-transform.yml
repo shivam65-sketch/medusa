@@ -8,9 +8,10 @@ on:
   workflow_call:
   workflow_dispatch:   # "Run workflow" button: run bronze and dbt without downloading anything
 
-# The job only reads the repository; it never writes to it.
+# The jobs only read the repository (and the log job this run's jobs); they never write to GitHub.
 permissions:
   contents: read
+  actions: read
 
 jobs:
   transform:
@@ -70,6 +71,14 @@ jobs:
           DBT_ENV_SECRET_DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: dbt build
 
+      # Whatever happened above (step 31): the build's counts, and each model, test or freshness check
+      # that failed or warned, into ops.logs.pipeline_events. Never fails the run. python3: when an
+      # earlier step failed, Python 3.13 wasn't set up, and there is nothing to log anyway.
+      - name: Log dbt results
+        if: ${{ always() }}
+        continue-on-error: true
+        run: python3 ops/log_pipeline_run.py dbt --target dbt/target
+
       # Only after every test passed: copy coin_baseline and event_evidence into MEDUSA through its
       # write-only endpoint, then check MEDUSA holds exactly as many rows as gold (ADR-024). Skipped
       # where MEDUSA isn't set up (no MEDUSA_URL secret).
@@ -78,3 +87,12 @@ jobs:
         env:
           MEDUSA_INGEST_TOKEN: ${{ secrets.MEDUSA_INGEST_TOKEN }}
         run: python serving/publish_to_medusa.py
+
+  # Only when this workflow was started by hand: the daily load, the backfill and the history call
+  # it as one of their jobs and log their whole run themselves (in a called workflow, github.workflow
+  # is the caller's name).
+  log:
+    needs: transform
+    if: ${{ always() && github.workflow == 'Lakehouse transform' }}
+    uses: ./.github/workflows/lakehouse-log-run.yml
+    secrets: inherit

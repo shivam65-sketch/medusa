@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Built** | 2026-10-25 |
-| **Commit** | the step 30 commit |
+| **Commit** | `99d059e` |
 | **Files** | [`sql/ddl/006_layout.sql`](../../sql/ddl/006_layout.sql) (catalogs, schema descriptions and tags) · [`sql/governance/001_table_tags.sql`](../../sql/governance/001_table_tags.sql) (tags on the tables dbt doesn't build) · [`databricks.yml`](../../databricks.yml) (task `create_layout`, job `tag_tables`) · [`dbt/dbt_project.yml`](../../dbt/dbt_project.yml) (`persist_docs`, `databricks_tags`) · the dbt YAML files (the missing descriptions) · [`pipelines/bronze/`](../../pipelines/bronze/) (each column declared with its description) |
 | **Decisions** | [ADR-032](../decisions.md#adr-032-one-catalog-per-kind-of-data-described-and-tagged-in-place-no-renames) |
 
