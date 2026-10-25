@@ -106,10 +106,14 @@ def job_rows(ctx, data_date):
         data_date = (first.date() - dt.timedelta(days=1)).isoformat()
     rows = []
     for j in answer.get("jobs", []):
-        if j.get("status") != "completed":
+        parts = j["name"].split(" / ")
+        # Still running, or a log job (this one, or the transform workflow's own, skipped when it is
+        # called from another workflow): the logger doesn't log itself.
+        if j.get("status") != "completed" or parts[-1] == "log":
             continue
-        # "transform / transform" (a reusable workflow) -> "transform"; matrix values stay: "load (2026-10-01)".
-        name = j["name"].split(" / ")[0]
+        # A called workflow's job is named "<caller job> / <its job>": "transform / transform" -> "transform",
+        # "load (2026-10-01) / load" -> "load (2026-10-01)" (matrix values stay). Any other is kept whole.
+        name = parts[0] if re.sub(r" \(.*\)$", "", parts[0]) == parts[-1] else j["name"]
         status = STATUS.get(j.get("conclusion") or "", "failure")
         steps = [{"name": s["name"], "conclusion": s.get("conclusion"),
                   "seconds": seconds_between(s.get("started_at"), s.get("completed_at"))}
