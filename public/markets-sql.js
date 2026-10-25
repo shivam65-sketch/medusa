@@ -74,7 +74,12 @@ function runAll(jobs) {
       const t0 = performance.now();
       let st = prepared.get(sql);
       try {
-        if (!st) { st = db.prepare(sql); prepared.set(sql, st); }
+        if (!st) {
+          // Every previewed edit is a new query: past 64, start the collection again.
+          if (prepared.size >= 64) { for (const s of prepared.values()) s.free(); prepared.clear(); }
+          st = db.prepare(sql);
+          prepared.set(sql, st);
+        }
         st.bind(params || {});
         const columns = st.getColumnNames(), rows = [];
         while (st.step()) rows.push(st.get());

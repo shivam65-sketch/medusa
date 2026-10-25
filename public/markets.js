@@ -27,7 +27,7 @@ import { DEFINITIONS } from './markets-metrics.js?v=1';
 const RULE = { z: 3 };
 const STREAM = 'wss://fstream.binance.com/market/ws/!miniTicker@arr';
 const REST = 'https://fapi.binance.com/fapi/v1';
-const ENGINE = '/markets-sql.js?v=1';
+const ENGINE = '/markets-sql.js?v=2';
 const DAY = 86_400_000;
 const HORIZONS = [1, 4, 24];
 const BANDS = ['3-4', '4-6', '6+'], LIQS = ['large', 'mid', 'small'];
@@ -81,11 +81,16 @@ const noComments = (sql) => sql.replace(/--[^\n]*/g, '');
 /** The tables and models a query reads (whatever follows FROM or JOIN). */
 export const reads = (sql) => [...noComments(sql).matchAll(/\b(?:FROM|JOIN)\s+([A-Za-z_][\w.]*)/gi)].map((m) => m[1].toLowerCase());
 
-/** The models a query reads, directly or through other models, each after the ones it needs. */
-function modelsOf(sql, out = []) {
+/** The models a query reads, directly or through other models, each after the ones it needs. `defs`
+ * is the set of definitions to use (an edit being previewed replaces some). A step that reads itself,
+ * directly or through others, can't run. */
+function modelsOf(sql, defs = DEFS, out = [], path = []) {
   for (const t of reads(sql)) {
-    const d = DEFS.get(t);
-    if (d && d.kind === 'model' && !out.includes(t)) { modelsOf(d.sql, out); out.push(t); }
+    const d = defs.get(t);
+    if (!d || d.kind !== 'model' || out.includes(t)) continue;
+    if (path.includes(t)) throw new Error(`${[...path, t].join(' reads ')}: a shared step can't read itself.`);
+    modelsOf(d.sql, defs, out, [...path, t]);
+    out.push(t);
   }
   return out;
 }
@@ -94,14 +99,24 @@ const literal = (v) => (v == null ? 'NULL' : typeof v === 'number' ? (Number.isF
 const tidy = (s) => s.replace(/ {3,}--/g, '  --');   // each comment right after its code, so it fits a phone
 const toDbx = (sql) => sql.replace(/\bmarket_baseline\b/g, 'market.gold.coin_baseline').replace(/\bmarket_evidence\b/g, 'market.gold.event_evidence');
 
+/** A query with the page's parameters written in as their values, so the SQL on screen (and the SQL
+ * that runs) changes with the filter: the type filter `:kind IN ('all', market_type)` becomes
+ * `market_type = 'crypto'` for a type, or TRUE (every row) for All. */
+export function fill(sql, params) {
+  return sql
+    .replace(/:kind\s+IN\s*\(\s*'all'\s*,\s*([A-Za-z_][\w.]*)\s*\)/gi, (m, col) => (params.kind === 'all' ? 'TRUE' : `${col} = ${literal(params.kind)}`))
+    .replace(/:([a-z_]+)\b/g, (m, k) => (k in params ? literal(params[k]) : m));
+}
+
 /** One complete query: the models it reads go in front as WITH ... AS (...), so it runs as it is.
- * With `inputs` (the browser-only tables' rows) it is made to run elsewhere too: those tables are
- * written in as VALUES and the parameters are filled in. */
-export function assemble(def, { inputs = null, params = {} } = {}) {
-  const models = modelsOf(def.sql);
+ * With `params` the parameters are written in (fill). With `inputs` (the browser-only tables' rows)
+ * it is made to run elsewhere too: those tables are written in as VALUES. `defs` replaces the
+ * definitions in use (a preview). */
+export function assemble(def, { inputs = null, params = null, defs = DEFS } = {}) {
+  const models = modelsOf(def.sql, defs);
   const steps = [];
   if (inputs) {
-    const used = new Set(reads([def.sql, ...models.map((m) => DEFS.get(m).sql)].join('\n')));
+    const used = new Set(reads([def.sql, ...models.map((m) => defs.get(m).sql)].join('\n')));
     for (const [t, types] of Object.entries(BROWSER_TABLES)) {
       if (!used.has(t)) continue;
       const cols = Object.keys(types);
@@ -111,18 +126,18 @@ export function assemble(def, { inputs = null, params = {} } = {}) {
       steps.push(`${t}(${cols.join(', ')}) AS (VALUES   -- ${inputs.note[t]}\n  ${vals.join(',\n  ')}\n)`);
     }
   }
-  for (const m of models) steps.push(`${m} AS (   -- ${DEFS.get(m).name}\n${DEFS.get(m).sql.replace(/^/gm, '  ')}\n)`);
+  for (const m of models) steps.push(`${m} AS (   -- ${defs.get(m).name}\n${defs.get(m).sql.replace(/^/gm, '  ')}\n)`);
   const own = def.sql.trim();
   const head = `-- ${def.name}: ${def.description}\n`;
   let sql = !steps.length ? own
     : /^WITH\s/i.test(own) ? `WITH ${steps.join(',\n')},\n${own.replace(/^WITH\s+/i, '')}`
       : `WITH ${steps.join(',\n')}\n${own}`;
-  if (inputs) sql = sql.replace(/:([a-z_]+)\b/g, (m, k) => (k in params ? literal(params[k]) : m));
+  if (params) sql = fill(sql, params);
   return tidy(head + sql);
 }
 
 const PARAM_WORDS = {
-  kind: 'the type chosen at the top of the page',
+  kind: 'the type chosen at the top',
   yesterday: 'yesterday (UTC), the day today\'s move is measured from',
   symbol: 'the market',
 };
@@ -144,6 +159,9 @@ const S = {
   view: 'today', kind: 'all', sort: 'z', q: '', limit: 50, open: null, openAll: null, pat: null,
   sql: new Map(),                                    // each calculation panel's query, for Copy
   win: null,                                         // in a ‹› window: {panel, ids, symbol}
+  // A window's editor: definition id -> the text typed in its box; the ids whose box is open; the
+  // edits being previewed (id -> SQL, or null); why a preview didn't start or stopped.
+  edit: { text: new Map(), open: [], live: null, since: 0, note: null },
   painted: 0, paintTimer: 0, html: new Map(),
 };
 
@@ -301,15 +319,25 @@ function marketRows() {
   return [...syms].map((s) => [s, (S.types.get(s) || {}).group || null, bin.get(s) ?? null]);
 }
 
-/** The queries to run now, for the view on screen. */
-function jobs() {
-  const params = { ':kind': S.kind, ':yesterday': yesterday() };
-  const job = (id, key = id, extra = {}) => ({ id: key, sql: assemble(DEFS.get(id)), params: { ...params, ...extra } });
-  if (S.win) return S.win.ids.map((id) => (id === 'market' ? job(id, `market:${S.win.symbol}`, { ':symbol': S.win.symbol }) : job(id)));
+/** The queries to run now, for the view on screen. In a window, a preview runs each number that the
+ * edits change a second time, with the edits, as `preview:<key>` (not while the tables are loading,
+ * so a preview always has its own time limit). */
+function jobs(preview = true) {
+  const params = { kind: S.kind, yesterday: yesterday() };
+  const job = (id, key = id, extra = {}, defs = DEFS) => ({ id: key, sql: assemble(defs.get(id), { defs, params: { ...params, ...extra } }) });
+  if (S.win) {
+    const out = [], defs = preview ? previewDefs() : null;
+    for (const id of S.win.ids) {
+      const key = winKey(id), extra = id === 'market' ? { symbol: S.win.symbol } : {};
+      out.push(job(id, key, extra));
+      if (defs && touches(id, defs)) out.push(job(id, `preview:${key}`, extra, defs));
+    }
+    return out;
+  }
   const out = [job('unusual_all_types')];
   if (S.view === 'today') {
     out.push(...['breadth', 'median_move', 'unusual_count', 'bitcoin', 'unusual', 'gainers', 'losers', 'markets'].map((id) => job(id)));
-    for (const sym of new Set([S.open, S.openAll])) if (sym) out.push(job('market', `market:${sym}`, { ':symbol': sym }));
+    for (const sym of new Set([S.open, S.openAll])) if (sym) out.push(job('market', `market:${sym}`, { symbol: sym }));
   }
   return out;
 }
@@ -317,17 +345,24 @@ function jobs() {
 /** Bring the engine's tables up to date (only what changed) and run the queries. */
 async function run() {
   const e = S.eng;
-  const msg = { op: 'run', jobs: jobs() };
+  const msg = { op: 'run' };
   if (e.loadedAt !== S.data.at) msg.load = S.data.raw;
+  msg.jobs = jobs(!msg.load);
   if (e.marketsVer !== S.marketsVer) msg.markets = marketRows();
   msg.prices = [...S.dirty].filter((s) => S.live.has(s)).map((s) => { const l = S.live.get(s); return [s, l.price, l.q ?? null]; });
   S.dirty.clear();
   const t0 = performance.now();
+  const previewing = msg.jobs.some((j) => j.id.startsWith('preview:'));
   let out;
   try {
-    out = await call(msg, msg.load ? 30_000 : 15_000);   // normally about 50 ms; only a stuck engine is restarted
+    // Normally about 50 ms; only a stuck engine is restarted. An edit being previewed gets 5 seconds.
+    out = await call(msg, msg.load ? 30_000 : previewing ? 5_000 : 15_000);
   } catch (err) {
     if (S.eng === e) restartEngine();   // its tables may be half updated: start again from scratch
+    if (previewing) {
+      stopPreview('Your version took more than 5 seconds, so the preview was stopped and the SQL engine restarted. Check for a join without a condition, or a step that reads a big table many times.');
+      return;
+    }
     throw err;
   }
   if (S.eng !== e) return;   // the engine was restarted meanwhile
@@ -376,23 +411,28 @@ function rawResult(res) {
 }
 
 /** A number's query as it runs here, where its definition comes from, and its parameters, with
- * copies that run in MEDUSA's D1 or in Databricks. It changes only with the definition or a parameter. */
-function queryHead(id, key = id, extra = {}) {
-  const def = DEFS.get(id);
+ * copies that run in MEDUSA's D1 or in Databricks. It changes only with the definition or a parameter.
+ * With `defs`, the version being previewed. */
+function queryHead(id, key = id, extra = {}, defs = null) {
+  const def = (defs || DEFS).get(id);
   const params = { kind: S.kind, yesterday: yesterday(), ...extra };
-  const sql = assemble(def);
-  PENDING.push([key, { id, params, frozen: S.frozen }]);
-  const used = [...new Set([...sql.matchAll(/:([a-z_]+)\b/g)].map((m) => m[1]))].filter((p) => p in params);
+  const raw = assemble(def, { defs: defs || DEFS }), sql = assemble(def, { defs: defs || DEFS, params });
+  PENDING.push([key, { id, params, frozen: S.frozen, defs }]);
+  const used = [...new Set([...noComments(raw).matchAll(/:([a-z_]+)\b/g)].map((m) => m[1]))].filter((p) => p in params);
+  const written = (p) => (p !== 'kind' ? `<code>${esc(literal(params[p]))}</code>`
+    : params.kind === 'all' ? '<code>TRUE</code> (All: every type)' : `<code>market_type = ${esc(literal(params.kind))}</code>`);
   const steps = modelsOf(def.sql).map((m) => `<code>${m}</code>${DEFS.get(m).version ? ` v${DEFS.get(m).version}` : ''}`).join(', ');
-  const origin = def.from === 'lakehouse'
-    ? `<b>Definition:</b> version ${def.version} of <code>${esc(def.id)}</code> in the lakehouse's <code>market.semantic.metric_definitions</code>${def.validFrom ? `, in use since ${esc(def.validFrom)} UTC` : ''}${def.changedBy ? ` (${esc(def.changedBy)})` : ''}${steps ? `; its shared steps: ${steps}` : ''}.`
-    : '<b>Definition:</b> the built-in copy in <code>markets-metrics.js</code>, because the lakehouse\'s definitions haven\'t been published to MEDUSA yet.';
+  const origin = defs
+    ? `<b>Your version:</b> with your changes to ${[...S.edit.live.keys()].map((d) => `<code>${esc(d)}</code>`).join(', ')}, running on this screen only. Nothing is saved.`
+    : def.from === 'lakehouse'
+      ? `<b>Definition:</b> version ${def.version} of <code>${esc(def.id)}</code> in the lakehouse's <code>market.semantic.metric_definitions</code>${def.validFrom ? `, in use since ${esc(def.validFrom)} UTC` : ''}${def.changedBy ? ` (${esc(def.changedBy)})` : ''}${steps ? `; its shared steps: ${steps}` : ''}.`
+      : '<b>Definition:</b> the built-in copy in <code>markets-metrics.js</code>, because the lakehouse\'s definitions haven\'t been published to MEDUSA yet.';
   return `<p class="faint">${origin}</p>
-    <div class="mkt-sql"><div class="h"><span>The query, exactly as the Markets page runs it</span><span class="b">
+    <div class="mkt-sql"><div class="h"><span>${defs ? 'Your version, exactly as it runs on this screen' : 'The query, exactly as the Markets page runs it'}</span><span class="b">
       <button class="btn btn-sm" type="button" data-mkt="copy" data-sql="${esc(key)}" data-db="d1">Copy for MEDUSA (D1)</button>
       <button class="btn btn-sm" type="button" data-mkt="copy" data-sql="${esc(key)}" data-db="dbx">Copy for Databricks</button></span></div>
       <pre>${esc(sql)}</pre></div>
-    ${used.length ? `<p class="mkt-params"><b>Parameters</b> ${used.map((p) => `<code>:${p}</code> = <code>${esc(literal(params[p]))}</code> <span class="faint">${PARAM_WORDS[p] || ''}</span>`).join(' · ')}</p>` : ''}`;
+    ${used.length ? `<p class="mkt-params"><b>Filled in</b> ${used.map((p) => `<code>:${p}</code> → ${written(p)} <span class="faint">${PARAM_WORDS[p] || ''}</span>`).join(' · ')}. The definition keeps <code>:${used.join('</code>, <code>:')}</code>, so it works for every choice; the query above is written with this window's values.</p>` : ''}`;
 }
 
 /** A number's result now, exactly as the engine returned it, and where each table comes from. */
@@ -416,7 +456,8 @@ const WINDOWS = {
 function openWindow(panel, symbol) {
   const name = `medusa-calc-${panel}${symbol ? `-${symbol}` : ''}`;
   const url = `/markets-window?${new URLSearchParams({ panel, kind: S.kind, ...(symbol ? { symbol } : {}) })}`;
-  const w = window.open('', name, 'popup,width=1000,height=880');
+  const size = `width=${Math.min(1600, screen.availWidth - 40)},height=${Math.min(1000, screen.availHeight - 40)}`;
+  const w = window.open('', name, `popup,${size}`);
   if (!w) { api.toast('The window was blocked: allow pop-ups for MEDUSA in the browser, then press ‹› again.', 'error'); return; }
   let fresh = true;
   try { fresh = w.location.href === 'about:blank'; } catch { /* that window is on another site */ }
@@ -440,8 +481,122 @@ function copyText(key, db) {
       binance_markets: 'each market\'s type, and yesterday\'s close from Binance where the lakehouse hasn\'t got it yet',
     },
   };
-  const sql = assemble(DEFS.get(q.id), { inputs, params: q.params });
+  const defs = q.defs || DEFS;
+  const sql = assemble(defs.get(q.id), { inputs, params: q.params, defs });
   return db === 'dbx' ? toDbx(sql) : sql;
+}
+
+/* ---------- a window's editor: change a definition and preview it on this screen ---------- */
+
+const PARAMS = ['kind', 'yesterday', 'symbol'];
+const clean = (sql) => String(sql).replace(/[\s;]+$/, '');   // a ; at the end isn't needed (and isn't stored)
+const winKey = (id) => (id === 'market' ? `market:${S.win.symbol}` : id);
+const edited = (id) => S.edit.text.has(id) && clean(S.edit.text.get(id)) !== clean(DEFS.get(id).sql);
+
+/** The definitions with the edits being previewed in place of their current versions, or null. */
+function previewDefs() {
+  if (!S.edit.live) return null;
+  const defs = new Map(DEFS);
+  for (const [id, sql] of S.edit.live) defs.set(id, { ...DEFS.get(id), sql });
+  return defs;
+}
+
+/** Whether the edits change a number: its own query, or a shared step it reads. */
+function touches(id, defs) {
+  try { return S.edit.live.has(id) || modelsOf(defs.get(id).sql, defs).some((m) => S.edit.live.has(m)); } catch { return true; }
+}
+
+/** What stops a definition from running. It must be one query that only reads, with the page's
+ * parameters only; the database checks the rest when it runs. The first two rules are the lakehouse's
+ * own test (assert_metric_definitions_valid), which reads the text as it is, comments included. */
+function sqlProblems(id, sql) {
+  const name = DEFS.get(id).name, text = clean(sql).trim(), out = [];
+  if (!noComments(text).trim()) return [`${name}: the query is empty.`];
+  if (!/^(SELECT|WITH)[^A-Z0-9_]/i.test(text)) out.push(`${name}: a query must start with SELECT or WITH, so it can only read (a comment can go after that word, not before it).`);
+  if (text.includes(';')) out.push(`${name}: only one statement, so no ; anywhere (not even in a comment).`);
+  const unknown = [...new Set([...noComments(text).matchAll(/(?<![\w:]):([A-Za-z_]\w*)/g)].map((m) => m[1]))].filter((p) => !PARAMS.includes(p));
+  if (unknown.length) out.push(`${name}: ${unknown.map((p) => `:${p}`).join(', ')} isn't a parameter the page fills in (it has :kind, :yesterday and :symbol).`);
+  return out;
+}
+
+/** The columns a number's display needs: a card's {column} fields, or a table's columns. */
+function neededColumns(id) {
+  const d = DEFS.get(id);
+  if (d.card) return [...new Set([...`${d.card.value} ${d.card.sub}`.matchAll(/\{(\w+)/g)].map((m) => m[1]))];
+  return (d.columns || []).map((c) => c.name);
+}
+
+/** Preview: every changed definition, checked first, then run on this screen next to the current one. */
+function startPreview() {
+  const changes = new Map();
+  for (const id of S.edit.text.keys()) if (edited(id)) changes.set(id, clean(S.edit.text.get(id)));
+  if (!changes.size) { stopPreview('Nothing has changed yet: edit a query, then press Preview.'); return; }
+  const problems = [...changes].flatMap(([id, sql]) => sqlProblems(id, sql));
+  const defs = new Map(DEFS);
+  for (const [id, sql] of changes) defs.set(id, { ...DEFS.get(id), sql });
+  try { for (const id of S.win.ids) modelsOf(defs.get(id).sql, defs); } catch (e) { problems.push(e.message); }
+  if (problems.length) { stopPreview(problems); return; }
+  S.edit.live = changes;
+  S.edit.since = Date.now();
+  S.edit.note = null;
+  api.log('markets', `Previewing changes to ${[...changes.keys()].join(', ')}`, null, 'debug');
+  draw();
+  S.urgent = true;
+  paint();
+}
+
+function stopPreview(note = null) {
+  S.edit.live = null;
+  S.edit.note = note;
+  for (const k of [...S.res.keys()]) if (k.startsWith('preview:')) S.res.delete(k);
+  draw();
+}
+
+/** An editor box for one definition: its SQL, what it is, and who reads it. */
+function editBox(id) {
+  const d = DEFS.get(id);
+  const readers = d.kind === 'model'
+    ? [...DEFS.values()].filter((x) => x.kind === 'metric' && (() => { try { return modelsOf(x.sql).includes(id); } catch { return false; } })()).map((x) => x.name)
+    : [];
+  const text = S.edit.text.has(id) ? S.edit.text.get(id) : d.sql;
+  const rows = Math.min(30, Math.max(6, text.split('\n').length + 1));
+  return `<div class="mkt-edit-box${edited(id) ? ' changed' : ''}" data-box="${esc(id)}">
+    <div class="h"><b>${esc(d.name)}</b><code>${esc(id)}</code><span class="faint">${d.kind === 'model' ? 'a shared step' : 'the number\'s own query'}${d.version ? `, version ${d.version}` : ''}</span><span class="sp"></span>
+      <button class="btn btn-sm" type="button" data-mkt="edit-undo" data-def="${esc(id)}">Undo my changes</button>
+      <button class="btn btn-sm" type="button" data-mkt="edit-close" data-def="${esc(id)}">Close</button></div>
+    <p class="faint">${d.kind === 'model'
+    ? `Read by name (<code>FROM ${esc(id)}</code>) by ${readers.length ? readers.map(esc).join(', ') : 'no number yet'}: changing it changes every one of them. This window previews its own numbers.`
+    : `Its shared steps (whatever follows FROM or JOIN, such as <code>today</code>) are put in front of it as <code>WITH ... AS (...)</code> when it runs. Keep the parameters as they are: the page writes in their values when it runs, so <code>:kind IN ('all', market_type)</code> becomes <code>market_type = 'crypto'</code> when Crypto is chosen, or <code>TRUE</code> for All; <code>:yesterday</code> becomes yesterday's date${id === 'market' ? ' and <code>:symbol</code> the market' : ''}.`}</p>
+    <textarea data-def="${esc(id)}" rows="${rows}" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="SQL of ${esc(d.name)}">${esc(text)}</textarea>
+  </div>`;
+}
+
+/** The editor's boxes, drawn only when one opens or closes (so typing is never interrupted). */
+function paintEditors() {
+  const el = document.getElementById('mkt-edit-boxes');
+  if (el) el.innerHTML = S.edit.open.map(editBox).join('');
+}
+
+/** The definitions a window can edit: its numbers' own queries, then the shared steps they read. */
+function editable() {
+  const out = [...S.win.ids];
+  for (const id of S.win.ids) { try { for (const m of modelsOf(DEFS.get(id).sql)) if (!out.includes(m)) out.push(m); } catch { /* shown when previewed */ } }
+  return out;
+}
+
+function paintEditBar() {
+  const chips = editable().map((id) => {
+    const d = DEFS.get(id), open = S.edit.open.includes(id);
+    return `<button class="mkt-chip" type="button" data-mkt="edit-open" data-def="${esc(id)}" aria-pressed="${open}">${esc(d.kind === 'model' ? id : d.name)}${d.version ? ` <span class="faint">v${d.version}</span>` : ''}${edited(id) ? ' <span class="mkt-dirty" title="Changed">●</span>' : ''}</button>`;
+  }).join('');
+  put('mkt-edit-pick', `<span class="faint">Open to edit:</span>${chips}`);
+  const live = S.edit.live;
+  const note = S.edit.note;
+  put('mkt-edit-status', live
+    ? `<span class="mkt-dot live"></span>Previewing your changes to ${[...live.keys()].map((d) => `<code>${esc(d)}</code>`).join(', ')} since ${clockS(S.edit.since)}, on this screen only. Nothing is saved.`
+    : `<span class="faint">${[...S.edit.text.keys()].some(edited) ? 'Changed, not previewed yet.' : 'Your version runs on this screen only, next to the current one. Nothing is saved.'}</span>`);
+  put('mkt-edit-problems', note ? `<ul class="mkt-problems">${(Array.isArray(note) ? note : [note]).map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : '');
+  document.querySelectorAll('[data-mkt="preview-stop"]').forEach((b) => { b.hidden = !live; });
 }
 
 /* ---------- the page ---------- */
@@ -536,8 +691,36 @@ table.mkt-result td, table.mkt-result th { white-space: nowrap; font-family: ui-
 .mkt-raw summary { cursor: pointer; color: var(--text-2); }
 .mkt-raw code { display: block; margin: 6px 0; }
 .mkt-sql pre { margin: 0; padding: 10px 12px; overflow-x: auto; max-height: 420px; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; line-height: 1.5; color: #d4d4d8; background: #161616; }
-/* a ‹› window (markets-window.html) */
-.mkt-win { max-width: 1100px; margin: 0 auto; padding: 18px 16px 40px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+/* a ‹› window (markets-window.html): the editor on the left, the results on the right */
+.mkt-win { max-width: 1880px; margin: 0 auto; padding: 16px 16px 40px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.mkt-win-grid, .mkt-win-out { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; min-width: 0; }
+@media (min-width: 1100px) {
+  .mkt-win-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
+  .mkt-edit { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; }
+}
+.mkt-edit .card-head { margin-bottom: 10px; }
+.mkt-edit-pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mkt-chip { height: 30px; padding: 0 11px; border-radius: 99px; border: 1px solid var(--border-2); background: #1f1f1f; color: var(--text-2); font-size: 13px; font-weight: 600; }
+.mkt-chip:hover { color: var(--text); }
+.mkt-chip[aria-pressed="true"] { border-color: var(--green-btn); background: #1c2b21; color: var(--text); }
+.mkt-dirty { color: #facc15; }
+.mkt-edit-box { margin-top: 12px; border: 1px solid var(--border-2); border-radius: 8px; overflow: hidden; }
+.mkt-edit-box.changed { border-color: #a16207; }
+.mkt-edit-box .h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 8px 6px 12px; background: #232323; font-size: 13.5px; }
+.mkt-edit-box .h code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--text-3); }
+.mkt-edit-box .h .sp { flex: 1; }
+.mkt-edit-box .h .btn { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.mkt-edit-box > p { margin: 0; padding: 8px 12px; font-size: 13px; line-height: 1.5; background: #1b1b1b; border-bottom: 1px solid var(--border); }
+.mkt-edit-box > p code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--text-2); }
+.mkt-edit-box textarea { display: block; width: 100%; min-height: 150px; resize: vertical; border: 0; outline: 0; padding: 10px 12px; background: #141414; color: #e4e4e7; font-family: ui-monospace, Consolas, monospace; font-size: 13px; line-height: 1.5; tab-size: 2; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+.mkt-edit-box textarea:focus { box-shadow: inset 0 0 0 1px var(--green-btn); }
+.mkt-edit-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; font-size: 13.5px; color: var(--text-2); }
+.mkt-edit-bar code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--text); }
+.mkt-problems { margin: 10px 0 0; padding-left: 20px; display: grid; gap: 4px; color: #e8c547; font-size: 13.5px; line-height: 1.5; }
+.mkt-cmp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 18px; }
+.mkt-cmp.cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mkt-cmp-yours .mkt-win-h, .mkt-yours-h { color: #facc15; }
+.mkt-src.mkt-yours { border-color: #a16207; }
 .mkt-win-head { display: flex; flex-wrap: wrap; gap: 10px 16px; justify-content: space-between; align-items: center; }
 .mkt-win-head h1 { font-size: 22px; font-weight: 700; }
 .mkt-win-head p { margin-top: 2px; font-size: 13.5px; }
@@ -914,28 +1097,69 @@ function paintPatterns() {
 
 const WIN_TITLES = { movers: 'Movers today', patterns: 'Patterns: what similar moves did next' };
 
+/* On a wide screen the editor is on the left and the results on the right; narrower, one under the
+   other. The editor's boxes are drawn only when one opens or closes, never while typing. */
 function windowShell() {
   const { panel, ids } = S.win;
   const named = ids.length > 1 || panel === 'patterns';   // otherwise the window's title is the number's name
   host.innerHTML = `
   <header class="mkt-win-head">
-    <div><h1 id="mkt-win-title"></h1><p class="faint">How it is calculated, live: the query exactly as the Markets page runs it, on the same data and live prices.</p></div>
+    <div><h1 id="mkt-win-title"></h1><p class="faint">How it is calculated, live, and your own version of it: the query exactly as the Markets page runs it, on the same data and live prices.</p></div>
     ${panel === 'market' || panel === 'patterns' ? '' : `<div class="toggle" role="group" aria-label="Markets" id="mkt-kinds">
       ${KINDS.map(([v, l]) => `<button data-mkt="kind" data-v="${v}" aria-pressed="${v === S.kind}">${l}</button>`).join('')}
     </div>`}
   </header>
   <div class="banner mkt-status" id="mkt-status" aria-live="polite"></div>
-  ${panel === 'patterns' ? '<section class="card"><div id="mkt-win-pat"></div></section>' : ''}
-  ${ids.map((id, i) => `
-  <section class="card">
-    <div class="card-head"><div>${named ? `<h2 id="mkt-win-name-${i}"></h2>` : ''}<p id="mkt-win-what-${i}"></p></div></div>
-    <h3 class="mkt-win-h">On the page now</h3>
-    <div id="mkt-win-shown-${i}"></div>
-    <h3 class="mkt-win-h">How it is calculated</h3>
-    <div class="mkt-src"><div id="mkt-win-head-${i}"></div><div id="mkt-win-live-${i}" class="mkt-hold"></div></div>
-  </section>`).join('')}
-  ${panel === 'market' ? '<section class="card"><div id="mkt-win-extra" class="mkt-hold"></div></section>' : ''}`;
+  <div class="mkt-win-grid">
+    <section class="card mkt-edit" aria-label="Edit and preview">
+      <div class="card-head"><div><h2>Edit and preview</h2><p>Change the SQL, then press <b>Preview</b> (or Ctrl+Enter): your version runs on this screen only, next to the current numbers. Nothing is saved.</p></div></div>
+      <div class="mkt-edit-pick" id="mkt-edit-pick"></div>
+      <div id="mkt-edit-boxes"></div>
+      <div class="mkt-edit-bar">
+        <button class="btn btn-green" type="button" data-mkt="preview">Preview</button>
+        <button class="btn" type="button" data-mkt="preview-stop" hidden>Stop preview</button>
+        <span id="mkt-edit-status"></span>
+      </div>
+      <div id="mkt-edit-problems"></div>
+    </section>
+    <div class="mkt-win-out">
+      ${ids.map((id, i) => `
+      <section class="card">
+        <div class="card-head"><div>${named ? `<h2 id="mkt-win-name-${i}"></h2>` : ''}<p id="mkt-win-what-${i}"></p></div></div>
+        <div id="mkt-win-shown-${i}"></div>
+        <h3 class="mkt-win-h">How it is calculated</h3>
+        <div class="mkt-src"><div id="mkt-win-head-${i}"></div><div id="mkt-win-live-${i}" class="mkt-hold"></div></div>
+        <div id="mkt-win-prev-${i}" class="mkt-hold"></div>
+      </section>`).join('')}
+      ${panel === 'patterns' ? '<section class="card"><div id="mkt-win-pat"></div></section>' : ''}
+      ${panel === 'market' ? '<section class="card"><div id="mkt-win-extra" class="mkt-hold"></div></section>' : ''}
+    </div>
+  </div>`;
   S.html.clear();
+  S.edit.painted = null;
+}
+
+/** "On the page now", and beside it "Your version" while an edit that changes this number is previewed. */
+function shownBoth(id, key) {
+  const now = `<div><h3 class="mkt-win-h">On the page now</h3>${shownAs(id, key)}</div>`;
+  const defs = previewDefs();
+  if (!defs) return now;
+  if (!touches(id, defs)) return `${now}<p class="faint mkt-win-note">Your changes don't change this number.</p>`;
+  const pk = `preview:${key}`, res = S.res.get(pk);
+  const missing = res && !res.error ? neededColumns(id).filter((c) => !res.columns.includes(c)) : [];
+  return `<div class="mkt-cmp${DEFS.get(id).card ? ' cards' : ''}">${now}
+    <div class="mkt-cmp-yours"><h3 class="mkt-win-h">Your version <span class="faint">(this screen only)</span></h3>${shownAs(id, pk)}
+    ${missing.length ? `<p class="warn mkt-win-note">The page needs ${missing.map((c) => `<code>${esc(c)}</code>`).join(', ')}, which your version doesn't return, so it can't be saved like this.</p>` : ''}</div></div>`;
+}
+
+/** Your version's whole query as it runs here, with copies to try it in D1 or Databricks, and its result. */
+function previewQuery(id, key, extra) {
+  const defs = previewDefs();
+  if (!defs || !touches(id, defs)) return '';
+  const pk = `preview:${key}`;
+  return `<h3 class="mkt-win-h mkt-yours-h">Your version, as it runs</h3>
+    <div class="mkt-src mkt-yours">${queryHead(id, pk, extra, defs)}${rawResult(S.res.get(pk))}
+    <p><button class="btn btn-sm" type="button" data-mkt="csv" data-key="${esc(pk)}" data-what="result">Download your version's result (CSV)</button></p></div>`;
 }
 
 /** A number as the Markets page shows it: the card, or the first rows of the table. */
@@ -966,14 +1190,20 @@ function paintWindow() {
   const title = panel === 'market' ? `${String(symbol).replace(/USDT$/, '')}: one market` : WIN_TITLES[panel] || DEFS.get(ids[0]).name;
   document.title = `${title} · how it is calculated · MEDUSA`;
   put('mkt-win-title', esc(title));
+  // The editor's boxes are drawn when the definitions arrive (and again if they change, unless the
+  // person is typing in one).
+  const typing = document.activeElement && document.activeElement.matches('#mkt-edit-boxes textarea');
+  if (S.edit.painted !== S.data.at && !typing) { S.edit.painted = S.data.at; paintEditors(); }
+  paintEditBar();
   if (panel === 'patterns') put('mkt-win-pat', patternSources());
   ids.forEach((id, i) => {
-    const key = id === 'market' ? `market:${symbol}` : id, d = DEFS.get(id);
+    const key = winKey(id), d = DEFS.get(id), extra = id === 'market' ? { symbol } : {};
     put(`mkt-win-name-${i}`, esc(d.name));
     put(`mkt-win-what-${i}`, esc(d.description));
-    put(`mkt-win-shown-${i}`, shownAs(id, key));
-    put(`mkt-win-head-${i}`, queryHead(id, key, id === 'market' ? { symbol } : {}));
+    put(`mkt-win-shown-${i}`, shownBoth(id, key));
+    put(`mkt-win-head-${i}`, queryHead(id, key, extra));
     put(`mkt-win-live-${i}`, queryLive(id, key));
+    put(`mkt-win-prev-${i}`, previewQuery(id, key, extra));
   });
   if (panel === 'market') put('mkt-win-extra', marketExtras(symbol));
 }
@@ -1182,7 +1412,8 @@ async function downloadCsv(key, what) {
     sql: `SELECT * FROM market_now\nWHERE :kind IN ('all', market_type)${one ? '\n  AND symbol = :symbol' : ''}`,
   };
   try {
-    const out = await call({ op: 'run', jobs: [{ id: 'inputs', sql: assemble(def), params: { ':kind': S.kind, ':yesterday': yesterday(), ...(one ? { ':symbol': one } : {}) } }] }, 5_000);
+    const params = { kind: S.kind, yesterday: yesterday(), ...(one ? { symbol: one } : {}) };
+    const out = await call({ op: 'run', jobs: [{ id: 'inputs', sql: assemble(def, { params }) }] }, 5_000);
     const res = out.inputs;
     if (res.error) throw new Error(res.error);
     saveCsv(`medusa-markets-inputs-${stamp}Z.csv`, res.columns, res.rows);
@@ -1207,6 +1438,7 @@ function onClick(e) {
   }
   if (act === 'csv') { downloadCsv(el.dataset.key, el.dataset.what); return; }
   if (act === 'win') { openWindow(el.dataset.panel, el.dataset.sym || null); return; }
+  if (act.startsWith('edit-') || act.startsWith('preview')) { onEdit(act, el.dataset.def); return; }
   if (act === 'view') { S.view = el.dataset.v; api.store.set('mktView', S.view); }
   else if (act === 'kind') { S.kind = el.dataset.v; S.limit = 50; if (!S.win) api.store.set('mktKind', S.kind); }   // a window's choice is its own
   else if (act === 'sort') { S.sort = el.dataset.v; S.limit = 50; draw(); return; }
@@ -1219,11 +1451,43 @@ function onClick(e) {
   paint();   // the view, type or an opened market changes which queries run
 }
 
+/** The editor's buttons: open or close a definition's box, undo its changes, preview, stop. */
+function onEdit(act, id) {
+  if (act === 'preview') { startPreview(); return; }
+  if (act === 'preview-stop') { stopPreview(); return; }
+  if (!DEFS.has(id)) return;
+  if (act === 'edit-open' || act === 'edit-close') {
+    const open = S.edit.open.includes(id);
+    S.edit.open = open ? S.edit.open.filter((x) => x !== id) : [...S.edit.open, id];
+    paintEditors();
+    paintEditBar();
+    if (!open) { const t = [...host.querySelectorAll('textarea[data-def]')].find((x) => x.dataset.def === id); if (t) t.focus(); }
+    return;
+  }
+  if (act === 'edit-undo') {
+    S.edit.text.delete(id);
+    paintEditors();
+    if (!S.edit.live) { paintEditBar(); return; }
+    if ([...S.edit.text.keys()].some(edited)) startPreview(); else stopPreview();   // preview what's left
+  }
+}
+
 function onInput(e) {
-  if (e.target.id !== 'mkt-q') return;
-  S.q = e.target.value.trim().toUpperCase();
+  const t = e.target;
+  if (t.matches('textarea[data-def]')) {
+    S.edit.text.set(t.dataset.def, t.value);
+    t.closest('.mkt-edit-box').classList.toggle('changed', edited(t.dataset.def));
+    paintEditBar();
+    return;
+  }
+  if (t.id !== 'mkt-q') return;
+  S.q = t.value.trim().toUpperCase();
   S.limit = 50;
   draw();
+}
+
+function onKey(e) {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.matches('textarea[data-def]')) { e.preventDefault(); startPreview(); }
 }
 
 const validKind = (k) => (KINDS.some(([v]) => v === k) ? k : 'all');
@@ -1262,7 +1526,11 @@ export function renderWindow(el, appApi, { panel, symbol = null, kind = 'all' })
   }
   S.win = { panel, ids, symbol: panel === 'market' ? symbol : null };
   S.kind = validKind(kind);
+  S.edit.open = [...ids];   // the number's own query is ready to edit
   attach(el);
+  el.addEventListener('keydown', onKey);
+  // Closing the window, or reloading it, asks first while there are changes (nothing is saved).
+  addEventListener('beforeunload', (e) => { if ([...S.edit.text.keys()].some(edited)) { e.preventDefault(); e.returnValue = ''; } });
   shell();
   S.stopped = false;
   api.log('markets', `Window: how ${panel}${symbol ? ` (${symbol})` : ''} is calculated`, null, 'debug');
