@@ -77,9 +77,11 @@ jobs:
     uses: ./.github/workflows/lakehouse-transform.yml
     secrets: inherit
 
-  # Last, whatever happened: one row per job of this run in ops.logs.pipeline_events (step 31).
+  # Last, whatever happened: this run, its jobs, steps and errors into the ETL log tables (step 31).
   log:
     needs: [days, load, transform]
     if: ${{ always() }}
     uses: ./.github/workflows/lakehouse-log-run.yml
+    with:
+      run_inputs: ${{ toJSON(inputs) }}
     secrets: inherit

@@ -76,6 +76,14 @@ resources:
             file:
               path: ./sql/ddl/007_ops_logs.sql
 
+        - task_key: create_etl_logs
+          depends_on:
+            - task_key: create_ops_logs
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/ddl/008_etl_logs.sql
+
     ops_views:
       name: lakehouse-ops-views
       description: Creates the ops views that read the bronze pipeline's own event log (ops.logs.bronze_loads). Run after setup_ddl and the first bronze run. Safe to run again.

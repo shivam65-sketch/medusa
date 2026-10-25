@@ -101,13 +101,14 @@ jobs:
     uses: ./.github/workflows/lakehouse-transform.yml
     secrets: inherit
 
-  # Last, whatever happened: one row per job of this run in ops.logs.pipeline_events, and MEDUSA's
-  # failures since yesterday in ops.logs.app_events (step 31).
+  # Last, whatever happened: this run, its jobs, steps and errors into the ETL log tables (ops.logs.etl_*),
+  # and MEDUSA's failures since the last copy into ops.logs.app_events (step 31).
   log:
     needs: [load, recheck, transform]
     if: ${{ always() }}
     uses: ./.github/workflows/lakehouse-log-run.yml
     with:
       data_date: ${{ inputs.date || 'yesterday' }}
+      run_inputs: ${{ toJSON(inputs) }}
       ship_app_events: true
     secrets: inherit

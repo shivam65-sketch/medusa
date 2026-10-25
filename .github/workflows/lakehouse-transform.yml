@@ -71,13 +71,20 @@ jobs:
           DBT_ENV_SECRET_DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: dbt build
 
-      # Whatever happened above (step 31): the build's counts, and each model, test or freshness check
-      # that failed or warned, into ops.logs.pipeline_events. Never fails the run. python3: when an
-      # earlier step failed, Python 3.13 wasn't set up, and there is nothing to log anyway.
-      - name: Log dbt results
+      # Whatever happened above (step 31): dbt's result files, for the run's log job, which writes the
+      # build's counts into etl_steps and every model, test or freshness check that failed or warned
+      # into etl_errors. Kept 7 days. Never fails the run.
+      - name: Keep dbt's results for the log
         if: ${{ always() }}
         continue-on-error: true
-        run: python3 ops/log_pipeline_run.py dbt --target dbt/target
+        uses: actions/upload-artifact@v7
+        with:
+          name: dbt-results-${{ github.run_attempt }}
+          path: |
+            lakehouse/dbt/target/run_results.json
+            lakehouse/dbt/target/sources.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       # Only after every test passed: copy coin_baseline and event_evidence into MEDUSA through its
       # write-only endpoint, then check MEDUSA holds exactly as many rows as gold (ADR-024). Skipped

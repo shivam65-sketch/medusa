@@ -1,9 +1,12 @@
-# MEDUSA lakehouse: log a run (a reusable workflow).
+# MEDUSA lakehouse: log a run (a reusable workflow, also runnable by hand).
 # The last job of every lakehouse workflow (step 31). It runs whether the jobs before it succeeded,
-# failed or were cancelled, reads each job of this run and its steps from GitHub, and writes one row
-# per job into ops.logs.pipeline_events in Databricks: succeeded, failed (at which step), cancelled or
-# skipped. The daily load also copies MEDUSA's failures since the last copy into ops.logs.app_events.
-# Logging never fails the run: if Databricks or MEDUSA can't be reached, the step only warns.
+# failed or were cancelled, and writes the run into the ETL log tables in Databricks: the run
+# (etl_runs), each job (etl_jobs), each step (etl_steps), and every failed step and failed or warning
+# dbt model, test or freshness check (etl_errors). The daily load also copies MEDUSA's failures since
+# the last copy into ops.logs.app_events.
+# Started by hand ("Run workflow"), it instead fills the tables with every lakehouse run GitHub still
+# has since the day given (GitHub keeps 90 days); runs already there are left as they are.
+# Logging never fails a run: if Databricks or MEDUSA can't be reached, the step only warns.
 name: Lakehouse log run
 
 on:
@@ -14,13 +17,24 @@ on:
         type: string
         required: false
         default: ""
+      run_inputs:
+        description: "JSON of what was typed when the run was started by hand (the caller's inputs)"
+        type: string
+        required: false
+        default: ""
       ship_app_events:
         description: "Also copy MEDUSA's failures into ops.logs.app_events (the daily load)"
         type: boolean
         required: false
         default: false
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Fill the ETL log tables with every lakehouse run since this day, YYYY-MM-DD"
+        required: true
+        default: "2026-10-19"
 
-# Reads the repository and this run's jobs; writes nothing to GitHub.
+# Reads the repository and the runs' jobs and logs; writes nothing to GitHub.
 permissions:
   contents: read
   actions: read
@@ -34,6 +48,11 @@ jobs:
         working-directory: lakehouse
     env:
       MEDUSA_URL: ${{ secrets.MEDUSA_URL }}
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
+      # Called by another workflow, github.workflow is the caller's name; started by hand, it is this one.
+      BACKFILL: ${{ github.workflow == 'Lakehouse log run' }}
     steps:
       - name: Get the code
         uses: actions/checkout@v7
@@ -46,15 +65,29 @@ jobs:
       - name: Install the Databricks CLI
         uses: databricks/setup-cli@v1.21.0
 
-      # The day goes through an environment variable, not straight into the command.
-      - name: Write this run's jobs to ops.logs.pipeline_events
+      # Left by the transform job, when it ran in this run (attempt).
+      - name: Get dbt's results
+        if: ${{ env.BACKFILL != 'true' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: dbt-results-${{ github.run_attempt }}
+          path: lakehouse/dbt-results
+
+      # The day and the inputs go through environment variables, not straight into the command.
+      - name: Write this run to the ETL log tables
+        if: ${{ env.BACKFILL != 'true' }}
         continue-on-error: true
         env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-          GITHUB_TOKEN: ${{ github.token }}
           DATA_DATE: ${{ inputs.data_date }}
-        run: python ops/log_pipeline_run.py jobs --data-date "$DATA_DATE"
+          RUN_INPUTS: ${{ inputs.run_inputs }}
+        run: python ops/log_pipeline_run.py run --data-date "$DATA_DATE" --inputs "$RUN_INPUTS" --dbt-results dbt-results
+
+      - name: Fill the ETL log tables from GitHub's history
+        if: ${{ env.BACKFILL == 'true' }}
+        env:
+          SINCE: ${{ inputs.since }}
+        run: python ops/log_pipeline_run.py backfill --since "$SINCE"
 
       # The daily load only: the errors MEDUSA's pages reported and its server hit since the last copy
       # (MEDUSA's read-only ops export). Skipped where MEDUSA isn't set up (no MEDUSA_URL secret).
@@ -62,7 +95,5 @@ jobs:
         if: ${{ inputs.ship_app_events && env.MEDUSA_URL != '' }}
         continue-on-error: true
         env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           MEDUSA_OPS_TOKEN: ${{ secrets.MEDUSA_OPS_TOKEN }}
         run: python ops/ship_app_events.py
