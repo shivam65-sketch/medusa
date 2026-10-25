@@ -11,7 +11,7 @@ import { json, fail, readBody } from './http.js';
 import { labRoute, bodyLimit } from './lab.js';
 import { logsRoute } from './logs.js';
 import { marketIngest, marketScanner } from './market.js';
-import { myMetrics, saveMetric, resetMetric } from './metrics.js';
+import { myMetrics, saveMetric, resetMetric, metricHistory, reloadMetrics } from './metrics.js';
 import {
   currentUser, accountInfo, confirmPassword, signup, login, recover, logout, changePassword, newRecovery,
   twoStepSetup, twoStepEnable, twoStepDisable, signOutOthers, deleteAccount,
@@ -318,10 +318,13 @@ async function route(req, env, url) {
   if (path === '/api/logs') return logsRoute(req, env, url, uid);
   if (path === '/api/fx' && method === 'GET') return usdtInr();
   if (path === '/api/market/scanner' && method === 'GET') return marketScanner(env);   // the live scanner's data, the same for every account
-  // The Markets definitions: the account's own versions, and saving a version to the lakehouse (metrics.js).
+  // The Markets definitions: the account's own versions, saving a version to the lakehouse, every version
+  // of one, and (the owner) reloading MEDUSA's copy from the lakehouse (metrics.js).
   if (path === '/api/market/metrics/mine' && method === 'GET') return myMetrics(env, user);
   if (path === '/api/market/metrics/save' && method === 'POST') return saveMetric(req, env, user);
   if (path === '/api/market/metrics/reset' && method === 'POST') return resetMetric(req, env, user);
+  if (path === '/api/market/metrics/history' && method === 'GET') return metricHistory(env, user, url);
+  if (path === '/api/market/metrics/reload' && method === 'POST') return reloadMetrics(env, user);
 
   // Dev tools: how far the server is (and which Cloudflare data centre answered), and clearing what this
   // browser keeps for MEDUSA. Only the site's own response can ask a browser to clear that (Clear-Site-Data);

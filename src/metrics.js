@@ -17,14 +17,18 @@
 // three, saving is off and the page only previews.
 
 import { json, fail, readBody } from './http.js';
-import { rebuildAnswer } from './market.js';
+import { replaceTable, rebuildAnswer } from './market.js';
 
 const WAREHOUSE_NAME = 'Serverless Starter Warehouse';
 const SHARED_TABLE = 'market.semantic.metric_definitions';
 const OWN_TABLE = 'market.semantic.user_metric_definitions';
 const PARAMS = ['kind', 'yesterday', 'symbol'];
 const DAY = 86_400_000;
-const LIMITS = { account: 20, all: 300 };   // saves a day, per account and in all: each one wakes the warehouse
+// A day's allowance, per account and in all: every save and every history read wakes the warehouse.
+const LIMITS = {
+  metricSave: { account: 20, all: 300, did: 'saved' },
+  metricRead: { account: 60, all: 600, did: 'read from the lakehouse' },
+};
 
 export const canSave = (env) => Boolean(env.DATABRICKS_HOST && env.DATABRICKS_CLIENT_ID && env.DATABRICKS_CLIENT_SECRET);
 const isOwner = (env, uid) => env.MARKET_OWNER_ID != null && String(env.MARKET_OWNER_ID).trim() === String(uid);
@@ -164,6 +168,26 @@ WHERE account_id = :account_id AND metric_id = :metric_id AND is_current AND ver
 // A deleted account's versions go with it.
 const FORGET_OWN = `DELETE FROM ${OWN_TABLE} WHERE account_id = :account_id`;
 
+// Every version of one definition: the shared ones, and the account's own. Newest first.
+const HISTORY = `SELECT 'shared' AS scope, version, sql_text, description,
+       date_format(valid_from, 'yyyy-MM-dd HH:mm:ss') AS valid_from, date_format(valid_to, 'yyyy-MM-dd HH:mm:ss') AS valid_to,
+       is_current, changed_by, change_note, CAST(NULL AS INT) AS based_on
+FROM ${SHARED_TABLE} WHERE metric_id = :metric_id
+UNION ALL
+SELECT 'own', version, sql_text, description,
+       date_format(valid_from, 'yyyy-MM-dd HH:mm:ss'), date_format(valid_to, 'yyyy-MM-dd HH:mm:ss'),
+       is_current, changed_by, change_note, based_on
+FROM ${OWN_TABLE} WHERE metric_id = :metric_id AND account_id = :account_id
+ORDER BY scope DESC, version DESC`;
+
+// The versions in use, for reloading MEDUSA's copy (the same as the daily publish's).
+const CURRENT_SHARED = `SELECT metric_id, version, kind, name, description, sql_text, display,
+       date_format(valid_from, 'yyyy-MM-dd HH:mm:ss') AS valid_from, changed_by, change_note
+FROM ${SHARED_TABLE} WHERE is_current`;
+const CURRENT_OWN = `SELECT account_id AS user_id, metric_id, version, sql_text, description, based_on,
+       date_format(valid_from, 'yyyy-MM-dd HH:mm:ss') AS valid_from, changed_by, change_note
+FROM ${OWN_TABLE} WHERE is_current`;
+
 /* ---------- the account's side ---------- */
 
 /** The name the account gave in MEDUSA (shown on its versions), or "account N": never its email. */
@@ -174,18 +198,21 @@ async function nameOf(env, uid) {
   return (name || `account ${uid}`).slice(0, 40);
 }
 
-/** A save (or giving one up) counts against the account's and everyone's allowance for the day. */
-async function overLimit(env, uid) {
-  const since = Date.now() - DAY;
+/** A save (or giving one up) or a read from the lakehouse counts against the account's and everyone's
+ * allowance for the day; the message when it is used up, or null. */
+async function overLimit(env, uid, kind = 'metricSave') {
+  const lim = LIMITS[kind], since = Date.now() - DAY;
   const [mine, all] = await env.DB.batch([
-    env.DB.prepare("SELECT COUNT(*) AS n FROM attempts WHERE kind = 'metricSave' AND key = ? AND ts > ?").bind(String(uid), since),
-    env.DB.prepare("SELECT COUNT(*) AS n FROM attempts WHERE kind = 'metricSave' AND ts > ?").bind(since),
+    env.DB.prepare('SELECT COUNT(*) AS n FROM attempts WHERE kind = ? AND key = ? AND ts > ?').bind(kind, String(uid), since),
+    env.DB.prepare('SELECT COUNT(*) AS n FROM attempts WHERE kind = ? AND ts > ?').bind(kind, since),
   ]);
-  if (mine.results[0].n >= LIMITS.account) return `You've saved ${LIMITS.account} times today, the most a day. Try again tomorrow.`;
-  if (all.results[0].n >= LIMITS.all) return 'MEDUSA has saved as many definitions today as it allows for everyone. Try again tomorrow.';
-  await env.DB.prepare("INSERT INTO attempts (kind, key, ts) VALUES ('metricSave', ?, ?)").bind(String(uid), Date.now()).run();
+  if (mine.results[0].n >= lim.account) return `You've ${lim.did} ${lim.account} times today, the most a day. Try again tomorrow.`;
+  if (all.results[0].n >= lim.all) return `MEDUSA has ${lim.did} as many times today as it allows for everyone. Try again tomorrow.`;
+  await env.DB.prepare('INSERT INTO attempts (kind, key, ts) VALUES (?, ?, ?)').bind(kind, String(uid), Date.now()).run();
   return null;
 }
+
+const int = (v) => (v == null ? null : Number(v));
 
 /** GET /api/market/metrics/mine: the account's own versions in use, and what Save does for it. */
 export async function myMetrics(env, user) {
@@ -290,6 +317,66 @@ export async function resetMetric(req, env, user) {
   }
   try { await env.DB.prepare('DELETE FROM market_user_metrics WHERE user_id = ? AND metric_id = ?').bind(user.id, id).run(); } catch { /* the daily publish removes it */ }
   return json({ ok: true });
+}
+
+/** GET /api/market/metrics/history?id=breadth: every version of one definition from the lakehouse, the
+ * shared ones and the account's own, newest first. */
+export async function metricHistory(env, user, url) {
+  if (!canSave(env)) return fail(503, 'Reading the lakehouse isn\'t set up on this MEDUSA (its Databricks secrets are missing).');
+  const id = url.searchParams.get('id') || '';
+  if (!/^[a-z][a-z0-9_]{0,39}$/.test(id)) return fail(400, 'Which definition?');
+  let known;
+  try {
+    known = await env.DB.prepare('SELECT 1 FROM market_metrics WHERE metric_id = ?').bind(id).first();
+  } catch (e) {
+    if (noTable(e)) return fail(409, 'The lakehouse\'s definitions haven\'t been published to MEDUSA yet.');
+    throw e;
+  }
+  if (!known) return fail(404, 'There is no definition with that name.');
+  const limited = await overLimit(env, user.id, 'metricRead');
+  if (limited) return fail(429, limited);
+  try {
+    const conn = await connect(env);
+    const rows = await run(env, conn, HISTORY, { metric_id: ['STRING', id], account_id: ['BIGINT', user.id] });
+    return json({
+      metric_id: id,
+      versions: rows.map((r) => ({ ...r, version: int(r.version), based_on: int(r.based_on), is_current: r.is_current === 'true' })),
+    });
+  } catch (e) {
+    if (e instanceof DbxError) return fail(502, e.message);
+    throw e;
+  }
+}
+
+/** POST /api/market/metrics/reload (the owner only): MEDUSA's copy of the definitions, read again from
+ * the lakehouse now, the same way the daily publish copies them. For a change made in Databricks
+ * itself. Answers the shared versions and the owner's own, so the page can use them at once. */
+export async function reloadMetrics(env, user) {
+  if (!canSave(env)) return fail(503, 'Reading the lakehouse isn\'t set up on this MEDUSA (its Databricks secrets are missing).');
+  if (!isOwner(env, user.id)) return fail(403, 'Only the owner\'s account reloads the definitions; everyone else gets them with the daily publish.');
+  const limited = await overLimit(env, user.id, 'metricRead');
+  if (limited) return fail(429, limited);
+  let shared, own;
+  try {
+    const conn = await connect(env);
+    shared = (await run(env, conn, CURRENT_SHARED, {})).map((r) => ({ ...r, version: int(r.version) }));
+    own = (await run(env, conn, CURRENT_OWN, {})).map((r) => ({ ...r, user_id: int(r.user_id), version: int(r.version), based_on: int(r.based_on) }));
+  } catch (e) {
+    if (e instanceof DbxError) return fail(502, `${e.message} MEDUSA's copy is unchanged.`);
+    throw e;
+  }
+  const day = async (t) => ((await env.DB.prepare('SELECT as_of FROM market_publish WHERE tbl = ?').bind(t).first()) || {}).as_of
+    || new Date().toISOString().slice(0, 10);
+  const a = await replaceTable(env, 'market_metrics', await day('market_metrics'), shared);
+  if (a.error) return fail(502, `The lakehouse's shared definitions don't pass MEDUSA's checks (${a.error}). MEDUSA's copy is unchanged.`);
+  let b = { rows: 0 };
+  try {
+    b = await replaceTable(env, 'market_user_metrics', await day('market_user_metrics'), own);
+  } catch (e) {
+    if (!noTable(e)) throw e;   // before migration 005
+  }
+  if (b.error) return fail(502, `The lakehouse's own versions don't pass MEDUSA's checks (${b.error}). The shared ones were reloaded.`);
+  return json({ ok: true, shared, mine: own.filter((r) => r.user_id === user.id), counts: { shared: a.rows, own: b.rows }, served: a.served });
 }
 
 /** A deleted account's own versions: removed from Databricks and from MEDUSA's copy. Best effort: the

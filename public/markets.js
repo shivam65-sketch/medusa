@@ -180,7 +180,7 @@ const S = {
   win: null,                                         // in a ‹› window: {panel, ids, symbol}
   // A window's editor: definition id -> the text typed in its box; the ids whose box is open; the
   // edits being previewed (id -> SQL, or null); why a preview didn't start or stopped.
-  edit: { text: new Map(), open: [], live: null, since: 0, note: null },
+  edit: { text: new Map(), open: [], live: null, since: 0, note: null, hist: new Map() },
   painted: 0, paintTimer: 0, html: new Map(),
 };
 
@@ -587,13 +587,70 @@ function editBox(id) {
   const rows = Math.min(30, Math.max(6, text.split('\n').length + 1));
   return `<div class="mkt-edit-box${edited(id) ? ' changed' : ''}" data-box="${esc(id)}">
     <div class="h"><b>${esc(d.name)}</b><code>${esc(id)}</code><span class="faint">${d.kind === 'model' ? 'a shared step' : 'the number\'s own query'}${d.own ? `, your own version ${d.own.version}` : d.version ? `, version ${d.version}` : ''}</span><span class="sp"></span>
+      ${SRC.mine.canSave && d.from === 'lakehouse' ? `<button class="btn btn-sm" type="button" data-mkt="edit-history" data-def="${esc(id)}">History</button>` : ''}
       <button class="btn btn-sm" type="button" data-mkt="edit-undo" data-def="${esc(id)}">Undo my changes</button>
       <button class="btn btn-sm" type="button" data-mkt="edit-close" data-def="${esc(id)}">Close</button></div>
     <p class="faint">${d.kind === 'model'
     ? `Read by name (<code>FROM ${esc(id)}</code>) by ${readers.length ? readers.map(esc).join(', ') : 'no number yet'}: changing it changes every one of them. This window previews its own numbers.`
     : `Its shared steps (whatever follows FROM or JOIN, such as <code>today</code>) are put in front of it as <code>WITH ... AS (...)</code> when it runs. Keep the parameters as they are: the page writes in their values when it runs, so <code>:kind IN ('all', market_type)</code> becomes <code>market_type = 'crypto'</code> when Crypto is chosen, or <code>TRUE</code> for All; <code>:yesterday</code> becomes yesterday's date${id === 'market' ? ' and <code>:symbol</code> the market' : ''}.`}</p>
     <textarea data-def="${esc(id)}" rows="${rows}" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="SQL of ${esc(d.name)}">${esc(text)}</textarea>
+    <div class="mkt-hist" data-hist="${esc(id)}">${histHtml(id)}</div>
   </div>`;
+}
+
+/** A definition's history in its box: every version from the lakehouse, newest first, with who changed
+ * it, when and why, its SQL, and a button that makes it the next version (through Preview and Save). */
+function histHtml(id) {
+  const h = S.edit.hist.get(id);
+  if (!h) return '';
+  const head = `<div class="h"><b>History</b><span class="faint">every version in the lakehouse, newest first</span><span class="sp"></span>
+    <button class="btn btn-sm" type="button" data-mkt="edit-history" data-def="${esc(id)}">Read again</button>
+    <button class="btn btn-sm" type="button" data-mkt="edit-hist-close" data-def="${esc(id)}">Close</button></div>`;
+  if (h.state === 'loading') return `${head}<p class="faint">Reading from the lakehouse… (Databricks can take up to a minute to wake up)</p>`;
+  if (h.state === 'error') return `${head}<p class="warn">${esc(h.error)}</p>`;
+  const d = DEFS.get(id);
+  const inUse = (v) => (v.scope === 'own' ? d.own && d.own.version === v.version : !d.own && d.version === v.version);
+  const row = (v) => `<div class="mkt-hist-row${inUse(v) ? ' current' : ''}">
+    <div><b>${v.scope === 'own' ? 'Your own version' : 'Shared version'} ${v.version}</b>${inUse(v) ? ' <span class="mkt-tag up">in use</span>' : v.is_current ? ' <span class="faint">(current)</span>' : ''}
+      <span class="faint">${esc(v.valid_from || '')}${v.valid_to ? ` → ${esc(v.valid_to)}` : ' → now'} UTC · ${esc(v.changed_by || '')}${v.based_on ? ` · from shared version ${v.based_on}` : ''}</span></div>
+    ${v.change_note ? `<div>“${esc(v.change_note)}”</div>` : ''}
+    <details><summary>Its SQL</summary><pre>${esc(v.sql_text)}</pre></details>
+    ${inUse(v) ? '' : `<button class="btn btn-sm" type="button" data-mkt="edit-reuse" data-def="${esc(id)}" data-scope="${v.scope}" data-v="${v.version}">Use this version again</button>`}
+  </div>`;
+  const shared = h.versions.filter((v) => v.scope === 'shared'), own = h.versions.filter((v) => v.scope === 'own');
+  return `${head}${own.length ? `<p class="faint">Your own versions (only your account uses them):</p>${own.map(row).join('')}` : ''}
+    <p class="faint">${own.length ? 'The shared versions (every account without its own uses the current one):' : 'The shared versions:'}</p>${shared.map(row).join('')}`;
+}
+
+function paintHist(id) {
+  const el = [...document.querySelectorAll('[data-hist]')].find((x) => x.dataset.hist === id);
+  if (el) el.innerHTML = histHtml(id);
+}
+
+async function loadHistory(id) {
+  S.edit.hist.set(id, { state: 'loading' });
+  paintHist(id);
+  try {
+    const r = await api.call('GET', `/api/market/metrics/history?id=${encodeURIComponent(id)}`);
+    S.edit.hist.set(id, { state: 'ok', versions: r.versions || [] });
+  } catch (e) {
+    S.edit.hist.set(id, { state: 'error', error: e.message });
+  }
+  paintHist(id);
+}
+
+/** An old version becomes the next one: its SQL goes into the editor, is previewed, and Save opens with
+ * a note saying where it came from. Saving it goes through every check, like any change. */
+function reuseVersion(id, scope, version) {
+  const h = S.edit.hist.get(id), v = h && h.versions && h.versions.find((x) => x.scope === scope && x.version === version);
+  if (!v) return;
+  S.edit.text.set(id, v.sql_text);
+  if (!S.edit.open.includes(id)) S.edit.open.push(id);
+  paintEditors();
+  startPreview();
+  if (S.edit.live && S.edit.live.has(id)) {
+    openSave(new Map([[id, { note: `Back to ${scope === 'own' ? 'my own' : 'shared'} version ${version}`, description: v.description || DEFS.get(id).description }]]));
+  }
 }
 
 /** The editor's boxes, drawn only when one opens or closes (so typing is never interrupted). */
@@ -622,6 +679,8 @@ function paintEditBar() {
     : `<span class="faint">${[...S.edit.text.keys()].some(edited) ? 'Changed, not previewed yet.' : 'Your version runs on this screen only, next to the current one.'}</span>`);
   put('mkt-edit-problems', note ? `<ul class="mkt-problems">${(Array.isArray(note) ? note : [note]).map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : '');
   document.querySelectorAll('[data-mkt="preview-stop"]').forEach((b) => { b.hidden = !live; });
+  const reload = document.querySelector('[data-mkt="defs-reload"]');
+  if (reload) reload.hidden = !(SRC.mine.canSave && SRC.mine.saves === 'shared');
   const save = document.querySelector('[data-mkt="save-open"]');
   if (save) save.hidden = !(live && SRC.mine.canSave && [...live.keys()].every((id) => DEFS.get(id).from === 'lakehouse'));
   put('mkt-edit-saves', SRC.mine.canSave
@@ -642,6 +701,7 @@ function applySaved({ saves, definition: d }) {
   rebuildDefs();
 }
 function applyGaveUp(id) {
+  S.edit.hist.delete(id);
   SRC.mine.rows = SRC.mine.rows.filter((r) => r.metric_id !== id);
   rebuildDefs();
 }
@@ -656,9 +716,42 @@ if (channel) {
     if (!data || !host) return;
     if (data.type === 'saved' && data.definition) applySaved(data);
     else if (data.type === 'gaveup') applyGaveUp(data.metric_id);
+    else if (data.type === 'reloaded' && Array.isArray(data.shared)) applyReload(data);
     else return;
     definitionsChanged();
   };
+}
+
+/** The definitions read again from the lakehouse (the owner's Reload): the shared ones and the
+ * account's own replace what this page had. */
+function applyReload({ shared, mine }) {
+  SRC.shared = shared;
+  if (Array.isArray(mine)) SRC.mine.rows = mine;
+  S.edit.hist.clear();
+  rebuildDefs();
+}
+
+/** The browser keeps the shared answer (/api/market/scanner) for 5 minutes. After a change to the shared
+ * definitions it is fetched once past that copy, which puts the new one in its place, so a window or page
+ * opened next gets the new versions too (the tabs already open have them from the channel). */
+const refreshShared = () => fetch('/api/market/scanner', { cache: 'reload', credentials: 'same-origin' }).catch(() => {});
+
+async function reloadDefs() {
+  const b = document.querySelector('[data-mkt="defs-reload"]');
+  if (b) b.disabled = true;
+  try {
+    const r = await api.call('POST', '/api/market/metrics/reload');
+    applyReload(r);
+    refreshShared();
+    tell({ type: 'reloaded', shared: r.shared, mine: r.mine });
+    api.toast(`Read ${r.counts.shared} shared definitions${r.counts.own ? ` and ${r.counts.own} accounts' own versions` : ''} from the lakehouse into MEDUSA.`);
+    api.log('markets', `Reloaded the definitions from the lakehouse (${r.counts.shared} shared, ${r.counts.own} own)`);
+    definitionsChanged();
+  } catch (e) {
+    api.toast(e.message, 'error');
+  } finally {
+    if (b) b.disabled = false;
+  }
 }
 
 /** Every number the edits change, run once with them (every type, and Bitcoin for one market's row):
@@ -680,7 +773,7 @@ async function checkEverything() {
 }
 
 /** The save form: one note (and description) per changed definition, and what Save will do. */
-function openSave() {
+function openSave(prefill = new Map()) {
   const el = document.getElementById('mkt-edit-save');
   if (!el || !S.edit.live) return;
   const shared = SRC.mine.saves === 'shared';
@@ -690,8 +783,8 @@ function openSave() {
       It is kept in the lakehouse (<code>market.semantic.${shared ? 'metric_definitions' : 'user_metric_definitions'}</code>) as a new version, with the time, your name (${esc(SRC.mine.name)}) and your note. The version before it is kept too.</p>
     ${[...S.edit.live.keys()].map((id) => `<div class="mkt-save-one">
       <div><b>${esc(DEFS.get(id).name)}</b> <code>${esc(id)}</code></div>
-      <label>Why you changed it <input class="input" data-save-note="${esc(id)}" maxlength="300" placeholder="For example: count only moves bigger than 1%"></label>
-      <label>What it means now <span class="faint">(optional)</span><textarea class="input" data-save-desc="${esc(id)}" rows="2" maxlength="1000">${esc(DEFS.get(id).description)}</textarea></label>
+      <label>Why you changed it <input class="input" data-save-note="${esc(id)}" maxlength="300" placeholder="For example: count only moves bigger than 1%" value="${esc((prefill.get(id) || {}).note || '')}"></label>
+      <label>What it means now <span class="faint">(optional)</span><textarea class="input" data-save-desc="${esc(id)}" rows="2" maxlength="1000">${esc((prefill.get(id) || {}).description ?? DEFS.get(id).description)}</textarea></label>
     </div>`).join('')}
     <div class="mkt-edit-bar"><button class="btn btn-green" type="button" data-mkt="save-go">Save to the lakehouse</button>
       <button class="btn" type="button" data-mkt="save-cancel">Cancel</button><span id="mkt-save-status"></span></div>
@@ -734,6 +827,7 @@ async function doSave() {
       applySaved(r);
       tell({ type: 'saved', saves: r.saves, definition: r.definition });
       S.edit.text.delete(id);
+      S.edit.hist.delete(id);
       saved.push(`${d.name}: ${r.saves === 'shared' ? 'shared' : 'your own'} version ${r.definition.version}${r.copied === false ? ' (MEDUSA\'s copy catches up with the next daily publish)' : ''}`);
       api.log('markets', `Saved ${id} as ${r.saves === 'shared' ? 'shared' : 'own'} version ${r.definition.version}`);
     } catch (e) {
@@ -741,6 +835,7 @@ async function doSave() {
       break;
     }
   }
+  if (saved.length && SRC.mine.saves === 'shared') refreshShared();
   closeSave();
   stopPreview(failure ? [failure, ...(saved.length ? [`Saved before it: ${saved.join('; ')}.`] : [])] : null);
   if (saved.length) api.toast(`Saved in the lakehouse. ${saved.join('; ')}.`, '', 8000);
@@ -895,6 +990,16 @@ table.mkt-result td, table.mkt-result th { white-space: nowrap; font-family: ui-
 .mkt-save label { display: grid; gap: 4px; color: var(--text-2); }
 .mkt-save .input { width: 100%; height: auto; min-height: 36px; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border-2); background: #141414; color: var(--text); font: inherit; resize: vertical; }
 .mkt-save .mkt-edit-bar { margin-top: 2px; }
+.mkt-hist:empty { display: none; }
+.mkt-hist { border-top: 1px solid var(--border); background: #191919; padding-bottom: 6px; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.mkt-hist > p { margin: 8px 12px 4px; }
+.mkt-hist-row { margin: 6px 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; display: grid; gap: 4px; }
+.mkt-hist-row.current { border-color: var(--green-btn); }
+.mkt-hist-row b { color: var(--text); }
+.mkt-hist-row details summary { cursor: pointer; color: var(--text-3); }
+.mkt-hist-row pre { margin: 6px 0 0; padding: 8px 10px; max-height: 260px; overflow: auto; font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #d4d4d8; background: #141414; border-radius: 6px; }
+.mkt-hist-row .btn { justify-self: start; height: 28px; padding: 0 10px; font-size: 12.5px; }
+.mkt-edit .card-head > .btn { flex: none; }
 .mkt-win-head { display: flex; flex-wrap: wrap; gap: 10px 16px; justify-content: space-between; align-items: center; }
 .mkt-win-head h1 { font-size: 22px; font-weight: 700; }
 .mkt-win-head p { margin-top: 2px; font-size: 13.5px; }
@@ -1286,7 +1391,8 @@ function windowShell() {
   <div class="banner mkt-status" id="mkt-status" aria-live="polite"></div>
   <div class="mkt-win-grid">
     <section class="card mkt-edit" aria-label="Edit and preview">
-      <div class="card-head"><div><h2>Edit, preview and save</h2><p>Change the SQL, then press <b>Preview</b> (or Ctrl+Enter): your version runs on this screen only, next to the current numbers. <span id="mkt-edit-saves"></span></p></div></div>
+      <div class="card-head"><div><h2>Edit, preview and save</h2><p>Change the SQL, then press <b>Preview</b> (or Ctrl+Enter): your version runs on this screen only, next to the current numbers. <span id="mkt-edit-saves"></span></p></div>
+        <button class="btn btn-sm" type="button" data-mkt="defs-reload" hidden title="Read the definitions in use from the lakehouse now, for a change made in Databricks itself">Reload definitions from the lakehouse</button></div>
       <div class="mkt-edit-pick" id="mkt-edit-pick"></div>
       <div id="mkt-edit-boxes"></div>
       <div class="mkt-edit-bar">
@@ -1622,7 +1728,7 @@ function onClick(e) {
   }
   if (act === 'csv') { downloadCsv(el.dataset.key, el.dataset.what); return; }
   if (act === 'win') { openWindow(el.dataset.panel, el.dataset.sym || null); return; }
-  if (act.startsWith('edit-') || act.startsWith('preview') || act.startsWith('save-')) { onEdit(act, el.dataset.def); return; }
+  if (act.startsWith('edit-') || act.startsWith('preview') || act.startsWith('save-') || act === 'defs-reload') { onEdit(act, el.dataset.def, el); return; }
   if (act === 'view') { S.view = el.dataset.v; api.store.set('mktView', S.view); }
   else if (act === 'kind') { S.kind = el.dataset.v; S.limit = 50; if (!S.win) api.store.set('mktKind', S.kind); }   // a window's choice is its own
   else if (act === 'sort') { S.sort = el.dataset.v; S.limit = 50; draw(); return; }
@@ -1635,15 +1741,20 @@ function onClick(e) {
   paint();   // the view, type or an opened market changes which queries run
 }
 
-/** The editor's buttons: open or close a definition's box, undo its changes, preview, stop. */
-function onEdit(act, id) {
+/** The editor's buttons: open or close a definition's box, undo its changes, preview, stop, save, give
+ * up an own version, history and its versions, and (the owner) reload from the lakehouse. */
+function onEdit(act, id, el) {
   if (act === 'preview') { startPreview(); return; }
+  if (act === 'preview-stop') { stopPreview(); return; }
   if (act === 'save-open') { openSave(); return; }
   if (act === 'save-cancel') { closeSave(); return; }
   if (act === 'save-go') { doSave(); return; }
-  if (act === 'edit-giveup') { giveUp(id); return; }
-  if (act === 'preview-stop') { stopPreview(); return; }
+  if (act === 'defs-reload') { reloadDefs(); return; }
   if (!DEFS.has(id)) return;
+  if (act === 'edit-giveup') { giveUp(id); return; }
+  if (act === 'edit-history') { loadHistory(id); return; }
+  if (act === 'edit-hist-close') { S.edit.hist.delete(id); paintHist(id); return; }
+  if (act === 'edit-reuse') { reuseVersion(id, el.dataset.scope, Number(el.dataset.v)); return; }
   if (act === 'edit-open' || act === 'edit-close') {
     const open = S.edit.open.includes(id);
     S.edit.open = open ? S.edit.open.filter((x) => x !== id) : [...S.edit.open, id];

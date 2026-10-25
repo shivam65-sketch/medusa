@@ -130,30 +130,39 @@ export async function marketIngest(req, env) {
     return fail(400, 'The body must be JSON.');
   }
 
-  const spec = TABLES[body.table];
-  if (!spec) return fail(400, `Unknown table. Use one of: ${Object.keys(TABLES).join(', ')}.`);
+  if (!TABLES[body.table]) return fail(400, `Unknown table. Use one of: ${Object.keys(TABLES).join(', ')}.`);
   if (!fits[DATE](body.as_of)) return fail(400, 'as_of must be a date, YYYY-MM-DD.');
-  const problem = checkRows(spec, body.rows);
-  if (problem) return fail(400, problem);
+  const done = await replaceTable(env, body.table, body.as_of, body.rows, text);
+  if (done.error) return fail(400, done.error);
+  return json({ ok: true, table: body.table, as_of: body.as_of, rows: done.rows, served: done.served });
+}
 
-  // SQLite reads every column straight from the request's JSON (json_each over "$.rows"), so the Worker
-  // binds the body as one value: no statement per row, and the free plan's 10 ms of CPU go a long way.
-  // Column names come from TABLES above, never from the request.
+/** Replace a market table with rows that pass its checks, in one transaction, and record it in
+ * market_publish; after a shared table the scanner's answer is rebuilt. Used by the ingest and by
+ * reloading the definitions from the lakehouse (metrics.js). `text` is JSON with the rows at $.rows
+ * (the ingest's own body). {rows, served} or {error}. */
+export async function replaceTable(env, table, asOf, rows, text = JSON.stringify({ rows })) {
+  const spec = TABLES[table];
+  const problem = checkRows(spec, rows);
+  if (problem) return { error: problem };
+  // SQLite reads every column straight from the JSON (json_each over "$.rows"), so the Worker binds it
+  // as one value: no statement per row, and the free plan's 10 ms of CPU go a long way. Column names
+  // come from TABLES above, never from the request.
   const cols = Object.keys(spec.columns);
   const db = env.DB;
   const [, , , counted] = await db.batch([
-    db.prepare(`DELETE FROM ${body.table}`),
-    db.prepare(`INSERT INTO ${body.table} (${cols.join(', ')})
+    db.prepare(`DELETE FROM ${table}`),
+    db.prepare(`INSERT INTO ${table} (${cols.join(', ')})
                 SELECT ${cols.map((c) => `json_extract(value, '$.${c}')`).join(', ')} FROM json_each(?1, '$.rows')`)
       .bind(text),
     db.prepare(`INSERT INTO market_publish (tbl, as_of, rows, published_at) VALUES (?1, ?2, ?3, ?4)
                 ON CONFLICT(tbl) DO UPDATE SET as_of = ?2, rows = ?3, published_at = ?4`)
-      .bind(body.table, body.as_of, body.rows.length, Date.now()),
-    db.prepare(`SELECT COUNT(*) AS n FROM ${body.table}`),
+      .bind(table, asOf, rows.length, Date.now()),
+    db.prepare(`SELECT COUNT(*) AS n FROM ${table}`),
   ]);
   // A shared table changed, so the scanner's ready-made answer is rebuilt now (personal versions aren't in it).
-  const served = SHARED.includes(body.table) ? await rebuildAnswer(env) : '-';
-  return json({ ok: true, table: body.table, as_of: body.as_of, rows: counted.results[0].n, served });
+  const served = SHARED.includes(table) ? await rebuildAnswer(env) : '-';
+  return { rows: counted.results[0].n, served };
 }
 
 /** Rebuild the scanner's ready-made answer after a shared table changed: 'kv'. If that fails, the old
