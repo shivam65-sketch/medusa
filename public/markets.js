@@ -22,7 +22,7 @@
 // button opens one number's calculation in its own window (markets-window.html): the same code with
 // its own data, engine and live prices, running only that number's queries.
 
-import { DEFINITIONS } from './markets-metrics.js?v=1';
+import { DEFINITIONS } from './markets-metrics.js?v=2';
 
 const RULE = { z: 3 };
 const STREAM = 'wss://fstream.binance.com/market/ws/!miniTicker@arr';
@@ -354,6 +354,7 @@ function jobs(preview = true) {
     return out;
   }
   const out = [job('unusual_all_types')];
+  if (S.view === 'patterns') out.push(...['patterns_summary', 'patterns_held', 'patterns_grid'].map((id) => job(id)));
   if (S.view === 'today') {
     out.push(...['breadth', 'median_move', 'unusual_count', 'bitcoin', 'unusual', 'gainers', 'losers', 'markets'].map((id) => job(id)));
     for (const sym of new Set([S.open, S.openAll])) if (sym) out.push(job('market', `market:${sym}`, { symbol: sym }));
@@ -449,7 +450,7 @@ function queryHead(id, key = id, extra = {}, defs = null) {
       ? `<b>Your own version ${own.version}</b> of <code>${esc(def.id)}</code> in the lakehouse's <code>market.semantic.user_metric_definitions</code>, saved ${own.validFrom ? `${esc(own.validFrom)} UTC ` : ''}by ${esc(own.changedBy || 'you')}${own.note ? ` (“${esc(own.note)}”)` : ''}. Only your account uses it; the shared version is ${def.version || 'the built-in one'}.${S.win ? ` <button class="btn btn-sm" type="button" data-mkt="edit-giveup" data-def="${esc(def.id)}">Use the shared version again</button>` : ''}`
     : def.from === 'lakehouse'
       ? `<b>Definition:</b> version ${def.version} of <code>${esc(def.id)}</code> in the lakehouse's <code>market.semantic.metric_definitions</code>${def.validFrom ? `, in use since ${esc(def.validFrom)} UTC` : ''}${def.changedBy ? ` (${esc(def.changedBy)})` : ''}${steps ? `; its shared steps: ${steps}` : ''}.`
-      : '<b>Definition:</b> the built-in copy in <code>markets-metrics.js</code>, because the lakehouse\'s definitions haven\'t been published to MEDUSA yet.';
+      : '<b>Definition:</b> the built-in copy in <code>markets-metrics.js</code>, because the lakehouse hasn\'t published this definition to MEDUSA yet.';
   return `<p class="faint">${origin}</p>
     <div class="mkt-sql"><div class="h"><span>${defs ? 'Your version, exactly as it runs on this screen' : 'The query, exactly as the Markets page runs it'}</span><span class="b">
       <button class="btn btn-sm" type="button" data-mkt="copy" data-sql="${esc(key)}" data-db="d1">Copy for MEDUSA (D1)</button>
@@ -471,7 +472,8 @@ function queryLive(id, key = id) {
 /** What each ‹› button opens in its own window: the numbers whose calculation it shows. */
 const WINDOWS = {
   breadth: ['breadth'], median_move: ['median_move'], unusual_count: ['unusual_count'], bitcoin: ['bitcoin'],
-  unusual: ['unusual'], movers: ['gainers', 'losers'], markets: ['markets'], market: ['market'], patterns: ['unusual_all_types'],
+  unusual: ['unusual'], movers: ['gainers', 'losers'], markets: ['markets'], market: ['market'],
+  patterns: ['patterns_summary', 'patterns_held', 'patterns_grid', 'unusual_all_types'],
 };
 
 /** A ‹› button: the number's calculation in its own window. Pressing it again brings that window to the
@@ -1306,57 +1308,68 @@ WHERE ${moves}
 ORDER BY event_hour DESC;`);
 }
 
-function evCell(e) {
-  return `<div class="mkt-evc"><span class="v">${evShort(e)}</span></div>`;
-}
-
+/** The Patterns view, drawn from three queries (patterns_summary, patterns_held, patterns_grid) like
+ * Today's numbers. A cell's details put that kind of move's evidence row into words. */
 function paintPatterns() {
   const ev = S.data.ev;
-  const evRows = [...ev.values()];
-  const count = (v) => evRows.filter((e) => e.verdict === v).length;
-  const total = (dir) => (ev.get(evKey(dir, 'all', 'all', 1)) || {}).events || 0;
-  const flagged = objects(S.res.get('unusual_all_types'));   // live, from the query; every type
-  const now = (dir, band, liq) => flagged.filter((r) => r.direction === dir && (band === 'all' || (r.z_band === band && r.liquidity === liq)));
   const pub = S.data.published.market_evidence || {};
+  const sumRes = S.res.get('patterns_summary'), heldRes = S.res.get('patterns_held'), gridRes = S.res.get('patterns_grid');
+  const sum = sumRes && !sumRes.error ? objects(sumRes)[0] || {} : {};
+  const n = (v) => (v == null ? '–' : Number(v).toLocaleString('en-US'));
+  const cost = sum.cost_pct == null ? '–' : `${Number(sum.cost_pct).toFixed(2)}%`;
+  const state = (res) => (!res ? pending() : res.error ? failed(res) : null);
 
-  const held = evRows.filter((e) => e.verdict === 'held up').sort((a, b) => b.held_back_net_after_cost - a.held_back_net_after_cost);
-  const heldHtml = held.length ? held.map((e) => {
-    const m = now(e.direction, e.z_band, e.liquidity);
-    return `<div><b>${e.side === 'fade' ? 'Fade' : 'Follow'} ${kindPhrase(e.direction, e.z_band, e.liquidity)}, over the next ${e.horizon_hours === 1 ? 'hour' : `${e.horizon_hours} hours`}:</b> <span class="mkt-ev">${pct(e.held_back_net_after_cost)}</span> a trade from 2025 after ${size(e.round_trip_cost)} costs (t ${tval(e.held_back_t)} over ${e.held_back_days} days), chosen on 2020–2024 (t ${tval(e.in_sample_t)} over ${e.in_sample_days} days). ${e.events} moves on ${e.days} days in all. Right now: ${m.length ? m.map((r) => name(r.market)).join(', ') : 'no market'}.</div>`;
-  }).join('') : '<div>No kind of move held up.</div>';
-
-  const groups = [];
-  for (const dir of ['up', 'down']) {
-    groups.push(`<tr class="grp"><td colspan="5">${dir === 'up' ? 'Up moves' : 'Down moves'}</td></tr>`);
-    for (const [band, liq] of [...BANDS.flatMap((b) => LIQS.map((l) => [b, l])), ['all', 'all']]) {
-      const n = now(dir, band, liq).length;
-      const cells = HORIZONS.map((h) => {
-        const k = evKey(dir, band, liq, h);
-        return `<td data-mkt="pat" data-k="${k}" aria-selected="${S.pat === k}">${evCell(ev.get(k) || null)}</td>`;
-      }).join('');
-      groups.push(`<tr><td class="l">${kindName(dir, band, liq)}</td><td>${n || '<span class="faint">0</span>'}</td>${cells}</tr>`);
+  // One row per held-up pattern and market in it right now (a pattern with none has one row).
+  let heldHtml = state(heldRes);
+  if (!heldHtml) {
+    const held = [];
+    for (const r of objects(heldRes)) {
+      const k = evKey(r.direction, r.z_band, r.liquidity, r.horizon_hours);
+      if (!held.length || held[held.length - 1].k !== k) held.push({ k, r, markets: [] });
+      if (r.market) held[held.length - 1].markets.push(r.market);
     }
+    heldHtml = held.length ? held.map(({ r, markets }) => `<div><b>${r.side === 'fade' ? 'Fade' : 'Follow'} ${kindPhrase(r.direction, r.z_band, r.liquidity)}, over the next ${Number(r.horizon_hours) === 1 ? 'hour' : `${r.horizon_hours} hours`}:</b> <span class="mkt-ev">${pct(r.held_back_pct / 100)}</span> a trade from 2025 after ${Number(r.cost_pct).toFixed(2)}% costs (t ${tval(r.held_back_t)} over ${r.held_back_days} days), chosen on 2020–2024 (t ${tval(r.in_sample_t)} over ${r.in_sample_days} days). ${r.events} moves on ${r.days} days in all. Right now: ${markets.length ? markets.map(name).join(', ') : 'no market'}.</div>`).join('')
+      : '<div>No kind of move held up.</div>';
   }
+
+  let gridHtml = state(gridRes);
+  if (!gridHtml) {
+    const rows = [];
+    let dir = null;
+    for (const r of objects(gridRes)) {
+      if (r.direction !== dir) { dir = r.direction; rows.push(`<tr class="grp"><td colspan="5">${dir === 'up' ? 'Up moves' : 'Down moves'}</td></tr>`); }
+      const cells = HORIZONS.map((h) => {
+        const k = evKey(r.direction, r.z_band, r.liquidity, h);
+        return `<td data-mkt="pat" data-k="${k}" aria-selected="${S.pat === k}"><div class="mkt-evc"><span class="v">${verdictText(r[`next_${h}h`])}</span></div></td>`;
+      }).join('');
+      rows.push(`<tr><td class="l">${kindName(r.direction, r.z_band, r.liquidity)}</td><td>${Number(r.now) || '<span class="faint">0</span>'}</td>${cells}</tr>`);
+    }
+    gridHtml = `<div class="scroll-x"><table class="mkt-table"><thead><tr><th>Kind of move</th><th title="Markets in this group right now">Now</th><th>Next 1 h</th><th>Next 4 h</th><th>Next 24 h</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+  }
+
   let detail = '';
   if (S.pat && ev.get(S.pat)) {
     const e = ev.get(S.pat);
-    const m = now(e.direction, e.z_band, e.liquidity);
+    const flagged = objects(S.res.get('unusual_all_types'));   // live, every type
+    const m = flagged.filter((r) => r.direction === e.direction && (e.z_band === 'all' || (r.z_band === e.z_band && r.liquidity === e.liquidity)));
     detail = `<div class="mkt-more"><p><b>${kindName(e.direction, e.z_band, e.liquidity)}</b>${e.z_band === 'all' ? ' (any size, any market)' : ''}.</p>${evWords(e, e.horizon_hours)}<p>Right now: ${m.length ? m.map((r) => `${name(r.market)} ${sig(r.z)}`).join(', ') : 'no market is in this group'}.</p>
-      <h4>Where these numbers come from</h4><p>The lakehouse's <code>gold.event_evidence</code> (${ghLink('event_evidence.sql')}), built from <code>gold.intraday_events</code> (${ghLink('intraday_events.sql')}), copied to MEDUSA's <code>market_evidence</code>. <b>Now</b> is live, from the query below.</p>${evidenceSql(e.direction, e.z_band, e.liquidity)}</div>`;
+      <h4>Where these numbers come from</h4><p>The lakehouse's <code>gold.event_evidence</code> (${ghLink('event_evidence.sql')}), built from <code>gold.intraday_events</code> (${ghLink('intraday_events.sql')}), copied to MEDUSA's <code>market_evidence</code>. <b>Now</b> is live; the table's queries are under ‹›.</p>${evidenceSql(e.direction, e.z_band, e.liquidity)}</div>`;
   }
 
+  const counts = state(sumRes) || `<div class="mkt-counts"><span><b>${n(sum.held_up)}</b> held up</span><span><b>${n(sum.did_not_hold)}</b> did not hold</span><span><b>${n(sum.no_pattern)}</b> no pattern</span><span><b>${n(sum.too_few)}</b> too few</span><span>of <b>${n(sum.kinds)}</b> kinds of move and horizons</span></div>`;
+  const moves = sum.moves_up == null ? '' : `: about ${n(Number(sum.moves_up) + Number(sum.moves_down))} moves (${n(sum.moves_up)} up, ${n(sum.moves_down)} down), almost all of them crypto`;
   put('mkt-patterns', `
     <section class="card">
-      <div class="card-head"><div><h2>What similar moves did next</h2><p>Every time a market's move during a day reached ${RULE.z} of its usual daily moves since January 2020, the lakehouse recorded what the price did over the next 1, 4 and 24 hours: about ${(total('up') + total('down')).toLocaleString('en-US')} moves (${total('up').toLocaleString('en-US')} up, ${total('down').toLocaleString('en-US')} down), almost all of them crypto. Lakehouse day ${shortDay(pub.as_of)}.</p></div>${srcBtn('patterns')}</div>
-      <div class="mkt-counts"><span><b>${count('held up')}</b> held up</span><span><b>${count('did not hold')}</b> did not hold</span><span><b>${count('no pattern')}</b> no pattern</span><span><b>${count('too few')}</b> too few</span><span>of <b>${evRows.length}</b> kinds of move and horizons</span></div>
+      <div class="card-head"><div><h2>What similar moves did next</h2><p>Every time a market's move during a day reached ${RULE.z} of its usual daily moves since January 2020, the lakehouse recorded what the price did over the next 1, 4 and 24 hours${moves}. Lakehouse day ${shortDay(pub.as_of)}.</p></div>${srcBtn('patterns')}</div>
+      ${counts}
     </section>
     <section class="card">
-      <div class="card-head"><div><h2>Patterns that held up</h2><p>Chosen on 2020–2024 and still profitable after costs from 2025, on years that played no part in choosing them</p></div></div>
+      <div class="card-head"><div><h2>Patterns that held up</h2><p>Chosen on 2020–2024 and still profitable after costs from 2025, on years that played no part in choosing them</p></div>${srcBtn('patterns')}</div>
       <div class="mkt-held">${heldHtml}</div>
     </section>
     <section class="card">
-      <div class="card-head"><div><h2>Every kind of move</h2><p>By direction, size (z) and the market's liquidity; <b>Now</b> counts the markets in each group right now. Tap a cell for the details.</p></div></div>
-      <div class="scroll-x"><table class="mkt-table"><thead><tr><th>Kind of move</th><th title="Markets in this group right now">Now</th><th>Next 1 h</th><th>Next 4 h</th><th>Next 24 h</th></tr></thead><tbody>${groups.join('')}</tbody></table></div>
+      <div class="card-head"><div><h2>Every kind of move</h2><p>By direction, size (z) and the market's liquidity; <b>Now</b> counts the markets in each group right now. Tap a cell for the details.</p></div>${srcBtn('patterns')}</div>
+      ${gridHtml}
       ${detail}
     </section>
     <section class="card">
@@ -1365,9 +1378,9 @@ function paintPatterns() {
         <li><b>Days, not moves.</b> Markets move together: one crash day can give hundreds of moves, and they aren't hundreds of separate proofs. Each day's moves are averaged first, and the statistics are over days.</li>
         <li><b>t</b> measures how clearly the moves kept going (positive) or turned back (negative), given how much they vary from day to day; beyond ±2 is unlikely to be chance.</li>
         <li><b>The side is chosen on 2020–2024 only.</b> If moves kept going there with t ≥ 2, the side is <b>follow</b>; if they turned back with t ≤ −2, it is <b>fade</b>; otherwise there is <b>no pattern</b>.</li>
-        <li><b>It is then checked on 2025 onwards</b>, which played no part in the choice. <b>Held up</b> needs the moves to behave the same way there (t ≥ 2 for follow, t ≤ −2 for fade) and a profit after ${size((evRows[0] || {}).round_trip_cost)} round-trip costs in both periods; otherwise it <b>did not hold</b>.</li>
+        <li><b>It is then checked on 2025 onwards</b>, which played no part in the choice. <b>Held up</b> needs the moves to behave the same way there (t ≥ 2 for follow, t ≤ −2 for fade) and a profit after ${cost} round-trip costs in both periods; otherwise it <b>did not hold</b>.</li>
         <li><b>Too few</b>: fewer than 20 days in either period.</li>
-        <li>With ${evRows.length} groups tested, a few can pass by luck, which is why the held-back check matters and why the rules aren't tuned after looking at it (ADR-022). Costs are optimistic for small markets, funding isn't counted, and almost all the history is crypto. This is research, not trading advice.</li>
+        <li>With ${n(sum.kinds)} groups tested, a few can pass by luck, which is why the held-back check matters and why the rules aren't tuned after looking at it (ADR-022). Costs are optimistic for small markets, funding isn't counted, and almost all the history is crypto. This is research, not trading advice.</li>
       </ul>
     </section>`);
 }
@@ -1462,7 +1475,7 @@ function shownAs(id, key) {
 /** Patterns' window: where the view's numbers come from (all but Now are the lakehouse's own tables). */
 function patternSources() {
   const pub = S.data.published.market_evidence || {};
-  return `<p class="dim">Everything in the Patterns view comes from the lakehouse, except <b>Now</b> and <b>Right now</b>, which are live (below). Two dbt models build it on every daily run: ${ghLink('intraday_events.sql')} (every unusual move since 2020 and the price 1, 4 and 24 hours later) and ${ghLink('event_evidence.sql')} (the verdicts, judged by days, on 2020–2024 and then on 2025 onwards). The publish job copies the verdicts to MEDUSA's <code>market_evidence</code>${pub.published_at ? `, last at ${clock(pub.published_at)}` : ''}.</p>
+  return `<h2>Where the verdicts come from</h2><p class="dim">The Patterns view is calculated by the queries above, like Today's numbers: from MEDUSA's copy of the lakehouse's verdicts (<code>market_evidence</code>) and, for <b>Now</b> and <b>Right now</b>, the markets that are unusual this second (<code>flagged</code>, any type). The verdicts themselves are built in the lakehouse by two dbt models on every daily run: ${ghLink('intraday_events.sql')} (every unusual move since 2020 and the price 1, 4 and 24 hours later) and ${ghLink('event_evidence.sql')} (the verdicts, judged by days, on 2020–2024 and then on 2025 onwards). The publish job copies them to MEDUSA${pub.published_at ? `, last at ${clock(pub.published_at)}` : ''}. These queries read the lakehouse's own tables:</p>
     ${sqlBlock('Every verdict (Databricks SQL)', 'SELECT direction, z_band, liquidity, horizon_hours, verdict, side, events, days,\n       in_sample_days, in_sample_t, held_back_days, held_back_t, held_back_net_after_cost\nFROM market.gold.event_evidence\nORDER BY direction, z_band, liquidity, horizon_hours;')}
     ${sqlBlock('How many moves, and when (Databricks SQL)', 'SELECT direction, period, COUNT(*) AS moves, COUNT(DISTINCT event_date) AS days\nFROM market.gold.intraday_events\nGROUP BY direction, period\nORDER BY direction, period;')}`;
 }
