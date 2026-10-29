@@ -15,7 +15,7 @@ Everything below lives in the catalog `market`; two more catalogs hold what isn'
 |---|---|---|---|
 | `market` | `landing`, `bronze`, `silver`, `gold`, `semantic` (descriptions start "1 of 5" to "5 of 5") | Public market data and the metric definitions | `domain=market`, `personal_data=false` |
 | `ops` | `logs` | Logs of the lakehouse workflow runs and of MEDUSA's errors ([below](#ops-opslogs-step-31)) | `domain=ops`, `personal_data=false` |
-| `journal` | none yet | Each MEDUSA account's trades (step 32) | `domain=journal`, `personal_data=true` |
+| `journal` | none yet | Each MEDUSA account's trades (step 33) | `domain=journal`, `personal_data=true` |
 
 The descriptions on this page are also in Databricks, as comments: on every schema, table and column
 (Catalog Explorer, `DESCRIBE TABLE EXTENDED`, `information_schema.columns.comment`). For silver and gold
@@ -357,6 +357,31 @@ Each coin's hour-of-day pattern over its whole history, rebuilt from `fct_candle
 | `avg_volume_share`, `avg_quote_volume` | Share of the day's volume in this hour; USDT traded in it |
 | `avg_taker_buy_share` | Average share of aggressive buying |
 
+## Gold: `market.gold.hour_drift`
+
+The whole market's move in each UTC hour, judged by days, from January 2020, delisted coins included,
+rebuilt from `int_candle_1h_all` on every run ([model](../dbt/models/gold/hour_drift.sql),
+[step 32](steps/32-insights-graphs.md)). For each day and hour, the market's move is the average of every
+trading coin's return in that hour (close ÷ open − 1, clipped to ±10%), for each liquidity group and for
+all coins together; a row holds the statistics over those days. Key (`year`, `period`, `utc_hour`,
+`liquidity`); 672 rows (7 years × 24 hours × 4 groups).
+
+| Column | Meaning |
+|---|---|
+| `year` | The UTC year of the days in the row |
+| `period` | `in_sample` (before `held_back_from`, 2025-01-01) or `held_back` (from it on) |
+| `utc_hour` | 0 to 23 (UTC) |
+| `liquidity` | `large`, `mid`, `small` (each coin's average daily traded value over its previous 30 days with trades: 100 million USDT or more, 10 million or more, less), or `all` |
+| `days`, `first_date`, `last_date` | Days behind the row, one value each |
+| `coin_hours` | Coins that traded in the hour, added up over the days |
+| `sum_return`, `sum_sq_return` | The days' moves added up, and their squares: rows pool exactly (mean = sum ÷ days, variance = (sum of squares − sum² ÷ days) ÷ (days − 1)) |
+| `up_days` | Days on which the market rose in the hour |
+| `avg_return`, `sd_return` | Average and standard deviation of the days' moves (0.0001 = 1 basis point) |
+| `t_stat` | avg_return ÷ (sd_return ÷ √days); roughly, under 2 either way could be chance, and with 24 hours a few pass by luck |
+
+Tested: `period` and `liquidity` take only their values, and `assert_hour_drift_valid` (one row per key,
+hours 0 to 23, no up days beyond days, no group with more days than `all`).
+
 ## Gold: `market.gold.coin_baseline`
 
 Each coin's "normal" as of its latest day, for MEDUSA's live scanner; one row per coin, rebuilt on
@@ -640,7 +665,7 @@ also writes the new version straight into `market_metrics` or `market_user_metri
 | `market_evidence` | `direction`, `z_band`, `liquidity`, `horizon_hours` | `gold.event_evidence` | The key, `events`, `days`, `avg_continuation`, `median_continuation`, `hit_rate`, `in_sample_days`, `in_sample_avg_continuation`, `in_sample_t`, `held_back_days`, `held_back_avg_continuation`, `held_back_t`, `held_back_hit_rate`, `side`, `held_back_net_after_cost`, `verdict`, `round_trip_cost` |
 | `market_metrics` | `metric_id` | `semantic.metric_definitions`, current versions only | `metric_id`, `version`, `kind`, `name`, `description`, `sql_text`, `display`, `valid_from` (`YYYY-MM-DD HH:MM:SS` text, UTC), `changed_by`, `change_note` |
 | `market_user_metrics` | `user_id`, `metric_id` | `semantic.user_metric_definitions`, current versions only | `user_id` (the account), `metric_id`, `version`, `sql_text`, `description`, `based_on`, `valid_from`, `changed_by`, `change_note`. Read only by its own account (`GET /api/market/metrics/mine`); never part of the scanner's shared answer |
-| `market_publish` | `tbl` | Written by the endpoint | `tbl`, `as_of` (the lakehouse day), `rows`, `published_at` (ms) |
+| `market_publish` | `tbl` | Written by the endpoints | `tbl`, `as_of` (the lakehouse day), `rows`, `published_at` (ms). Since step 32 also `market_events` and `market_hours`, the Insights file's two tables (below) |
 
 Types follow SQLite: text, `REAL` for numbers, `INTEGER` for counts; dates are `YYYY-MM-DD` text.
 
@@ -665,6 +690,22 @@ Each browser keeps the answer for 5 minutes (`private, max-age=300`). After a sh
 **Reload**, the page that made it fetches the answer once past that copy, so windows opened next get the
 new version.
 
+### The Insights file (Workers KV)
+
+The history the Insights graphs read ([step 32](steps/32-insights-graphs.md),
+[ADR-034](decisions.md#adr-034-the-insights-history-goes-to-medusa-as-one-gzip-file-kept-as-it-is)): one
+gzip file of JSON, key `market/insights.json.gz`, sent by the publish job through
+`PUT /api/market/insights` and kept exactly as sent (about 0.6 MB; 2.8 MB unpacked). Its KV metadata
+holds `as_of`, `rows` (per table), `sha256`, `bytes` and `published_at`; the publish is also recorded in
+`market_publish`, so the scanner's answer says which version is current. Signed-in pages read it through
+`GET /api/market/insights?v=<published_at>`.
+
+```json
+{"as_of": "2026-10-24",
+ "tables": {"market_events": {"columns": ["symbol", "event_date", ...], "rows": [["BTCUSDT", "2020-03-12", ...], ...]},
+            "market_hours":  {"columns": ["year", "period", ...], "rows": [[2020, "in_sample", 0, "all", 346, ...], ...]}}}
+```
+
 ## On the Markets page (browser only)
 
 The page keeps a SQLite database in the browser tab and calculates every number on it with SQL
@@ -677,6 +718,8 @@ anywhere: closing the tab deletes it.
 |---|---|---|---|
 | `live_prices` | `symbol` | Binance's live stream, upserted about once a second (and one price snapshot when the page opens) | `symbol`, `price` (last price), `quote_volume_24h` (USDT traded in the last 24 hours; empty until the market's first stream message) |
 | `binance_markets` | `symbol` | Binance's contract list (once a day) and Binance's daily candles | `symbol`, `market_type` (`crypto`, `stock`, `commodity` or `other`), `yesterday_close` (only while the lakehouse doesn't have yesterday) |
+| `market_events` | `symbol`, `event_date` | The Insights file, when Insights or a graph's window opens | `gold.intraday_events`' columns: `symbol`, `event_date`, `event_hour` (`YYYY-MM-DD HH:MM:SS`, UTC), `hour_of_day`, `direction`, `z` (3 decimals), `z_band`, `liquidity`, `move_so_far`, `fwd_return_1h`, `fwd_return_4h`, `fwd_return_24h` (6 decimals), `period` |
+| `market_hours` | `year`, `period`, `utc_hour`, `liquidity` | The same file | Every column of `gold.hour_drift`, dates as text |
 
 The shared steps (models) every Today number reads, defined in `market.semantic.metric_definitions`
 (above; the page's built-in copy is `public/markets-metrics.js`). Where an account has its own version
@@ -689,3 +732,12 @@ window runs the edited SQL on that screen only:
 | `today` | One trading market | `symbol`, `market_type`, `price`, `move` (fraction), `z`, `sd_return_30d`, `volume_x` (24 hours ÷ a usual day), `liquidity` |
 | `flagged` | One unusual market (\|z\| ≥ 3) | Every column of `today`, plus `direction` and `z_band` |
 | `verdicts` | One kind of move (`direction`, `z_band`, `liquidity`) | `next_1h`, `next_4h`, `next_24h`: `fade 0.22%` (the side and its held-back result) when the pattern held up, otherwise the verdict |
+| `moves` | One past move in the direction chosen (`:direction`) with a result over the hours chosen (`:horizon`) | `symbol`, `event_date`, `event_hour`, `year` (text), `hour_of_day`, `z`, `z_band`, `liquidity`, `period`, `kept_going_pct` (+ kept going, − turned back, in %), `bucket` (its 1% step: −3 holds −3% to −2%; −11 and 10 hold everything beyond 10% either way) |
+| `moves_picked` | One move of `moves` that matches what a click picked | Every column of `moves`; filtered by `:year`, `:hour`, `:bucket`, `:z_band`, `:liquidity`, `:symbol`, each ignored when NULL |
+| `hour_stats` | One UTC hour, liquidity group and period | `utc_hour`, `liquidity`, `period`, `days`, `avg_return`, `sd_return` (pooled over the years from `market_hours`' sums), `up_days` |
+
+Insights' graphs and their windows' numbers are metrics like Today's, with a `chart` in their display
+(the columns each axis, colour, hover and click use; [ADR-035](decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page)):
+`insight_live_map`, `insight_patterns_map`, `insight_by_year`, `insight_spread`, `insight_by_hour`,
+`insight_by_group`, `insight_hour_drift`; and in the windows `moves_summary`, `moves_spread`,
+`moves_by_year`, `moves_list`, `drift_by_year`, `drift_by_liquidity`.

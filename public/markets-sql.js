@@ -1,8 +1,8 @@
 // MEDUSA Markets: the SQL engine, a background worker started by markets.js.
 //
-// A SQLite database (sql.js: SQLite compiled to WebAssembly) holding the four tables the Markets
-// page's queries read (markets-metrics.js). Every number on the Today view is the result of a query
-// run here. The database lives only in this browser tab's memory and holds market data only: a query
+// A SQLite database (sql.js: SQLite compiled to WebAssembly) holding the tables the Markets page's
+// queries read (markets-metrics.js). Every number and graph on the page is the result of a query run
+// here. The database lives only in this browser tab's memory and holds market data only: a query
 // can't reach MEDUSA's server, the journal or anything else.
 //
 // WebAssembly is allowed for this worker only, and it can reach nothing outside MEDUSA (see _headers).
@@ -27,7 +27,24 @@ CREATE TABLE market_evidence (
   PRIMARY KEY (direction, z_band, liquidity, horizon_hours)
 );
 CREATE TABLE live_prices (symbol TEXT PRIMARY KEY, price REAL, quote_volume_24h REAL);
-CREATE TABLE binance_markets (symbol TEXT PRIMARY KEY, market_type TEXT, yesterday_close REAL);`;
+CREATE TABLE binance_markets (symbol TEXT PRIMARY KEY, market_type TEXT, yesterday_close REAL);
+-- The Insights data (lakehouse step 32), with the lakehouse's own column names, so a query runs in
+-- Databricks too: every unusual move since 2020 (gold.intraday_events) and the market's move in each
+-- UTC hour, by year (gold.hour_drift). Loaded when Insights opens, from one gzip file.
+CREATE TABLE market_events (
+  symbol TEXT NOT NULL, event_date TEXT NOT NULL, event_hour TEXT NOT NULL, hour_of_day INTEGER,
+  direction TEXT NOT NULL, z REAL, z_band TEXT, liquidity TEXT, move_so_far REAL,
+  fwd_return_1h REAL, fwd_return_4h REAL, fwd_return_24h REAL, period TEXT,
+  PRIMARY KEY (symbol, event_date)
+);
+CREATE TABLE market_hours (
+  year INTEGER NOT NULL, period TEXT NOT NULL, utc_hour INTEGER NOT NULL, liquidity TEXT NOT NULL,
+  days INTEGER, first_date TEXT, last_date TEXT, coin_hours INTEGER, sum_return REAL, sum_sq_return REAL,
+  up_days INTEGER, avg_return REAL, sd_return REAL, t_stat REAL,
+  PRIMARY KEY (year, period, utc_hour, liquidity)
+);`;
+
+const INSIGHTS = ['market_events', 'market_hours'];
 
 let db = null;
 const prepared = new Map();   // query text -> prepared statement, reused every second
@@ -96,15 +113,31 @@ function runAll(jobs) {
   return out;
 }
 
+/** The Insights file: gzip-packed JSON, {as_of, tables: {market_events: {columns, rows}, ...}}. It is
+ * unpacked here, not on the page, so the page stays smooth while about 3 MB is read. */
+async function loadInsights(gz) {
+  const text = await new Response(new Blob([gz]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  const snap = JSON.parse(text);
+  const rows = {};
+  for (const t of INSIGHTS) {
+    const part = snap.tables && snap.tables[t];
+    if (!part || !Array.isArray(part.columns) || !Array.isArray(part.rows)) throw new Error(`The Insights file has no ${t}.`);
+    replace(t, part);
+    rows[t] = db.exec(`SELECT COUNT(*) FROM ${t}`)[0].values[0][0];
+  }
+  return { as_of: snap.as_of || null, rows };
+}
+
 onmessage = async (e) => {
-  const { id, op, load, markets, prices, jobs } = e.data;
+  const { id, op, load, markets, prices, jobs, insights } = e.data;
   try {
     await ready;
     if (op === 'run') {
+      const loaded = insights ? await loadInsights(insights) : null;
       if (load) { replace('market_baseline', load.market_baseline); replace('market_evidence', load.market_evidence); }
       if (markets) replace('binance_markets', { columns: ['symbol', 'market_type', 'yesterday_close'], rows: markets });
       if (prices && prices.length) upsertPrices(prices);
-      postMessage({ id, ok: true, result: runAll(jobs || []) });
+      postMessage({ id, ok: true, result: runAll(jobs || []), insights: loaded });
     } else {
       postMessage({ id, ok: true, result: null });   // 'init': the engine is ready
     }

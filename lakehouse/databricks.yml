@@ -106,7 +106,7 @@ resources:
 
     seed_metric_definitions:
       name: lakehouse-seed-metric-definitions
-      description: Loads version 1 of the Markets page's metric definitions (Today, then Patterns). Safe to run again (it only adds what is missing).
+      description: Loads version 1 of the Markets page's metric definitions (Today, then Patterns, then Insights). Safe to run again (it only adds what is missing).
       tasks:
         - task_key: seed_v1
           sql_task:
@@ -120,6 +120,13 @@ resources:
             warehouse_id: ${var.warehouse_id}
             file:
               path: ./sql/seed/002_metric_definitions_patterns.sql
+        - task_key: seed_insights
+          depends_on:
+            - task_key: seed_patterns
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/seed/003_metric_definitions_insights.sql
 
   # Bronze: loads new landing files into market.bronze. Runs when started, then stops.
   pipelines:

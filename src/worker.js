@@ -10,7 +10,7 @@ import { loadCreds, saveCreds, credsInfo, deleteCreds, canStore } from './vault.
 import { json, fail, readBody, wantsPage, errorPage } from './http.js';
 import { labRoute, bodyLimit } from './lab.js';
 import { logsRoute } from './logs.js';
-import { marketIngest, marketScanner } from './market.js';
+import { marketIngest, marketScanner, insightsPut, insightsGet } from './market.js';
 import { myMetrics, saveMetric, resetMetric, metricHistory, reloadMetrics } from './metrics.js';
 import { opsEvents, noteAnswer, recordServerEvent, areaOf } from './ops.js';
 import {
@@ -274,6 +274,7 @@ async function route(req, env, url) {
   // The lakehouse's daily publish job (server to server, no browser and no cookie): its own token,
   // checked in market.js, and it can only replace the market tables.
   if (path === '/api/market/ingest' && method === 'POST') return marketIngest(req, env);
+  if (path === '/api/market/insights' && method === 'PUT') return insightsPut(req, env);   // the Insights file (step 32)
   // The lakehouse's daily run reading MEDUSA's failures (step 31): its own read-only token, checked in ops.js.
   if (path === '/api/ops/events' && method === 'GET') return opsEvents(req, env, url);
 
@@ -321,6 +322,7 @@ async function route(req, env, url) {
   if (path === '/api/logs') return logsRoute(req, env, url, uid);
   if (path === '/api/fx' && method === 'GET') return usdtInr();
   if (path === '/api/market/scanner' && method === 'GET') return marketScanner(env);   // the live scanner's data, the same for every account
+  if (path === '/api/market/insights' && method === 'GET') return insightsGet(env, url);   // the Insights graphs' data, the same for every account
   // The Markets definitions: the account's own versions, saving a version to the lakehouse, every version
   // of one, and (the owner) reloading MEDUSA's copy from the lakehouse (metrics.js).
   if (path === '/api/market/metrics/mine' && method === 'GET') return myMetrics(env, user);
@@ -363,7 +365,7 @@ export default {
       const res = await route(req, env, url);
       // Errors on the server's side, and refused ingest tokens, go to server_events (ops.js, step 31),
       // after the answer has gone out. A signed-out 401 or a 404 is not a failure of MEDUSA's.
-      if (res.status >= 500 || (res.status === 401 && url.pathname === '/api/market/ingest')) {
+      if (res.status >= 500 || (res.status === 401 && (url.pathname === '/api/market/ingest' || url.pathname === '/api/market/insights'))) {
         ctx.waitUntil(noteAnswer(env, req, url, res.clone()));
       }
       return page(res);

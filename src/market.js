@@ -72,6 +72,8 @@ export const TABLES = {
 };
 // The tables in the scanner's answer, which is the same for every account.
 const SHARED = ['market_baseline', 'market_evidence', 'market_metrics'];
+// The Insights data (lakehouse step 32), one file in KV; only its publish records are in the answer.
+const INSIGHTS = ['market_events', 'market_hours'];
 
 const fits = {
   [TEXT]: (v) => typeof v === 'string' && v.length <= 40,
@@ -165,6 +167,67 @@ export async function rebuildAnswer(env) {
   }
 }
 
+/* ---------- the Insights data (lakehouse step 32): one file, kept as it is ---------- */
+
+// The Insights graphs read every unusual move since 2020 and the market's drift by hour: about 21,000
+// rows, too many to check one by one within the free plan's CPU time and bigger than an ingest may be.
+// So the publish job checks them itself and sends them as one gzip file of JSON, with the same token.
+// MEDUSA keeps the file in KV exactly as it came (it never unpacks it), records the publish in
+// market_publish, and gives it to signed-in pages, whose SQL engine unpacks it (ADR-034). The job
+// reconciles by the file's SHA-256, which MEDUSA reports back.
+const INSIGHTS_KEY = 'market/insights.json.gz';
+const INSIGHTS_MAX = 10 * 1024 * 1024;
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+/** PUT /api/market/insights: the Insights file. Headers: x-as-of (the lakehouse day) and x-rows
+ * ({"market_events": n, "market_hours": n}), which the publish records keep. */
+export async function insightsPut(req, env) {
+  if (!env.MARKET_INGEST_TOKEN) return fail(503, 'Market data is not set up: the MARKET_INGEST_TOKEN secret is missing.');
+  if (!(await hasBearer(req, env.MARKET_INGEST_TOKEN))) return fail(401, 'Wrong or missing token.');
+  const asOf = req.headers.get('x-as-of') || '';
+  if (!fits[DATE](asOf)) return fail(400, 'x-as-of must be a date, YYYY-MM-DD.');
+  let rows = null;
+  try { rows = JSON.parse(req.headers.get('x-rows') || 'null'); } catch { /* checked below */ }
+  if (!rows || typeof rows !== 'object' || Object.keys(rows).length !== INSIGHTS.length
+      || INSIGHTS.some((t) => !Number.isInteger(rows[t]) || rows[t] < 1)) {
+    return fail(400, `x-rows must give the rows of ${INSIGHTS.join(' and ')}, as JSON.`);
+  }
+  if (Number(req.headers.get('content-length') || 0) > INSIGHTS_MAX) return fail(413, 'That file is too big.');
+  const body = await req.arrayBuffer();
+  if (body.byteLength > INSIGHTS_MAX) return fail(413, 'That file is too big.');
+  const head = new Uint8Array(body, 0, Math.min(2, body.byteLength));
+  if (head[0] !== 0x1f || head[1] !== 0x8b) return fail(400, 'The body must be a gzip file.');
+  const sha256 = hex(await crypto.subtle.digest('SHA-256', body));
+  const publishedAt = Date.now();
+  await env.LAB.put(INSIGHTS_KEY, body, { metadata: { as_of: asOf, rows, sha256, bytes: body.byteLength, published_at: publishedAt } });
+  const db = env.DB;
+  await db.batch(INSIGHTS.map((t) => db.prepare(
+    `INSERT INTO market_publish (tbl, as_of, rows, published_at) VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT(tbl) DO UPDATE SET as_of = ?2, rows = ?3, published_at = ?4`).bind(t, asOf, rows[t], publishedAt)));
+  // The scanner's answer carries the publish records, so pages learn there is a new file.
+  const served = await rebuildAnswer(env);
+  return json({ ok: true, as_of: asOf, rows, bytes: body.byteLength, sha256, published_at: publishedAt, served });
+}
+
+/** GET /api/market/insights?v=<published_at>: the file as it was sent (gzip; the page unpacks it).
+ * Asked for by the version in the scanner's answer, a browser keeps it for a day; any other version
+ * (a KV copy that hasn't caught up yet, or no version) isn't kept, so a new file is never hidden. */
+export async function insightsGet(env, url) {
+  const { value, metadata } = await env.LAB.getWithMetadata(INSIGHTS_KEY, { type: 'stream' });
+  if (!value) return fail(404, 'The lakehouse hasn\'t published the Insights data to MEDUSA yet.');
+  const m = metadata || {};
+  const current = url.searchParams.get('v') === String(m.published_at);
+  return new Response(value, {
+    headers: {
+      'content-type': 'application/gzip',
+      'cache-control': current ? 'private, max-age=86400, immutable' : 'no-store',
+      'x-as-of': String(m.as_of || ''),
+      'x-published-at': String(m.published_at || ''),
+      ...SECURITY,
+    },
+  });
+}
+
 /* ---------- the read side: what the live scanner page loads ---------- */
 
 // Behind the sign-in like the rest of MEDUSA (worker.js checks the session first, ADR-025), but the
@@ -200,7 +263,7 @@ async function buildAnswer(env, names = SHARED) {
     results = await db.batch([
       ...names.map((t) => db.prepare(
         `SELECT ${Object.keys(TABLES[t].columns).join(', ')} FROM ${t} ORDER BY ${TABLES[t].key.join(', ')}`)),
-      db.prepare(`SELECT tbl, as_of, rows, published_at FROM market_publish WHERE tbl IN (${SHARED.map((t) => `'${t}'`).join(', ')})`),
+      db.prepare(`SELECT tbl, as_of, rows, published_at FROM market_publish WHERE tbl IN (${[...SHARED, ...INSIGHTS].map((t) => `'${t}'`).join(', ')})`),
     ]);
   } catch (e) {
     if (names.includes('market_metrics') && /no such table: market_metrics/i.test(String(e && e.message))) {

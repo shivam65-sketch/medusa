@@ -14,10 +14,12 @@ The data engineering terms used in this project, in plain words.
 | **Audit log** | A record of what happened that is never changed afterwards, so it can be trusted | `ops.logs.etl_runs` and the tables under it |
 | **Auto Loader** | Databricks' incremental file loader: it remembers which files it has loaded and reads only new ones | Bronze pipeline |
 | **Backfill** | Running the pipeline for past dates to load history | `lakehouse-backfill.yml` |
+| **Basis point (bp)** | One hundredth of a percent: 0.01%, or 0.0001 as a fraction | The market by hour of the day, in Insights |
 | **Bitemporal** | Tracking both when something was true in the world and when the warehouse knew it | `dim_coin` after the backfill |
 | **Breadth** | The share of moving coins that went up | `market_daily.breadth` |
 | **Bronze / silver / gold** | The medallion layers: raw data, cleaned and typed data, business-ready tables | Schemas in `market` |
 | **Catalog** | Top level of Unity Catalog's `catalog.schema.table` names, roughly a database in SQL Server; here one per kind of data, each its own permission boundary | `market`, `journal`, `ops` ([ADR-032](decisions.md#adr-032-one-catalog-per-kind-of-data-described-and-tagged-in-place-no-renames)) |
+| **Chart spec** | A small description of how to draw a query's result: which column goes on which axis, how marks are coloured, what a click opens. The query decides what, the spec how it looks | A definition's `display.chart` ([ADR-035](decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page)) |
 | **Checksum (SHA-256)** | A fingerprint of a file's bytes. If the fingerprint doesn't match the published one, the file is damaged | The downloader |
 | **CI/CD** | Automatically checking and deploying code when it changes | Planned |
 | **Clustering by day** | Averaging each day's events first and doing the statistics over days, because events on the same day (coins moving together) aren't independent | `event_evidence` |
@@ -27,6 +29,7 @@ The data engineering terms used in this project, in plain words.
 | **Data observability** | A pipeline reporting on its own data: completeness, freshness, unexpected changes | `data_health` |
 | **Declarative** | Describing what should exist and letting the tool work out how | Bundles, pipelines |
 | **Dimension / fact** | Kimball's split: facts are measurements (candles), dimensions describe what is measured (coins) | `dim_coin`, `fct_candle_1m` |
+| **Drill-down (drill-through)** | Clicking a part of a graph or table to open the detail behind it, with what was clicked passed on as parameters | A bar, cell, point or row on Insights opens a window of the moves behind it |
 | **Event study** | Finding every moment something specific happened and measuring what followed it | `intraday_events` |
 | **Exactly once** | Each input is processed one time: never skipped, never twice | Auto Loader |
 | **Expectation** | A data-quality rule in a Lakeflow pipeline that counts, drops or fails on bad rows | Bronze (count only) |
@@ -36,8 +39,10 @@ The data engineering terms used in this project, in plain words.
 | **Governance tag** | A `key = value` label on a catalog, schema, table or column that says what kind of data it is; searchable, queryable in `information_schema`, and what access rules and audits select on | `domain`, `layer`, `personal_data` on every table |
 | **Grain** | What one row of a table means, e.g. one coin per hour | `fct_candle_1h` |
 | **Header / detail** | A parent table and its child rows: an order and its lines. Each child carries its parent's key | `etl_runs` → `etl_jobs` → `etl_steps` |
+| **Heatmap** | A grid of cells coloured by a number: here blue above zero, red below, grey near zero or where the data is too thin | Every kind of move at a glance; By size and liquidity |
 | **Held-back test (out-of-sample)** | Choosing a rule on one period and checking it on another that played no part in choosing it | `event_evidence` (2025 on) |
 | **High-water mark (watermark)** | The highest value already processed, kept so the next run continues after it. On insert order (an id), late rows aren't missed | MEDUSA's errors copied after the highest id in `ops.logs.app_events` |
+| **Histogram** | Bars counting how many values fall in each range (bin) | Spread of outcomes: moves per 1% step |
 | **Hive-style partition** | A folder named `column=value`, read as a column | `date=2026-10-19` |
 | **Idempotent** | Running something again gives the same result and does no harm | DDL, downloader, uploads, the metric definitions' seed (`MERGE ... WHEN NOT MATCHED`) |
 | **Incremental model** | A dbt model that, after its first full build, processes only new data and merges it in | `fct_candle_1m` |
@@ -52,6 +57,7 @@ The data engineering terms used in this project, in plain words.
 | **Manifest** | A list of the files a load produced, with each file's fingerprint, kept so the load can be checked against the source later | `manifests/date=…/manifest.csv` ([ADR-023](decisions.md#adr-023-re-check-loaded-days-against-binance-for-a-week)) |
 | **Matrix job** | GitHub Actions running the same job once per value in a list, several at a time | The backfill |
 | **Medallion architecture** | Organising data into bronze, silver and gold layers | The schemas |
+| **Median** | The middle value: half are above it, half below. Unlike the average, a few extreme values can't pull it | `MEDIAN(kept_going_pct)` in the Insights graphs |
 | **MERGE (upsert)** | Insert new rows and update existing ones by a key, in one statement | Incremental models; `live_prices` on the Markets page (`INSERT ... ON CONFLICT DO UPDATE`) |
 | **Metadata (technical)** | Data about the data: names, types, descriptions, owners, tags, lineage. Kept with the tables, it lets a reader understand a table without opening the code | Every catalog, schema, table and column described in Databricks (step 30) |
 | **Metrics layer (semantic layer)** | Defining each business number once, as data (name, definition, SQL), on shared steps (models), so every report computes it the same way | `market.semantic.metric_definitions`, run by the Markets page ([ADR-028](decisions.md#adr-028-every-number-is-a-sql-query-run-in-the-browser), [ADR-029](decisions.md#adr-029-metric-definitions-are-kept-in-databricks-and-published-with-the-data)) |
@@ -81,10 +87,13 @@ The data engineering terms used in this project, in plain words.
 | **Settling (contract)** | Binance's status for a futures contract it has delisted and is closing out. The archive keeps publishing flat, zero-volume candles for it | Why status comes from trades ([ADR-018](decisions.md#adr-018-a-coin-trades-only-if-it-has-trades)) |
 | **Single source of truth (master copy)** | One place where a piece of information is kept and changed; every other copy is made from it and never edited | `metric_definitions` in Databricks; MEDUSA's `market_metrics` and the page's built-in copy follow it |
 | **Snapshot (dbt)** | dbt's built-in way to record changes to a table over time as SCD Type 2 | `dim_coin` |
+| **Snapshot file** | A table (or a few) exported as one file for a client to load, instead of the client querying the database | The Insights file ([ADR-034](decisions.md#adr-034-the-insights-history-goes-to-medusa-as-one-gzip-file-kept-as-it-is)) |
 | **Source freshness** | dbt's check of how long ago a source table last received data | `sources.yml` |
 | **Storage / compute separation** | Data sits in storage; engines (warehouses) start up to work on it and can be stopped | Databricks |
 | **Streaming table** | A table that is filled incrementally from a source, processing only new data each run | `bronze.klines_1m`, `bronze.metrics` |
+| **Sufficient statistics** | The sums from which a statistic can be recomputed for any group of rows: count, sum, sum of squares give the mean and variance of any combination | `gold.hour_drift` keeps `days`, `sum_return`, `sum_sq_return` |
 | **Survivorship bias** | Results that look better than reality because failed items (here, delisted coins) were left out | Why `dim_coin` keeps history |
+| **SVG** | Scalable Vector Graphics: shapes and text described as markup, drawn by the browser at any size | Every Insights graph (`public/markets-charts.js`) |
 | **t-statistic** | average ÷ (standard deviation ÷ √n): whether a pattern is bigger than chance | `hour_profile.t_stat_return` |
 | **Unity Catalog** | Databricks' governance layer: names, permissions and lineage for all data | `market` catalog |
 | **Vendoring** | Keeping a pinned copy of a third-party library in your own repository instead of loading it from elsewhere at run time | sql.js in `public/vendor/sqljs-1.14.2/` (its fingerprints checked against the publisher's) |

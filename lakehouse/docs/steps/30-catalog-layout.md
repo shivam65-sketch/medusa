@@ -59,7 +59,7 @@ market        Public crypto market data: Binance USD-M futures, from the raw fil
 │                                 coin_baseline · intraday_events · event_evidence
 └─ semantic   5 of 5 · Semantic   metric_definitions · user_metric_definitions
 
-journal       Private: the trades of each MEDUSA account (step 32); schemas created when step 32 needs them
+journal       Private: the trades of each MEDUSA account (step 33); schemas created when step 33 needs them
               tags: domain=journal, personal_data=true
 
 ops           Operations: logs of the lakehouse pipelines and of MEDUSA
@@ -133,8 +133,9 @@ run once the bronze pipeline has created its tables.
 
 ### 30.3 The new catalogs, and the empty schema
 
-`006_layout.sql` creates `ops` with the schema `logs` for step 31, and `journal` for step 32 (its
-schemas wait until step 32 designs them). Databricks creates a `default` schema in every new catalog;
+`006_layout.sql` creates `ops` with the schema `logs` for step 31, and `journal` for the journal step (its
+schemas wait until that step designs them; planned as step 32, it became step 33 when the Insights graphs
+were put first). Databricks creates a `default` schema in every new catalog;
 the file drops it in `market`, `ops` and `journal`. `DROP SCHEMA` without `CASCADE` refuses to drop a
 schema that holds anything, so nothing can be lost.
 

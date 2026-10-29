@@ -18,16 +18,19 @@
 // lakehouse's own (intraday_events.sql), so the evidence describes exactly the moves flagged here. Live
 // numbers are unchecked: the next daily run replaces them.
 //
-// Two views: Today (the live scan) and Patterns (every kind of move and what it did next). Each ‹›
-// button opens one number's calculation in its own window (markets-window.html): the same code with
-// its own data, engine and live prices, running only that number's queries.
+// Three views: Today (the live scan), Patterns (every kind of move and what it did next) and Insights
+// (graphs of every move since 2020 and of the market now, drawn from their queries' results by
+// markets-charts.js; a click on a bar, cell or point opens the moves behind it in a window of its own).
+// Each ‹› button opens one number's or graph's calculation in its own window (markets-window.html):
+// the same code with its own data, engine and live prices, running only that window's queries.
 
-import { DEFINITIONS } from './markets-metrics.js?v=2';
+import { DEFINITIONS } from './markets-metrics.js?v=3';
+import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=1';
 
 const RULE = { z: 3 };
 const STREAM = 'wss://fstream.binance.com/market/ws/!miniTicker@arr';
 const REST = 'https://fapi.binance.com/fapi/v1';
-const ENGINE = '/markets-sql.js?v=2';
+const ENGINE = '/markets-sql.js?v=3';
 const DAY = 86_400_000;
 const HORIZONS = [1, 4, 24];
 const BANDS = ['3-4', '4-6', '6+'], LIQS = ['large', 'mid', 'small'];
@@ -67,6 +70,9 @@ export function definitionsFrom(rows) {
       id: r.metric_id, kind: r.kind, name: r.name, description: r.description || '', sql: r.sql_text,
       columns: (display && Array.isArray(display.columns) && display.columns) || base.columns,
       card: (display && display.card && display.card.value != null && display.card) || base.card,
+      chart: (display && display.chart && display.chart.type && display.chart) || base.chart,
+      drill: (display && display.drill && display.drill.panel && display.drill) || base.drill,
+      show: (display && Number.isInteger(display.show) && display.show) || base.show,
       version: r.version, validFrom: r.valid_from, changedBy: r.changed_by, note: r.change_note, from: 'lakehouse',
     });
   }
@@ -116,7 +122,15 @@ function modelsOf(sql, defs = DEFS, out = [], path = []) {
 
 const literal = (v) => (v == null ? 'NULL' : typeof v === 'number' ? (Number.isFinite(v) ? String(v) : 'NULL') : `'${String(v).replace(/'/g, "''")}'`);
 const tidy = (s) => s.replace(/ {3,}--/g, '  --');   // each comment right after its code, so it fits a phone
-const toDbx = (sql) => sql.replace(/\bmarket_baseline\b/g, 'market.gold.coin_baseline').replace(/\bmarket_evidence\b/g, 'market.gold.event_evidence');
+// MEDUSA's copies are named after what they copy; in Databricks a query reads the lakehouse's own tables.
+const DBX_TABLES = {
+  market_baseline: 'market.gold.coin_baseline', market_evidence: 'market.gold.event_evidence',
+  market_events: 'market.gold.intraday_events', market_hours: 'market.gold.hour_drift',
+};
+const toDbx = (sql) => sql.replace(/\b(market_baseline|market_evidence|market_events|market_hours)\b/g, (t) => DBX_TABLES[t]);
+// The Insights tables: in the browser only after the Insights file has loaded, and not in D1.
+const SNAPSHOT = ['market_events', 'market_hours'];
+const LIVE = ['live_prices', 'binance_markets'];
 
 /** A query with the page's parameters written in as their values, so the SQL on screen (and the SQL
  * that runs) changes with the filter: the type filter `:kind IN ('all', market_type)` becomes
@@ -158,8 +172,57 @@ export function assemble(def, { inputs = null, params = null, defs = DEFS } = {}
 const PARAM_WORDS = {
   kind: 'the type chosen at the top',
   yesterday: 'yesterday (UTC), the day today\'s move is measured from',
-  symbol: 'the market',
+  symbol: 'the market (NULL: every market)',
+  direction: 'up or down moves, chosen at the top',
+  horizon: 'the hours after the move, chosen at the top',
+  year: 'the year clicked (NULL: every year)',
+  hour: 'the UTC hour clicked (NULL: every hour)',
+  bucket: 'the 1% step clicked (NULL: every outcome)',
+  z_band: 'the size band clicked (NULL: every size)',
+  liquidity: 'the liquidity group clicked (NULL: every group)',
 };
+// What a click on a graph can pick (lakehouse step 32), and what each may be: anything else, from a
+// window's address, is ignored.
+const PICKS = {
+  year: (v) => (/^\d{4}$/.test(v) ? v : null),
+  hour: (v) => (/^\d{1,2}$/.test(v) && Number(v) <= 23 ? Number(v) : null),
+  bucket: (v) => (/^-?\d{1,2}$/.test(v) && Number(v) >= -11 && Number(v) <= 10 ? Number(v) : null),
+  z_band: (v) => (['3-4', '4-6', '6+'].includes(v) ? v : null),
+  liquidity: (v) => (['large', 'mid', 'small'].includes(v) ? v : null),
+  symbol: (v) => (/^[A-Z0-9_]{2,40}$/.test(v) ? v : null),
+};
+const NO_PICKS = Object.fromEntries(Object.keys(PICKS).map((k) => [k, null]));
+const DIRS = [['up', 'Up moves'], ['down', 'Down moves']];
+const HZS = [[1, 'Next 1 h'], [4, 'Next 4 h'], [24, 'Next 24 h']];
+
+/** Whether a definition reads the Insights tables, directly or through its shared steps. */
+function readsSnapshot(def, defs = DEFS) {
+  try { return reads(assemble(def, { defs })).some((t) => SNAPSHOT.includes(t)); } catch { return false; }
+}
+
+// The Insights view's graphs, in order: the ‹› window of each, whether it takes the whole width, and
+// how to use it.
+const INSIGHTS = [
+  { id: 'insight_live_map', panel: 'ins_live', wide: true,
+    how: 'Right of the middle is up today, left is down; higher means more volume than on a usual day. A big move on heavy volume is usually news; a big move on thin volume turns back more easily. <b>Blue</b> dots are unusual and their kind of move has a pattern that held up (see Patterns); <b>orange</b> ones are unusual with no tested edge. Click a dot for that market\'s numbers.' },
+  { id: 'insight_patterns_map', panel: 'ins_patterns', wide: true,
+    how: '<b>Blue</b>: moves of that kind kept going on average; <b>red</b>: they turned back. The words are each verdict; only <b>fade</b> or <b>follow</b> with a result passed the test on 2025 onwards after costs. Click a cell for the moves behind it.' },
+  { id: 'insight_by_year', panel: 'ins_year',
+    how: 'Trust a pattern only when it shows up year after year. When the median and the average are far apart, a few moves ran very far, so a stop matters. Click a year for its moves.' },
+  { id: 'insight_spread', panel: 'ins_spread',
+    how: 'Bars left of zero turned back, right of zero kept going. The end bars are the tails: the share that kept going 10% or more is what a fade has to survive, so size for it. Click a bar for its moves.' },
+  { id: 'insight_by_hour', panel: 'ins_hour',
+    how: 'Hours whose moves turned back more look better for a fade, but with 24 hours a few differ by luck: it is an idea to test, not a pattern yet. Click an hour for its moves.' },
+  { id: 'insight_by_group', panel: 'ins_group',
+    how: 'Small markets cost more to trade than the 0.10% the verdicts pay, so an edge there has to be bigger to be real. Click a cell for its moves.' },
+  { id: 'insight_hour_drift', panel: 'ins_drift', wide: true,
+    how: '<b>Blue</b> is 2020–2024, <b>orange</b> 2025 onwards. A real hour pattern has both bars on the same side; an hour that leaned one way in 2020–2024 and not after was luck, or has gone. 1 bp is 0.01%: far too small to trade on its own after costs, at most a hint for timing. Click an hour for it year by year.' },
+];
+
+/** The parameters every query gets: the choices at the top, and in a graph's window what was clicked. */
+const pageParams = () => ({
+  kind: S.kind, yesterday: yesterday(), direction: S.dir, horizon: S.hz, ...NO_PICKS, ...(S.win ? S.win.picks : {}),
+});
 
 /* ---------- state ---------- */
 
@@ -170,13 +233,19 @@ const S = {
   ref: null, refBusy: null, refDone: 0, refTotal: 0, // yesterday's closes: {day, close: Map, binance: Map, src, missing}
   types: new Map(), typesDay: null, marketsVer: 0,   // symbol -> {group, label}; bumped when the types or Binance closes change
   ws: null, wsState: 'off', everOpen: false, fails: 0, lastMsg: 0, retry: 0, tick: 0, stopped: true,
-  eng: { w: null, ready: null, ok: false, err: null, seq: 0, wait: new Map(), loadedAt: null, marketsVer: -1 },
+  eng: { w: null, ready: null, ok: false, err: null, seq: 0, wait: new Map(), loadedAt: null, marketsVer: -1, insVer: null, insInfo: null },
   sent: new Map(), sentMarkets: [],                  // what the engine's live_prices and binance_markets hold now
   res: new Map(), lastRun: null, running: false, again: false, urgent: false, runErr: null,
   logged: new Set(),                                 // failures already in the log ("key\nerror"): each once per page
   frozen: null,                                     // the engine's browser-only tables as of the last run, for Copy
   seen: new Map(),                                   // symbol -> when this page first saw it unusual
   view: 'today', kind: 'all', sort: 'z', q: '', limit: 50, open: null, openAll: null, pat: null,
+  dir: 'up', hz: 4,                                  // Insights: up or down moves, and the hours after them
+  // The Insights file: the version the lakehouse published (ver), the one fetched (gz, gzVer), and what
+  // the engine found in it (info: {as_of, rows}).
+  ins: { state: 'off', ver: null, gz: null, gzVer: null, err: null, info: null },
+  tbl: new Set(),                                    // the graphs also shown as a table
+  kept: new Map(),                                   // key -> {sql, tag}: a result that can't change until they do
   sql: new Map(),                                    // each calculation panel's query, for Copy
   win: null,                                         // in a ‹› window: {panel, ids, symbol}
   // A window's editor: definition id -> the text typed in its box; the ids whose box is open; the
@@ -305,6 +374,7 @@ function startEngine() {
     if (!p) return;
     e.wait.delete(data.id);
     clearTimeout(p.timer);
+    if (data.insights) e.insInfo = data.insights;   // what the engine found in the Insights file
     if (data.ok) p.resolve(data.result); else p.reject(new Error(data.error));
   };
   e.w.onerror = (ev) => { if (ev.preventDefault) ev.preventDefault(); failAll(ev.message || 'The SQL engine stopped.'); };
@@ -326,7 +396,7 @@ function restartEngine() {
   const e = S.eng;
   if (e.w) e.w.terminate();
   for (const [, p] of e.wait) clearTimeout(p.timer);
-  S.eng = { w: null, ready: null, ok: false, err: null, seq: e.seq, wait: new Map(), loadedAt: null, marketsVer: -1 };
+  S.eng = { w: null, ready: null, ok: false, err: null, seq: e.seq, wait: new Map(), loadedAt: null, marketsVer: -1, insVer: null, insInfo: null };
   S.sent.clear();
   for (const s of S.live.keys()) S.dirty.add(s);
   startEngine();
@@ -343,19 +413,26 @@ function marketRows() {
  * edits change a second time, with the edits, as `preview:<key>` (not while the tables are loading,
  * so a preview always has its own time limit). */
 function jobs(preview = true) {
-  const params = { kind: S.kind, yesterday: yesterday() };
-  const job = (id, key = id, extra = {}, defs = DEFS) => ({ id: key, sql: assemble(defs.get(id), { defs, params: { ...params, ...extra } }) });
+  const params = pageParams();
+  // A query that reads the Insights tables waits until the file has arrived (it comes with this run).
+  const ready = (id, defs = DEFS) => Boolean(S.ins.gz) || !readsSnapshot(defs.get(id), defs);
+  const job = (id, key = id, extra = {}, defs = DEFS) => {
+    const sql = assemble(defs.get(id), { defs, params: { ...params, ...extra } });
+    return { id: key, sql, live: reads(sql).some((t) => LIVE.includes(t)) };
+  };
   if (S.win) {
     const out = [], defs = preview ? previewDefs() : null;
     for (const id of S.win.ids) {
+      if (!ready(id)) continue;
       const key = winKey(id), extra = id === 'market' ? { symbol: S.win.symbol } : {};
       out.push(job(id, key, extra));
-      if (defs && touches(id, defs)) out.push(job(id, `preview:${key}`, extra, defs));
+      if (defs && touches(id, defs) && ready(id, defs)) out.push(job(id, `preview:${key}`, extra, defs));
     }
     return out;
   }
   const out = [job('unusual_all_types')];
   if (S.view === 'patterns') out.push(...['patterns_summary', 'patterns_held', 'patterns_grid'].map((id) => job(id)));
+  if (S.view === 'insights') out.push(...INSIGHTS.filter((g) => ready(g.id)).map((g) => job(g.id)));
   if (S.view === 'today') {
     out.push(...['breadth', 'median_move', 'unusual_count', 'bitcoin', 'unusual', 'gainers', 'losers', 'markets'].map((id) => job(id)));
     for (const sym of new Set([S.open, S.openAll])) if (sym) out.push(job('market', `market:${sym}`, { symbol: sym }));
@@ -376,7 +453,17 @@ async function run() {
   const e = S.eng;
   const msg = { op: 'run' };
   if (e.loadedAt !== S.data.at) msg.load = S.data.raw;
-  msg.jobs = jobs(!msg.load);
+  if (S.ins.gz && e.insVer !== S.ins.gzVer) msg.insights = S.ins.gz;   // once per version: the engine unpacks it
+  const loading = Boolean(msg.load || msg.insights);
+  // A result that reads no live table can't change until its query or the data does, so it is kept
+  // instead of being run again every second (the Insights graphs read about 21,000 moves).
+  const tag = `${S.data.at}|${S.ins.gzVer}`, kept = new Map(), sent = S.ins.gzVer;
+  msg.jobs = jobs(!loading).filter((j) => {
+    const k = S.kept.get(j.id);
+    if (loading || !k || k.sql !== j.sql || k.tag !== tag || !S.res.has(j.id)) return true;
+    kept.set(j.id, S.res.get(j.id));
+    return false;
+  });
   if (e.marketsVer !== S.marketsVer) msg.markets = marketRows();
   msg.prices = [...S.dirty].filter((s) => S.live.has(s)).map((s) => { const l = S.live.get(s); return [s, l.price, l.q ?? null]; });
   S.dirty.clear();
@@ -385,9 +472,14 @@ async function run() {
   let out;
   try {
     // Normally about 50 ms; only a stuck engine is restarted. An edit being previewed gets 5 seconds.
-    out = await call(msg, msg.load ? 30_000 : previewing ? 5_000 : 15_000);
+    out = await call(msg, msg.insights ? 60_000 : msg.load ? 30_000 : previewing ? 5_000 : 15_000);
   } catch (err) {
     if (S.eng === e) restartEngine();   // its tables may be half updated: start again from scratch
+    if (msg.insights) {   // a file the engine can't read isn't sent again: the view says so, with Try again
+      Object.assign(S.ins, { state: 'error', gz: null, gzVer: null, err: `The history couldn't be unpacked: ${err.message}` });
+      logOnce('insights', err.message, `The Insights file couldn't be unpacked: ${err.message}`);
+      return;
+    }
     if (previewing) {
       stopPreview('Your version took more than 5 seconds, so the preview was stopped and the SQL engine restarted. Check for a join without a condition, or a step that reads a big table many times.');
       return;
@@ -396,11 +488,16 @@ async function run() {
   }
   if (S.eng !== e) return;   // the engine was restarted meanwhile
   if (msg.load) e.loadedAt = S.data.at;
+  if (msg.insights) { e.insVer = sent; if (S.ins.gzVer === sent) Object.assign(S.ins, { state: 'ok', info: e.insInfo }); }
   if (msg.markets) { e.marketsVer = S.marketsVer; S.sentMarkets = msg.markets; }
   for (const [s, p, q] of msg.prices) { const old = S.sent.get(s); S.sent.set(s, [p, q ?? (old ? old[1] : null)]); }
   S.frozen = { prices: new Map(S.sent), markets: S.sentMarkets, at: S.lastMsg };
   S.lastRun = { at: Date.now(), ms: Math.round(performance.now() - t0), n: msg.jobs.length };
-  S.res = new Map(Object.entries(out));
+  S.res = new Map([...kept, ...Object.entries(out)]);
+  for (const j of msg.jobs) {
+    if (!j.live && out[j.id] && !out[j.id].error) S.kept.set(j.id, { sql: j.sql, tag: `${S.data.at}|${sent}` });
+    else S.kept.delete(j.id);
+  }
   // A query that failed goes into the log once per page (queries run every second), so the lakehouse's
   // ops.logs.app_events gets it with the daily copy. A preview's failures are the editor's to show.
   for (const [key, res] of S.res) {
@@ -433,7 +530,10 @@ const SOURCES = {
   binance_markets: () => 'Each market\'s type from Binance\'s contract list (once a day), and yesterday\'s close from Binance\'s daily candle until the lakehouse publishes yesterday (about 13:30 UTC). Only in this browser.',
   market_baseline: () => `Each market's normal (last close, average daily return, σ, days of history, average volume): MEDUSA's copy of the lakehouse's <code>gold.coin_baseline</code>, built by ${ghLink('coin_baseline.sql')}. Lakehouse day ${shortDay((S.data.published.market_baseline || {}).as_of)}.`,
   market_evidence: () => `What similar moves did next: MEDUSA's copy of the lakehouse's <code>gold.event_evidence</code>, built by ${ghLink('event_evidence.sql')}. Lakehouse day ${shortDay((S.data.published.market_evidence || {}).as_of)}.`,
+  market_events: () => `Every unusual move since 2020 and the price 1, 4 and 24 hours later: MEDUSA's copy of the lakehouse's <code>gold.intraday_events</code>, built by ${ghLink('intraday_events.sql')}${insDay()}. It reaches this browser in one file when a graph needs it, and isn't in D1.`,
+  market_hours: () => `The whole market's move in each UTC hour, by year and liquidity: MEDUSA's copy of the lakehouse's <code>gold.hour_drift</code>, built by ${ghLink('hour_drift.sql')}${insDay()}. In the same file.`,
 };
+const insDay = () => { const pub = S.data.published.market_events; return pub ? `. Lakehouse day ${shortDay(pub.as_of)}` : ''; };
 
 /** A query's result exactly as it came back, for the panel. */
 function rawResult(res) {
@@ -452,8 +552,9 @@ function rawResult(res) {
  * With `defs`, the version being previewed. */
 function queryHead(id, key = id, extra = {}, defs = null) {
   const def = (defs || DEFS).get(id);
-  const params = { kind: S.kind, yesterday: yesterday(), ...extra };
+  const params = { ...pageParams(), ...extra };
   const raw = assemble(def, { defs: defs || DEFS }), sql = assemble(def, { defs: defs || DEFS, params });
+  const snap = readsSnapshot(def, defs || DEFS);
   PENDING.push([key, { id, params, frozen: S.frozen, defs }]);
   const used = [...new Set([...noComments(raw).matchAll(/:([a-z_]+)\b/g)].map((m) => m[1]))].filter((p) => p in params);
   const written = (p) => (p !== 'kind' ? `<code>${esc(literal(params[p]))}</code>`
@@ -470,7 +571,7 @@ function queryHead(id, key = id, extra = {}, defs = null) {
       : '<b>Definition:</b> the built-in copy in <code>markets-metrics.js</code>, because the lakehouse hasn\'t published this definition to MEDUSA yet.';
   return `<p class="faint">${origin}</p>
     <div class="mkt-sql"><div class="h"><span>${defs ? 'Your version, exactly as it runs on this screen' : 'The query, exactly as the Markets page runs it'}</span><span class="b">
-      <button class="btn btn-sm" type="button" data-mkt="copy" data-sql="${esc(key)}" data-db="d1">Copy for MEDUSA (D1)</button>
+      ${snap ? '' : `<button class="btn btn-sm" type="button" data-mkt="copy" data-sql="${esc(key)}" data-db="d1">Copy for MEDUSA (D1)</button>`}
       <button class="btn btn-sm" type="button" data-mkt="copy" data-sql="${esc(key)}" data-db="dbx">Copy for Databricks</button></span></div>
       <pre>${esc(sql)}</pre></div>
     ${used.length ? `<p class="mkt-params"><b>Filled in</b> ${used.map((p) => `<code>:${p}</code> → ${written(p)} <span class="faint">${PARAM_WORDS[p] || ''}</span>`).join(' · ')}. The definition keeps <code>:${used.join('</code>, <code>:')}</code>, so it works for every choice; the query above is written with this window's values.</p>` : ''}`;
@@ -479,11 +580,15 @@ function queryHead(id, key = id, extra = {}, defs = null) {
 /** A number's result now, exactly as the engine returned it, and where each table comes from. */
 function queryLive(id, key = id) {
   const tables = [...new Set(reads(assemble(DEFS.get(id))))].filter((t) => t in SOURCES);
+  const live = tables.some((t) => LIVE.includes(t)), snap = tables.some((t) => SNAPSHOT.includes(t));
+  const copies = live
+    ? `<code>live_prices</code> and <code>binance_markets</code> exist only in the browser, so the copies write them in as <code>VALUES</code>, as they were at the last run, and fill in the parameters: they run ${snap ? 'in Databricks' : 'in MEDUSA\'s D1 or in Databricks'} and return this result.`
+    : 'The copy fills in the parameters and runs as it is.';
   return `${rawResult(S.res.get(key))}
     <table class="mkt-legend"><thead><tr><th>Table</th><th>What it is</th></tr></thead><tbody>${tables.map((t) => `<tr><td><code>${t}</code></td><td>${SOURCES[t]()}</td></tr>`).join('')}</tbody></table>
-    <p class="faint">The steps in <code>WITH</code> are shared by every number on the Markets page (change one and every number that reads it changes). <code>live_prices</code> and <code>binance_markets</code> exist only in the browser, so the copies write them in as <code>VALUES</code>, as they were at the last run, and fill in the parameters: they run in MEDUSA's D1 or in Databricks and return this result.</p>
+    <p class="faint">The steps in <code>WITH</code> are shared by every number and graph on the Markets page (change one and everything that reads it changes). ${copies}${snap ? ' In Databricks the Insights tables are the lakehouse\'s own (<code>market.gold.intraday_events</code>, <code>market.gold.hour_drift</code>), so the copy gives the same result there.' : ''}</p>
     <p><button class="btn btn-sm" type="button" data-mkt="csv" data-key="${esc(key)}" data-what="result">Download the result (CSV)</button>
-      <button class="btn btn-sm" type="button" data-mkt="csv" data-key="${esc(key)}" data-what="inputs">Download the inputs (CSV)</button></p>`;
+      ${live ? `<button class="btn btn-sm" type="button" data-mkt="csv" data-key="${esc(key)}" data-what="inputs">Download the inputs (CSV)</button>` : ''}</p>`;
 }
 
 /** What each ‹› button opens in its own window: the numbers whose calculation it shows. */
@@ -491,13 +596,23 @@ const WINDOWS = {
   breadth: ['breadth'], median_move: ['median_move'], unusual_count: ['unusual_count'], bitcoin: ['bitcoin'],
   unusual: ['unusual'], movers: ['gainers', 'losers'], markets: ['markets'], market: ['market'],
   patterns: ['patterns_summary', 'patterns_held', 'patterns_grid', 'unusual_all_types'],
+  // Insights (lakehouse step 32): each graph's calculation, and the windows a click on a graph opens.
+  ins_live: ['insight_live_map'], ins_patterns: ['insight_patterns_map'], ins_year: ['insight_by_year'],
+  ins_spread: ['insight_spread'], ins_hour: ['insight_by_hour'], ins_group: ['insight_by_group'],
+  ins_drift: ['insight_hour_drift'],
+  moves: ['moves_summary', 'moves_spread', 'moves_by_year', 'moves_list'],
+  drift: ['drift_by_year', 'drift_by_liquidity'],
 };
 
 /** A ‹› button: the number's calculation in its own window. Pressing it again brings that window to the
  * front as it is (it isn't reloaded). */
-function openWindow(panel, symbol) {
-  const name = `medusa-calc-${panel}${symbol ? `-${symbol}` : ''}`;
-  const url = `/markets-window?${new URLSearchParams({ panel, kind: S.kind, ...(symbol ? { symbol } : {}) })}`;
+function openWindow(panel, symbol, picks = null, choice = null) {
+  const set = Object.entries(picks || {}).filter(([, v]) => v != null);
+  const c = choice || { dir: S.dir, hz: S.hz };
+  // A window per thing picked: the same click brings the same window back to the front.
+  const which = set.length || panel === 'moves' ? `-${c.dir}-${c.hz}${set.map(([k, v]) => `-${k}-${v}`).join('')}` : '';
+  const name = `medusa-calc-${panel}${symbol ? `-${symbol}` : ''}${which}`;
+  const url = `/markets-window?${new URLSearchParams({ panel, kind: S.kind, dir: c.dir, hz: String(c.hz), ...(symbol ? { symbol } : {}), ...Object.fromEntries(set.map(([k, v]) => [k, String(v)])) })}`;
   const size = `width=${Math.min(1600, screen.availWidth - 40)},height=${Math.min(1000, screen.availHeight - 40)}`;
   const w = window.open('', name, `popup,${size}`);
   if (!w) { api.toast('The window was blocked: allow pop-ups for MEDUSA in the browser, then press ‹› again.', 'error'); return; }
@@ -505,7 +620,24 @@ function openWindow(panel, symbol) {
   try { fresh = w.location.href === 'about:blank'; } catch { /* that window is on another site */ }
   if (fresh) w.location.href = url;
   w.focus();
-  api.log('markets', `Opened how ${panel}${symbol ? ` (${symbol})` : ''} is calculated, in its own window`, null, 'debug');
+  api.log('markets', `Opened ${panel}${symbol ? ` (${symbol})` : ''}${set.length ? ` for ${set.map(([k, v]) => `${k} ${v}`).join(', ')}` : ''} in its own window`, null, 'debug');
+}
+
+/** A click on a graph's bar, cell or point, or on a table's row: the window its drill names, with the
+ * picks taken from that row (over the window's own picks, so a click in a window narrows it further). */
+function drill(el) {
+  let set;
+  try { set = JSON.parse(el.dataset.p || '{}'); } catch { return; }
+  const panel = el.dataset.panel;
+  if (panel === 'market') { const sym = PICKS.symbol(String(set.symbol ?? '')); if (sym) openWindow('market', sym); return; }
+  if (!WINDOWS[panel]) return;
+  const picks = { ...(S.win ? S.win.picks : {}) }, choice = { dir: S.dir, hz: S.hz };
+  for (const [k, v] of Object.entries(set)) {
+    if (k === 'direction') { if (v === 'up' || v === 'down') choice.dir = v; }
+    else if (k === 'horizon') { if (HZS.some(([h]) => h === Number(v))) choice.hz = Number(v); }
+    else if (k in PICKS) picks[k] = v == null ? null : PICKS[k](String(v));
+  }
+  openWindow(panel, null, picks, choice);
 }
 
 /** The text for Copy: the query made to run in MEDUSA's D1 or in Databricks. */
@@ -530,7 +662,7 @@ function copyText(key, db) {
 
 /* ---------- a window's editor: change a definition and preview it on this screen ---------- */
 
-const PARAMS = ['kind', 'yesterday', 'symbol'];
+const PARAMS = ['kind', 'yesterday', 'symbol', 'direction', 'horizon', ...Object.keys(PICKS).filter((k) => k !== 'symbol')];
 const clean = (sql) => String(sql).replace(/[\s;]+$/, '');   // a ; at the end isn't needed (and isn't stored)
 const winKey = (id) => (id === 'market' ? `market:${S.win.symbol}` : id);
 const edited = (id) => S.edit.text.has(id) && clean(S.edit.text.get(id)) !== clean(DEFS.get(id).sql);
@@ -557,13 +689,15 @@ function sqlProblems(id, sql) {
   if (!/^(SELECT|WITH)[^A-Z0-9_]/i.test(text)) out.push(`${name}: a query must start with SELECT or WITH, so it can only read (a comment can go after that word, not before it).`);
   if (text.includes(';')) out.push(`${name}: only one statement, so no ; anywhere (not even in a comment).`);
   const unknown = [...new Set([...noComments(text).matchAll(/(?<![\w:]):([A-Za-z_]\w*)/g)].map((m) => m[1]))].filter((p) => !PARAMS.includes(p));
-  if (unknown.length) out.push(`${name}: ${unknown.map((p) => `:${p}`).join(', ')} isn't a parameter the page fills in (it has :kind, :yesterday and :symbol).`);
+  if (unknown.length) out.push(`${name}: ${unknown.map((p) => `:${p}`).join(', ')} isn't a parameter the page fills in (it has ${PARAMS.map((p) => `:${p}`).join(', ')}).`);
   return out;
 }
 
 /** The columns a number's display needs: a card's {column} fields, or a table's columns. */
 function neededColumns(id) {
   const d = DEFS.get(id);
+  if (d.chart) return chartColumns(d.chart);
+  if (d.drill) return [...new Set([...(d.columns || []).map((c) => c.name), ...Object.values(d.drill.set || {})])];
   if (d.card) return [...new Set([...`${d.card.value} ${d.card.sub}`.matchAll(/\{(\w+)/g)].map((m) => m[1]))];
   return (d.columns || []).map((c) => c.name);
 }
@@ -596,12 +730,28 @@ function stopPreview(note = null) {
   draw();
 }
 
+/** The parameters a definition uses, in words, for its editor box. */
+function paramHelp(id) {
+  const used = usedParams([id]);
+  if (!used.length) return 'It uses none of the page\'s parameters.';
+  const how = {
+    kind: '<code>:kind IN (\'all\', market_type)</code> becomes <code>market_type = \'crypto\'</code> when Crypto is chosen, or <code>TRUE</code> for All',
+    yesterday: '<code>:yesterday</code> becomes yesterday\'s date',
+  };
+  return `Keep the parameters as they are: the page writes in their values when it runs, so ${used.map((p) => how[p] || `<code>:${p}</code> becomes ${esc(PARAM_WORDS[p] || 'its value')}`).join('; ')}.`;
+}
+
 /** An editor box for one definition: its SQL, what it is, and who reads it. */
 function editBox(id) {
   const d = DEFS.get(id);
   const readers = d.kind === 'model'
     ? [...DEFS.values()].filter((x) => x.kind === 'metric' && (() => { try { return modelsOf(x.sql).includes(id); } catch { return false; } })()).map((x) => x.name)
     : [];
+  let steps = [];
+  try { steps = modelsOf(d.sql); } catch { /* shown when previewed */ }
+  const stepsHelp = steps.length
+    ? `Its shared steps (whatever follows FROM or JOIN, here <code>${steps.map(esc).join('</code>, <code>')}</code>) are put in front of it as <code>WITH ... AS (...)</code> when it runs.`
+    : 'It reads its tables directly, with no shared steps.';
   const text = S.edit.text.has(id) ? S.edit.text.get(id) : d.sql;
   const rows = Math.min(30, Math.max(6, text.split('\n').length + 1));
   return `<div class="mkt-edit-box${edited(id) ? ' changed' : ''}" data-box="${esc(id)}">
@@ -611,7 +761,7 @@ function editBox(id) {
       <button class="btn btn-sm" type="button" data-mkt="edit-close" data-def="${esc(id)}">Close</button></div>
     <p class="faint">${d.kind === 'model'
     ? `Read by name (<code>FROM ${esc(id)}</code>) by ${readers.length ? readers.map(esc).join(', ') : 'no number yet'}: changing it changes every one of them. This window previews its own numbers.`
-    : `Its shared steps (whatever follows FROM or JOIN, such as <code>today</code>) are put in front of it as <code>WITH ... AS (...)</code> when it runs. Keep the parameters as they are: the page writes in their values when it runs, so <code>:kind IN ('all', market_type)</code> becomes <code>market_type = 'crypto'</code> when Crypto is chosen, or <code>TRUE</code> for All; <code>:yesterday</code> becomes yesterday's date${id === 'market' ? ' and <code>:symbol</code> the market' : ''}.`}</p>
+    : `${stepsHelp} ${paramHelp(id)}`}</p>
     <textarea data-def="${esc(id)}" rows="${rows}" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="SQL of ${esc(d.name)}">${esc(text)}</textarea>
     <div class="mkt-hist" data-hist="${esc(id)}">${histHtml(id)}</div>
   </div>`;
@@ -778,7 +928,7 @@ async function reloadDefs() {
  * numbers; this covers the whole page before anything is saved. */
 async function checkEverything() {
   const defs = previewDefs();
-  const params = { kind: 'all', yesterday: yesterday(), symbol: 'BTCUSDT' };
+  const params = { ...pageParams(), kind: 'all', symbol: 'BTCUSDT' };
   const ids = [...DEFS.values()].filter((d) => d.kind === 'metric' && touches(d.id, defs)).map((d) => d.id);
   const out = await call({ op: 'run', jobs: ids.map((id) => ({ id, sql: assemble(defs.get(id), { defs, params }) })) }, 5_000);
   const problems = [];
@@ -1030,6 +1180,37 @@ table.mkt-result td, table.mkt-result th { white-space: nowrap; font-family: ui-
 .mkt-win-note { margin-top: 6px; font-size: 13px; }
 .mkt-msg { margin: 6px 0 10px; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; line-height: 1.5; color: #d4d4d8; background: #161616; }
 @media (max-width: 640px) { .mkt-win { padding: 10px 10px 30px; gap: 10px; } .mkt-win .card { padding: 16px 14px; } }
+/* Insights: graphs drawn from their queries' results (markets-charts.js) */
+.mkt-ins-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+@media (min-width: 1250px) { .mkt-ins-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .mkt-ins-grid .wide { grid-column: 1 / -1; } }
+.mkt-ins-pick, .mkt-win-tools { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+.mkt-ins .card-head { margin-bottom: 6px; }
+.mkt-chart { margin-top: 4px; }
+.mkt-chart svg { display: block; max-width: 100%; height: auto; overflow: visible; }
+.mkt-chart .tk { font-size: 11.5px; fill: #8b8b91; font-variant-numeric: tabular-nums; }
+.mkt-chart .ax { font-size: 12px; fill: #b4b4b8; }
+.mkt-chart .cv { font-size: 12px; font-weight: 600; pointer-events: none; }
+.mkt-chart .hit { fill: transparent; outline: none; }
+.mkt-chart rect.hit:hover, .mkt-chart rect.hit:focus-visible { fill: rgba(255, 255, 255, 0.07); }
+.mkt-chart circle.hit:hover, .mkt-chart circle.hit:focus-visible { stroke: #f4f4f5; stroke-width: 1.5; }
+.mkt-chart.drill .hit { cursor: pointer; }
+.mkt-legend-row { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 2px 0; font-size: 12.5px; color: var(--text-2); }
+.mkt-legend-row > span { display: inline-flex; align-items: center; gap: 6px; }
+.mkt-legend-row i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.mkt-legend-row i.dot { border-radius: 50%; }
+.mkt-legend-row i.line { width: 14px; height: 2px; border-radius: 1px; }
+.mkt-scale i { width: 110px; height: 8px; border-radius: 4px; }
+.mkt-tip { position: fixed; z-index: 90; max-width: 320px; padding: 8px 10px; border-radius: 8px; background: #111; border: 1px solid var(--border-2); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); color: var(--text-2); font-size: 12.5px; line-height: 1.45; pointer-events: none; }
+.mkt-tip > b { display: block; margin-bottom: 3px; color: var(--text); font-size: 13px; }
+.mkt-tip > div { display: flex; align-items: center; gap: 6px; }
+.mkt-tip > div > i { display: inline-block; flex: none; width: 10px; height: 2px; border-radius: 1px; }
+.mkt-tip .v { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.mkt-tip .l { color: var(--text-3); }
+.mkt-tbl { margin-top: 10px; }
+.mkt-tbl summary { cursor: pointer; color: var(--text-3); font-size: 13px; }
+.mkt-tbl .scroll-x { margin-top: 6px; max-height: 420px; overflow: auto; }
+.mkt-table tr[data-mkt="drill"] { cursor: pointer; }
+.mkt-table tr[data-mkt="drill"]:hover td, .mkt-table tr[data-mkt="drill"]:focus-visible td { background: #2b2b2b; }
 `;
 
 function shell() {
@@ -1039,10 +1220,12 @@ function shell() {
     <div class="toggle" role="group" aria-label="View">
       <button data-mkt="view" data-v="today" aria-pressed="true">Today</button>
       <button data-mkt="view" data-v="patterns" aria-pressed="false">Patterns</button>
+      <button data-mkt="view" data-v="insights" aria-pressed="false">Insights</button>
     </div>
     <div class="toggle" role="group" aria-label="Markets" id="mkt-kinds">
       ${KINDS.map(([v, l]) => `<button data-mkt="kind" data-v="${v}" aria-pressed="${v === 'all'}">${l}</button>`).join('')}
     </div>
+    <div class="mkt-ins-pick" id="mkt-ins-pick" hidden>${choices(['direction', 'horizon'])}</div>
   </div>
   <div class="banner mkt-status" id="mkt-status" aria-live="polite"></div>
   <div id="mkt-today" class="view">
@@ -1084,8 +1267,18 @@ function shell() {
       </ul>
     </details>
   </div>
-  <div id="mkt-patterns" class="view" hidden></div>`;
+  <div id="mkt-patterns" class="view" hidden></div>
+  <div id="mkt-insights" class="view" hidden></div>`;
   S.html.clear();
+}
+
+/** The choices at the top that a view's (or a window's) queries use: the type, up or down moves, the
+ * hours after them. */
+function choices(used) {
+  const group = (label, act, list, now) => `<div class="toggle" role="group" aria-label="${label}">${list.map(([v, l]) => `<button data-mkt="${act}" data-v="${v}" aria-pressed="${String(v) === String(now)}">${l}</button>`).join('')}</div>`;
+  return [used.includes('kind') ? group('Markets', 'kind', KINDS, S.kind) : '',
+    used.includes('direction') ? group('Moves', 'dir', DIRS, S.dir) : '',
+    used.includes('horizon') ? group('Over', 'hz', HZS, S.hz) : ''].join('');
 }
 
 /** Replace a part of the page only when it changed (keeps focus, hover and text selection). A part is
@@ -1113,6 +1306,7 @@ function paint() {
   if (!host || host.hidden || document.hidden || !document.getElementById('mkt-status')) return;
   S.painted = Date.now();
   if (!S.data || S.loadErr) { draw(); return; }
+  if (needsInsights()) loadInsights();
   if (!S.eng.ok) { if (!S.eng.err) startEngine(); draw(); return; }
   if (S.running) { S.again = true; return; }
   S.running = true;
@@ -1130,13 +1324,15 @@ function paint() {
 /** Draw everything from the last results (no queries run here). */
 function draw() {
   if (!host || !document.getElementById('mkt-status')) return;
-  host.querySelectorAll('[data-mkt="view"], [data-mkt="kind"], [data-mkt="sort"]').forEach((b) => {
-    b.setAttribute('aria-pressed', String(b.dataset.v === S[b.dataset.mkt]));
+  host.querySelectorAll('[data-mkt="view"], [data-mkt="kind"], [data-mkt="sort"], [data-mkt="dir"], [data-mkt="hz"]').forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.v === String(S[b.dataset.mkt])));
   });
   if (!S.win) {
     document.getElementById('mkt-kinds').hidden = S.view !== 'today';
+    document.getElementById('mkt-ins-pick').hidden = S.view !== 'insights';
     document.getElementById('mkt-today').hidden = S.view !== 'today';
     document.getElementById('mkt-patterns').hidden = S.view !== 'patterns';
+    document.getElementById('mkt-insights').hidden = S.view !== 'insights';
   }
   if (S.loadErr || !S.data) {
     put('mkt-status', S.loadErr
@@ -1147,6 +1343,7 @@ function draw() {
   paintStatus();
   if (S.win) { paintWindow(); return; }
   if (S.view === 'patterns') { paintPatterns(); return; }
+  if (S.view === 'insights') { paintInsights(); return; }
   paintKpis();
   paintUnusual();
   paintMovers();
@@ -1402,6 +1599,88 @@ function paintPatterns() {
     </section>`);
 }
 
+/* ---------- Insights: graphs of every move since 2020 and of the market now (lakehouse step 32) ---------- */
+
+const needsInsights = () => (S.win ? S.win.ids.some((id) => readsSnapshot(DEFS.get(id))) : S.view === 'insights');
+
+/** The Insights file (GET /api/market/insights), once per version the lakehouse publishes: fetched as
+ * it is (gzip, about 0.6 MB) and unpacked by the SQL engine on its next run. Asked for by its version,
+ * so the browser keeps it until a new one is published. */
+async function loadInsights(again = false) {
+  const pub = S.data && !S.loadErr && S.data.published.market_events;
+  if (!pub) { S.ins.state = 'none'; return; }
+  const ver = String(pub.published_at);
+  if (S.ins.ver === ver && !(again && S.ins.state === 'error')) return;   // fetched, on its way, or failed
+  Object.assign(S.ins, { ver, state: 'loading', err: null });
+  draw();
+  try {
+    const r = await fetch(`/api/market/insights?v=${encodeURIComponent(ver)}`, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error((await r.json().then((d) => d.error, () => null)) || `MEDUSA answered ${r.status}.`);
+    const gz = await r.arrayBuffer();
+    if (S.ins.ver !== ver) return;   // a newer version was asked for meanwhile
+    Object.assign(S.ins, { gz, gzVer: ver, state: 'unpacking' });
+    api.log('markets', `Loaded the Insights file (${Math.round(gz.byteLength / 1024)} KB)`, null, 'debug');
+  } catch (e) {
+    if (S.ins.ver !== ver) return;
+    Object.assign(S.ins, { state: 'error', err: e.message });
+    logOnce('insights', e.message, `The Insights data couldn't be loaded: ${e.message}`);
+  }
+  S.urgent = true;
+  paint();
+}
+
+/** Where the history stands, or why a graph that needs it can't be drawn yet. */
+function insStatus() {
+  const st = S.ins.state, n = (v) => Number(v || 0).toLocaleString('en-US');
+  if (st === 'ok' && S.ins.info) {
+    const r = S.ins.info.rows || {};
+    return `History: ${n(r.market_events)} unusual moves since 2020 and ${n(r.market_hours)} rows of the market by hour, lakehouse day ${shortDay(S.ins.info.as_of)}, in this browser's SQL engine. A graph is drawn again whenever its query's result changes; <b>Every market right now</b> is live.`;
+  }
+  if (st === 'error') return `<span class="warn">The history couldn't be loaded: ${esc(S.ins.err)}</span> <button class="btn btn-sm" type="button" data-mkt="ins-retry">Try again</button>`;
+  if (st === 'none') return 'The lakehouse hasn\'t published the history for these graphs yet (it comes with the daily publish). The live graph works already.';
+  return 'Loading the history (every unusual move since 2020, about 0.6 MB)…';
+}
+const insPending = () => `<div class="mkt-empty">${insStatus()}</div>`;
+
+/** A graph: its query's result drawn by markets-charts.js, the width of the box it goes in, and the
+ * same result as a table underneath (on request). */
+function chartBlock(id, key, box) {
+  const d = DEFS.get(id), res = S.res.get(key);
+  if (!res) return readsSnapshot(d) && !S.ins.gz ? insPending() : pending();
+  if (res.error) return failed(res);
+  const el = document.getElementById(box);
+  const width = Math.max(300, Math.floor(((el && el.clientWidth) || 720) / 10) * 10);
+  const spec = new Map((d.columns || []).map((c) => [c.name, c]));
+  const ctx = {
+    width, name: d.name,
+    label: (c) => (spec.get(c) || {}).label || c,
+    cell: (c, row) => (FMT[(spec.get(c) || {}).format] || FMT.auto)(row[c], row, spec.get(c)),
+  };
+  const open = S.tbl.has(key);
+  return `${chartHtml(res, d.chart, ctx)}
+    <details class="mkt-tbl" data-key="${esc(key)}" data-def="${esc(id)}"${open ? ' open' : ''}><summary>The result as a table (${res.rows.length} row${res.rows.length === 1 ? '' : 's'})</summary><div class="mkt-tbl-body">${open ? resultTable(res, d) : ''}</div></details>`;
+}
+
+/** The Insights view: its cards are drawn once, each graph in its own box, so the live graph can be
+ * redrawn every second without touching the others. */
+function paintInsights() {
+  const layout = `<div class="banner mkt-status" id="mkt-ins-status"></div>
+    <div class="mkt-ins-grid">${INSIGHTS.map((g) => {
+    const d = DEFS.get(g.id);
+    return `<section class="card mkt-ins${g.wide ? ' wide' : ''}">
+        <div class="card-head"><div><h2>${esc(d.name)}</h2><p>${esc(d.description)}</p></div>${srcBtn(g.panel)}</div>
+        <div id="mkt-ins-${g.id}" class="mkt-hold"></div>
+        <p class="mkt-key">${g.how}</p>
+      </section>`;
+  }).join('')}</div>
+    <p class="mkt-key">Every graph is a query, kept in the lakehouse with every version like the numbers on Today: press its ‹› to see it run, change it and preview your version. The history is almost all crypto, and it is research, not trading advice.</p>`;
+  const fresh = S.html.get('mkt-insights') !== layout;
+  put('mkt-insights', layout);
+  if (fresh) for (const k of [...S.html.keys()]) if (k.startsWith('mkt-ins-')) S.html.delete(k);
+  put('mkt-ins-status', `<div>${insStatus()}</div>`);
+  for (const g of INSIGHTS) put(`mkt-ins-${g.id}`, chartBlock(g.id, g.id, `mkt-ins-${g.id}`));
+}
+
 /* ---------- a ‹› window: one number's calculation on its own (markets-window.html) ---------- */
 
 const WIN_TITLES = { movers: 'Movers today', patterns: 'Patterns: what similar moves did next' };
@@ -1414,9 +1693,7 @@ function windowShell() {
   host.innerHTML = `
   <header class="mkt-win-head">
     <div><h1 id="mkt-win-title"></h1><p class="faint">How it is calculated, live, and your own version of it: the query exactly as the Markets page runs it, on the same data and live prices.</p></div>
-    ${panel === 'market' || panel === 'patterns' ? '' : `<div class="toggle" role="group" aria-label="Markets" id="mkt-kinds">
-      ${KINDS.map(([v, l]) => `<button data-mkt="kind" data-v="${v}" aria-pressed="${v === S.kind}">${l}</button>`).join('')}
-    </div>`}
+    <div class="mkt-win-tools" id="mkt-win-tools"></div>
   </header>
   <div class="banner mkt-status" id="mkt-status" aria-live="polite"></div>
   <div class="mkt-win-grid">
@@ -1452,15 +1729,15 @@ function windowShell() {
 }
 
 /** "On the page now", and beside it "Your version" while an edit that changes this number is previewed. */
-function shownBoth(id, key) {
-  const now = `<div><h3 class="mkt-win-h">On the page now</h3>${shownAs(id, key)}</div>`;
+function shownBoth(id, key, box) {
+  const now = `<div><h3 class="mkt-win-h">On the page now</h3>${shownAs(id, key, box)}</div>`;
   const defs = previewDefs();
   if (!defs) return now;
   if (!touches(id, defs)) return `${now}<p class="faint mkt-win-note">Your changes don't change this number.</p>`;
   const pk = `preview:${key}`, res = S.res.get(pk);
   const missing = res && !res.error ? neededColumns(id).filter((c) => !res.columns.includes(c)) : [];
   return `<div class="mkt-cmp${DEFS.get(id).card ? ' cards' : ''}">${now}
-    <div class="mkt-cmp-yours"><h3 class="mkt-win-h">Your version <span class="faint">(this screen only)</span></h3>${shownAs(id, pk)}
+    <div class="mkt-cmp-yours"><h3 class="mkt-win-h">Your version <span class="faint">(this screen only)</span></h3>${shownAs(id, pk, box)}
     ${missing.length ? `<p class="warn mkt-win-note">The page needs ${missing.map((c) => `<code>${esc(c)}</code>`).join(', ')}, which your version doesn't return, so it can't be saved like this.</p>` : ''}</div></div>`;
 }
 
@@ -1475,17 +1752,19 @@ function previewQuery(id, key, extra) {
 }
 
 /** A number as the Markets page shows it: the card, or the first rows of the table. */
-function shownAs(id, key) {
+function shownAs(id, key, box) {
   const d = DEFS.get(id), res = S.res.get(key);
-  if (!res) return pending();
+  if (!res) return readsSnapshot(d) && !S.ins.gz ? insPending() : pending();
   if (res.error) return failed(res);
+  if (d.chart) return chartBlock(id, key, box);
   if (d.card) return `<div class="kpis mkt-kpis mkt-win-card">${kpi(id, res)}</div>`;
   if (!res.rows.length) return `<div class="mkt-empty">${S.live.size ? 'No rows right now.' : 'Waiting for prices…'}</div>`;
   let rows = res.rows;
   const iz = res.columns.indexOf('z');
   if (id === 'markets' && iz >= 0) rows = [...rows].sort((a, b) => Math.abs(b[iz] ?? -1) - Math.abs(a[iz] ?? -1));   // the page's first order
-  const n = 20;
-  return resultTable({ columns: res.columns, rows: rows.slice(0, n) }, d)
+  const n = d.show || 20;
+  const row = d.drill ? (o) => `${drillAttrs(d, o)} tabindex="0"` : null;   // a row opens what its drill names
+  return resultTable({ columns: res.columns, rows: rows.slice(0, n) }, d, { row })
     + (rows.length > n ? `<p class="faint mkt-win-note">The first ${n} of ${rows.length} rows${id === 'markets' ? ', most unusual first as on the page' : ''}; download the result below for all of them.</p>` : '');
 }
 
@@ -1497,9 +1776,32 @@ function patternSources() {
     ${sqlBlock('How many moves, and when (Databricks SQL)', 'SELECT direction, period, COUNT(*) AS moves, COUNT(DISTINCT event_date) AS days\nFROM market.gold.intraday_events\nGROUP BY direction, period\nORDER BY direction, period;')}`;
 }
 
+/** A graph's window: what was clicked, in words. */
+function pickTitle() {
+  const p = S.win.picks, parts = [];
+  if (p.symbol) parts.push(String(p.symbol).replace(/USDT$/, ''));
+  if (p.z_band) parts.push(`of ${p.z_band === '6+' ? '6σ or more' : `${p.z_band.replace('-', '–')}σ`}`);
+  if (p.liquidity) parts.push(`on ${LIQ_WORDS[p.liquidity]} markets`);
+  if (p.year) parts.push(`in ${p.year}`);
+  if (p.hour != null) parts.push(`starting ${String(p.hour).padStart(2, '0')}:00 UTC`);
+  if (p.bucket != null) parts.push(p.bucket === -11 ? 'that turned back more than 10%' : p.bucket === 10 ? 'that kept going 10% or more' : `that ended ${p.bucket}% to ${p.bucket + 1}%`);
+  return `${S.dir === 'up' ? 'Up' : 'Down'} moves${parts.length ? ` ${parts.join(', ')}` : ''}: the next ${S.hz === 1 ? 'hour' : `${S.hz} hours`}`;
+}
+
+/** The parameters a window's queries use, so it offers only the choices that change something. */
+function usedParams(ids) {
+  const out = new Set();
+  for (const id of ids) { try { for (const m of noComments(assemble(DEFS.get(id))).matchAll(/:([a-z_]+)\b/g)) out.add(m[1]); } catch { /* shown when it runs */ } }
+  return [...out];
+}
+
 function paintWindow() {
   const { panel, ids, symbol } = S.win;
-  const title = panel === 'market' ? `${String(symbol).replace(/USDT$/, '')}: one market` : WIN_TITLES[panel] || DEFS.get(ids[0]).name;
+  const title = panel === 'market' ? `${String(symbol).replace(/USDT$/, '')}: one market`
+    : panel === 'moves' ? pickTitle()
+      : panel === 'drift' ? `The market at ${String(S.win.picks.hour ?? '?').padStart(2, '0')}:00 UTC`
+        : WIN_TITLES[panel] || DEFS.get(ids[0]).name;
+  put('mkt-win-tools', choices(usedParams(ids)));
   document.title = `${title} · how it is calculated · MEDUSA`;
   put('mkt-win-title', esc(title));
   // The editor's boxes are drawn when the definitions arrive (and again if they change, unless the
@@ -1512,7 +1814,7 @@ function paintWindow() {
     const key = winKey(id), d = DEFS.get(id), extra = id === 'market' ? { symbol } : {};
     put(`mkt-win-name-${i}`, esc(d.name));
     put(`mkt-win-what-${i}`, esc(d.description));
-    put(`mkt-win-shown-${i}`, shownBoth(id, key));
+    put(`mkt-win-shown-${i}`, shownBoth(id, key, `mkt-win-shown-${i}`));
     put(`mkt-win-head-${i}`, queryHead(id, key, extra));
     put(`mkt-win-live-${i}`, queryLive(id, key));
     put(`mkt-win-prev-${i}`, previewQuery(id, key, extra));
@@ -1758,8 +2060,12 @@ function onClick(e) {
   }
   if (act === 'csv') { downloadCsv(el.dataset.key, el.dataset.what); return; }
   if (act === 'win') { openWindow(el.dataset.panel, el.dataset.sym || null); return; }
+  if (act === 'drill') { hideTip(); drill(el); return; }
+  if (act === 'ins-retry') { loadInsights(true); return; }
   if (act.startsWith('edit-') || act.startsWith('preview') || act.startsWith('save-') || act === 'defs-reload') { onEdit(act, el.dataset.def, el); return; }
   if (act === 'view') { S.view = el.dataset.v; api.store.set('mktView', S.view); }
+  else if (act === 'dir') { S.dir = el.dataset.v === 'down' ? 'down' : 'up'; if (!S.win) api.store.set('mktDir', S.dir); }
+  else if (act === 'hz') { S.hz = Number(el.dataset.v) || 4; if (!S.win) api.store.set('mktHz', S.hz); }
   else if (act === 'kind') { S.kind = el.dataset.v; S.limit = 50; if (!S.win) api.store.set('mktKind', S.kind); }   // a window's choice is its own
   else if (act === 'sort') { S.sort = el.dataset.v; S.limit = 50; draw(); return; }
   else if (act === 'more') { S.limit += 50; draw(); return; }
@@ -1816,7 +2122,47 @@ function onInput(e) {
 }
 
 function onKey(e) {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.matches('textarea[data-def]')) { e.preventDefault(); startPreview(); }
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.matches('textarea[data-def]')) { e.preventDefault(); startPreview(); return; }
+  // Enter on a graph's mark or a table's row (reached with Tab) does what a click does.
+  const d = e.key === 'Enter' && e.target.closest && e.target.closest('[data-mkt="drill"]');
+  if (d && host.contains(d)) { e.preventDefault(); drill(d); }
+}
+
+/* A graph's details on hover or keyboard focus: one box that follows the pointer. Its text comes from
+   the mark's data-tip, which markets-charts.js builds from escaped values. */
+function tipBox() {
+  let t = document.getElementById('mkt-tip');
+  if (!t) { t = Object.assign(document.createElement('div'), { id: 'mkt-tip', className: 'mkt-tip', hidden: true }); t.setAttribute('role', 'tooltip'); document.body.appendChild(t); }
+  return t;
+}
+function showTip(mark, x, y) {
+  const t = tipBox(), html = mark.getAttribute('data-tip');
+  if (t.dataset.for !== html) { t.innerHTML = html; t.dataset.for = html; }
+  t.hidden = false;
+  const w = t.offsetWidth, h = t.offsetHeight;
+  t.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, x + 14))}px`;
+  t.style.top = `${Math.max(8, y + 18 + h > innerHeight ? y - h - 12 : y + 18)}px`;
+}
+function hideTip() { const t = document.getElementById('mkt-tip'); if (t) t.hidden = true; }
+function onPointer(e) {
+  const m = e.target.closest && e.target.closest('[data-tip]');
+  if (m && host.contains(m)) showTip(m, e.clientX, e.clientY); else hideTip();
+}
+function onFocus(e) {
+  const m = e.target.closest && e.target.closest('[data-tip]');
+  if (!m) return;
+  const r = m.getBoundingClientRect();
+  showTip(m, r.left + r.width / 2, r.top);
+}
+
+/** A graph's table opened: filled in at once from the result on screen, and kept open when redrawn. */
+function onToggle(e) {
+  const d = e.target;
+  if (!d.matches || !d.matches('details.mkt-tbl')) return;
+  if (!d.open) { S.tbl.delete(d.dataset.key); return; }
+  S.tbl.add(d.dataset.key);
+  const res = S.res.get(d.dataset.key), body = d.querySelector('.mkt-tbl-body');
+  if (body && !body.firstChild && res && !res.error) body.innerHTML = resultTable(res, DEFS.get(d.dataset.def));
 }
 
 const validKind = (k) => (KINDS.some(([v]) => v === k) ? k : 'all');
@@ -1826,6 +2172,15 @@ function attach(el) {
   host = el;
   el.addEventListener('click', onClick);
   el.addEventListener('input', onInput);
+  el.addEventListener('keydown', onKey);
+  el.addEventListener('pointermove', onPointer);
+  el.addEventListener('pointerleave', hideTip);
+  el.addEventListener('focusin', onFocus);
+  el.addEventListener('focusout', hideTip);
+  el.addEventListener('toggle', onToggle, true);   // toggle doesn't bubble
+  // A graph is drawn to its box's width: a new width draws it again.
+  let resized = 0;
+  addEventListener('resize', () => { clearTimeout(resized); resized = setTimeout(() => { if (!S.stopped) draw(); }, 200); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && !S.stopped) schedule(); });
 }
 
@@ -1834,8 +2189,11 @@ export function render(el, appApi) {
   api = appApi;
   if (host !== el) {
     attach(el);
-    S.view = api.store.get('mktView', 'today') === 'patterns' ? 'patterns' : 'today';
+    const view = api.store.get('mktView', 'today');
+    S.view = ['patterns', 'insights'].includes(view) ? view : 'today';
     S.kind = validKind(api.store.get('mktKind', 'all'));
+    S.dir = api.store.get('mktDir', 'up') === 'down' ? 'down' : 'up';
+    S.hz = HZS.some(([h]) => h === api.store.get('mktHz', 4)) ? api.store.get('mktHz', 4) : 4;
   }
   if (!document.getElementById('mkt-status')) shell();
   S.stopped = false;
@@ -1846,18 +2204,26 @@ export function render(el, appApi) {
 /** A ‹› window (markets-window.html): one number's calculation, with its own data, SQL engine and live
  * prices, so it keeps going while the Markets page is hidden, on another page or closed. Only that
  * number's queries run. */
-export function renderWindow(el, appApi, { panel, symbol = null, kind = 'all' }) {
+export function renderWindow(el, appApi, { panel, symbol = null, kind = 'all', params = {} }) {
   api = appApi;
   const ids = WINDOWS[panel];
   if (!ids || (panel === 'market' && !/^[A-Z0-9_]{2,40}$/.test(symbol || ''))) {
     el.innerHTML = '<div class="banner"><div><b>Nothing to show here.</b> Open this window with a ‹› button on MEDUSA\'s Markets page.</div></div>';
     return;
   }
-  S.win = { panel, ids, symbol: panel === 'market' ? symbol : null };
+  // What a click on a graph picked comes in the address; anything that isn't a valid pick is ignored.
+  const picks = {};
+  for (const [k, ok] of Object.entries(PICKS)) {
+    const v = params[k] == null || (k === 'symbol' && panel === 'market') ? null : ok(String(params[k]));
+    if (v != null) picks[k] = v;
+  }
+  // One year picked: its year-by-year graph would be a single bar, so it is left out.
+  S.win = { panel, ids: picks.year ? ids.filter((id) => id !== 'moves_by_year') : ids, symbol: panel === 'market' ? symbol : null, picks };
   S.kind = validKind(kind);
+  S.dir = params.dir === 'down' ? 'down' : 'up';
+  S.hz = HZS.some(([h]) => h === Number(params.hz)) ? Number(params.hz) : 4;
   S.edit.open = [...ids];   // the number's own query is ready to edit
   attach(el);
-  el.addEventListener('keydown', onKey);
   // Closing the window, or reloading it, asks first while there are changes (nothing is saved).
   addEventListener('beforeunload', (e) => { if ([...S.edit.text.keys()].some(edited)) { e.preventDefault(); e.returnValue = ''; } });
   shell();

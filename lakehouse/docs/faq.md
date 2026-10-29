@@ -223,3 +223,35 @@ re-run, and what was typed when started by hand), its jobs in `etl_jobs` and the
 linked by their keys. `recent_failures` lists every error of the last 30 days, the ETL's (`etl_errors`,
 with the line that says why) and MEDUSA's (`app_events`). The tables can't be changed afterwards: they
 are append-only.
+
+## How do I read the Insights graphs, and how do they help?
+
+Each graph answers one question about the unusual moves since 2020 (the same moves behind Patterns), for
+up or down moves and over the next 1, 4 or 24 hours, chosen at the top
+([step 32](steps/32-insights-graphs.md)). *Kept going* is positive, *turned back* negative. **Year by
+year** shows whether a tendency is there every year or only in one; **Spread of outcomes** how often a
+move ran far against a fade (the risk to size for); **By the hour** and **By size and liquidity** where a
+tendency is stronger; **The market by hour of the day** whether an hour that leaned one way in 2020–2024
+kept doing it from 2025; **Every kind of move at a glance** the verdicts in one picture; **Every market
+right now** today's moves against their volume, live. A click on a bar, cell or point opens the moves
+behind it in a window of its own, and a row there opens that market's past moves.
+
+They help to see whether a pattern is steady, where it is stronger and what can go wrong. They are not
+signals: only a pattern that held up on the years held back (the verdicts in Patterns) has passed a test,
+and a graph that suggests something new is an idea to test the same way.
+
+## Why does the Insights history come as a file, not from MEDUSA's database?
+
+It is about 21,000 rows, and only the browsers read it. Checking and writing that many rows into D1 every
+day would take more CPU time than Cloudflare's free plan gives one request, and a fifth of its daily
+writes. So the publish job checks the rows itself and sends one gzip file (0.6 MB), MEDUSA keeps it as it
+is, and the browser unpacks it into its own SQL engine, with the lakehouse's column names, so a graph's
+query runs in Databricks too ([ADR-034](decisions.md#adr-034-the-insights-history-goes-to-medusa-as-one-gzip-file-kept-as-it-is)).
+
+## Can I change a graph?
+
+Yes, like any number: its **‹›** opens its window, where its SQL can be edited and previewed (your version
+is drawn under the current one), then saved as your own version or, for the owner, the shared one. The
+SQL decides what is drawn; which columns go where is the chart spec in its display, which the page keeps
+([ADR-035](decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page)).
+A version that stops returning a column the graph draws can't be saved.

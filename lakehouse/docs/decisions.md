@@ -786,3 +786,75 @@ a better writer fixes the next ones (three early `etl_errors` rows keep GitHub's
 errors reach Databricks a day late; the Logs tab shows them at once. The export token is one more secret
 to keep, in Cloudflare and GitHub. Without a token, GitHub's API allows 60 calls an hour, so history is
 filled from Actions, not from a computer.
+
+## ADR-034: The Insights history goes to MEDUSA as one gzip file, kept as it is
+
+**Status:** Accepted, 2026-10-30 (step 32.1).
+
+**Context:** The Insights graphs need every unusual move since 2020 (`gold.intraday_events`, about
+21,000 rows, growing by a few a day) and the market by hour (`gold.hour_drift`, 672 rows) in the
+browser's SQL engine, so their SQL can be edited and drilled. MEDUSA's ingest (ADR-024) checks every row
+and replaces a D1 table in one transaction; it takes 2 MB a request, and the free plan gives a Worker
+10 ms of CPU, which parsing and checking 2.8 MB of JSON would exceed. Replacing 21,000 D1 rows a day
+would also use a fifth of the free plan's daily writes, for data the server never queries.
+
+**Decision:**
+- **One file, checked by the job.** `publish_to_medusa.py` reads both tables, checks every column's
+  type and that no key repeats, and sends them as gzip-packed JSON (rows as lists, numbers rounded to
+  what a graph shows): 0.6 MB.
+- **Kept as it is.** `PUT /api/market/insights` (the ingest token) checks the headers and that the body is
+  gzip, stores it in KV with its day, row counts and SHA-256, and records the publish in `market_publish`.
+  It never unpacks it. The job reconciles by the SHA-256 MEDUSA returns.
+- **Versioned for the browser.** The scanner answer carries the publish record; a page asks for
+  `/api/market/insights?v=<publish time>`, which the browser keeps a day. Any other version (no version,
+  or a KV copy that hasn't caught up) is sent but not kept, so a new file is never hidden.
+- **Unpacked in the browser.** The SQL engine unpacks it in its own thread into `market_events` and
+  `market_hours`, with the lakehouse's column names, so the same SQL runs in Databricks.
+
+**Alternatives:**
+- *Rows in D1 through the ingest.* Over the request and CPU limits, and 21,000 writes a day for data only
+  browsers read. Splitting it into chunks would lose the one-transaction replace.
+- *Aggregates only (a few hundred rows).* Fits the ingest, but every graph's grouping would be fixed in
+  the lakehouse: no editing the SQL by year, hour or market, and no drill to the moves themselves.
+- *The browser reading Databricks.* Needs a credential in every browser and wakes the warehouse.
+
+**Consequences:** One KV read per page that opens Insights (none while the browser keeps the file). The
+server trusts the job's checks for this file; the browser's engine takes only the columns it knows, and
+every value is escaped when drawn, so a bad file can only show wrong numbers, as a bad row could. The
+Insights tables exist in the browser and in Databricks, not in D1, so their queries have no D1 copy.
+
+## ADR-035: A graph is a definition: SQL plus a chart spec, drawn as SVG by the page
+
+**Status:** Accepted, 2026-10-30 (step 32.1).
+
+**Context:** The owner wanted graphs made from SQL, that change with the values, whose SQL can be edited,
+and that drill into pages of their own. Every number on the Markets page is already a versioned
+definition (ADR-028 to ADR-031): SQL in `market.semantic.metric_definitions` plus a display (a card or a
+table's columns), with its own window to preview and save.
+
+**Decision:**
+- **A graph is a metric whose display has a `chart`:** its type (bar, line, scatter, heatmap), which
+  columns go where, how marks are coloured, what the hover shows and what a click opens (`drill`: a window
+  and the parameters taken from the row clicked). No new kind of definition and no table change: the
+  editor, preview, save, history and the copy for Databricks work for graphs as they are.
+- **Drawn by the page, no chart library.** `markets-charts.js` turns a result into SVG text, the same
+  way tables are drawn: the part is redrawn only when the text changes, so a graph follows its query's
+  result. Four types are about 250 lines; a library would add 200 KB to 1 MB to every load and its own
+  ideas of hover and click.
+- **Drill through parameters.** A click opens a window (`markets-window`) whose address carries what
+  was picked: `:year`, `:hour`, `:bucket`, `:z_band`, `:liquidity`, `:symbol`, each checked against what
+  it may be. A shared step (`moves_picked`) filters with `(:x IS NULL OR column = :x)`, so one query
+  serves every combination; a click inside a window narrows it further.
+- **Colours checked** for colour blindness and contrast on MEDUSA's dark cards (blue, orange, aqua;
+  blue against red for above and below zero). Every graph can also be read as a table under it.
+
+**Alternatives:**
+- *A chart library (Chart.js, ECharts, Vega-Lite).* Vega-Lite's idea (a spec next to the data) is the same;
+  the library's size, styling and event model are not needed for four types.
+- *Images made in the lakehouse (matplotlib).* Not live, not editable on the page, no drill.
+- *A separate graph table.* A second place for SQL to live, outside the versioning and the editor.
+
+**Consequences:** Graphs inherit everything definitions have: versions, own versions per account,
+preview beside the current one, the daily publish. A new graph type needs code in `markets-charts.js`;
+a new graph of an existing type needs only SQL and a spec. The SQL is written for both engines (SQLite and
+Databricks), which rules out some functions (no `percentile_cont`, `MEDIAN` instead).

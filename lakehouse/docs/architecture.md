@@ -22,14 +22,14 @@ flowchart TB
     L["landing.binance (volume)<br>klines_1m/date=…/ · metrics/date=…/ · klines_1h/month=…/"]
     BR["bronze.klines_1m · bronze.metrics · bronze.klines_1h<br>streaming tables (Auto Loader)"]
     SI["silver (dbt)<br>typed facts · dim_coin (SCD2) · 1h candles · hourly series since 2020"]
-    GO["gold (dbt)<br>coin_daily · market_daily · unusual_moves · hour_profile · data_health<br>coin_baseline · intraday_events · event_evidence"]
+    GO["gold (dbt)<br>coin_daily · market_daily · unusual_moves · hour_profile · data_health<br>coin_baseline · intraday_events · event_evidence · hour_drift"]
     SEM["semantic.metric_definitions + user_metric_definitions<br>every number's name, meaning and SQL, versioned<br>(shared, and each account's own)"]
     L --> BR --> SI --> GO
   end
   D2 --> L
-  GO -.->|"daily copy: publish job, write-only endpoint"| CF["MEDUSA on Cloudflare<br>D1: market_baseline · market_evidence · market_metrics · market_user_metrics<br>KV: the scanner's ready-made answer"]
+  GO -.->|"daily copy: publish job, write-only endpoints"| CF["MEDUSA on Cloudflare<br>D1: market_baseline · market_evidence · market_metrics · market_user_metrics<br>KV: the scanner's ready-made answer · the Insights file"]
   SEM -.->|"current versions, same publish"| CF
-  CF --> MK["Markets page, in each browser<br>SQLite: the daily tables + live_prices<br>every number calculated by the published SQL"]
+  CF --> MK["Markets page, in each browser<br>SQLite: the daily tables + live_prices + the Insights tables<br>every number and graph calculated by the published SQL"]
   BWS["Binance live stream<br>wss://fstream.binance.com"] --> MK
   MK -->|"Save, History, Reload<br>(a calculation window)"| CF
   CF -->|"SQL Statement API, service principal<br>one parameterized MERGE per save"| SEM
@@ -49,6 +49,7 @@ flowchart TB
 | Serving copy | MEDUSA's database (Cloudflare D1): `market_baseline`, `market_evidence` and `market_metrics` (the current definitions), filled by the publish job through `POST /api/market/ingest` ([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)). After each publish the endpoint also saves the scanner's answer, ready-made, in Workers KV ([ADR-026](decisions.md#adr-026-the-scanners-answer-is-kept-ready-made-in-workers-kv)) | MEDUSA's users have no Databricks access, and a page querying Databricks would wake the warehouse on every visit. The endpoint's own token can only replace these tables. Page loads read KV, not D1. |
 | Saving definitions | MEDUSA's server (`src/metrics.js`), signed in to Databricks as the service principal `medusa-markets-writer` (OAuth client credentials, scope `sql`), through the SQL Statement API ([ADR-031](decisions.md#adr-031-edits-are-saved-to-databricks-by-medusas-server-as-shared-or-personal-versions)) | A browser can't hold a Databricks credential. The server checks each query with the same rules as the dbt tests, runs one `MERGE` with the SQL as a parameter (stored, never run), then updates MEDUSA's copy at once. The login can only use the warehouse and the two definitions tables. |
 | Calculation windows | One browser window per number (`/markets-window`), running the page's code with its own data, SQL engine and live prices ([ADR-030](decisions.md#adr-030-each-numbers-calculation-runs-in-its-own-window-with-the-filters-values-in-the-sql)) | Room to edit and preview a query beside its result, and it stays live while the page is hidden or closed. |
+| Insights graphs | The Markets page's Insights view: definitions whose display is a chart, drawn as SVG by `public/markets-charts.js` ([ADR-035](decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page)); the history they read (`intraday_events`, `hour_drift`) reaches each browser as one gzip file, kept in KV as the publish job sent it ([ADR-034](decisions.md#adr-034-the-insights-history-goes-to-medusa-as-one-gzip-file-kept-as-it-is), [step 32](steps/32-insights-graphs.md)) | 21,000 rows are too many for the row-checked ingest within the free plan's CPU time, and only browsers read them. A click on a graph opens a window with what was clicked as parameters. |
 | Operations logs | The last job of every lakehouse workflow (`lakehouse-log-run.yml`), reading its own run from GitHub's API; MEDUSA's errors through a read-only export, `GET /api/ops/events` ([ADR-033](decisions.md#adr-033-operations-logs-append-only-tables-in-databricks-filled-from-github-and-medusa)) | A failed run and a failed page become rows SQL can count and join. Reading the run after the fact sees every job, even one that never started, and MEDUSA needs no Databricks access |
 | Live scanner | MEDUSA's Markets page (`public/markets.js`) on Cloudflare, for signed-in accounts ([ADR-025](decisions.md#adr-025-the-scanner-is-for-signed-in-accounts)), with live prices streamed from Binance (`wss://fstream.binance.com/market/ws/!miniTicker@arr`) to the browser ([ADR-027](decisions.md#adr-027-the-live-layer-runs-in-each-browser)) | Day trading needs today's prices. The browser keeps the serving copy (read through `GET /api/market/scanner`) and the live prices in a SQLite database of its own and calculates every number with SQL ([ADR-028](decisions.md#adr-028-every-number-is-a-sql-query-run-in-the-browser)), using the same rule as `intraday_events` (it reproduces the lakehouse's events exactly). |
 
@@ -67,11 +68,11 @@ Databricks, and every table the tags `domain`, `layer` and `personal_data`.
 | `market.landing.binance` | Volume (managed) | Daily files, one folder per dataset and day: `klines_1m/date=2026-10-19/BTCUSDT-1m-2026-10-19.csv.gz` |
 | `market.bronze` | Schema, 2 of 5 | Raw rows: `klines_1m`, `metrics`, `klines_1h` (monthly history files), plus the pipeline's own internal tables |
 | `market.silver` | Schema, 3 of 5 | Typed, checked tables (dbt), including `fct_candle_1h_archive` and the continuous hourly series `int_candle_1h_all` |
-| `market.gold` | Schema, 4 of 5 | Tables the live scanner and analysis read (dbt): daily tables, each coin's `coin_baseline`, and the scanner's evidence (`intraday_events`, `event_evidence`) |
+| `market.gold` | Schema, 4 of 5 | Tables the live scanner and analysis read (dbt): daily tables, each coin's `coin_baseline`, the scanner's evidence (`intraday_events`, `event_evidence`) and the market by hour since 2020 (`hour_drift`) |
 | `market.semantic` | Schema, 5 of 5 | Definitions about the data, not data: `metric_definitions`, every version of each Markets number's name, meaning and SQL ([DDL](../sql/ddl/004_semantic.sql)), and `user_metric_definitions`, each MEDUSA account's own versions ([DDL](../sql/ddl/005_user_metrics.sql); tagged `personal_data=true`) |
 | `ops` | Catalog | Logs of the lakehouse pipelines and of MEDUSA ([DDL](../sql/ddl/006_layout.sql)) |
 | `ops.logs` | Schema | Append-only logs ([step 31](steps/31-ops-log-tables.md)): `etl_runs` → `etl_jobs` → `etl_steps` and `etl_errors` (every lakehouse workflow run, written by its last job), `app_events` (MEDUSA's page and server errors, copied daily); views `daily_etl_status`, `recent_failures`, `bronze_loads` |
-| `journal` | Catalog | Private: each MEDUSA account's trades (step 32), tagged `personal_data=true`; its schemas come with step 32 |
+| `journal` | Catalog | Private: each MEDUSA account's trades (step 33), tagged `personal_data=true`; its schemas come with step 33 |
 
 The workspace's other catalogs (`prod`, another project; `workspace`, `samples` and `system`, Databricks'
 own) are not part of this platform.
@@ -85,7 +86,7 @@ own) are not part of this platform.
 | 13:23 | GitHub Actions downloads every coin's files (~1 minute), checks they are all published and match their checksums, and uploads them with the day's manifest (~2.5 minutes in total); a day that isn't fully published stops here ([ADR-021](decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)) |
 | Right after | Recheck: the previous 7 days' manifests are compared with Binance's fingerprints, and changed or new files are loaded under new names ([ADR-023](decisions.md#adr-023-re-check-loaded-days-against-binance-for-a-week)) |
 | Right after | The same run's `transform` job: bronze pipeline, `dbt source freshness`, `dbt build` (silver and gold, with tests) |
-| Right after | Publish to MEDUSA: `coin_baseline`, `event_evidence` and the current metric definitions (shared, and each account's own) copied through the write-only endpoint, row counts reconciled (about 7 seconds) |
+| Right after | Publish to MEDUSA: `coin_baseline`, `event_evidence` and the current metric definitions (shared, and each account's own) copied through the write-only endpoint, row counts reconciled; then the Insights file (`intraday_events`, `hour_drift`), reconciled by its SHA-256 (about 15 seconds in all) |
 | Right after | Log: the run, its jobs, steps and errors into `ops.logs.etl_*`, and MEDUSA's errors since the last copy into `ops.logs.app_events` (the daily load's last job, whatever happened before) |
 | Any time | A save on the Markets page writes one new version to Databricks and MEDUSA's copy within seconds (up to about a minute when the warehouse is asleep) |
 

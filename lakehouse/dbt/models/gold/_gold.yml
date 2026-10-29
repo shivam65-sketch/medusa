@@ -213,6 +213,56 @@ models:
       - name: avg_taker_buy_share
         description: Average share of aggressive buying in this hour.
 
+  - name: hour_drift
+    description: >
+      Gold: the whole market's move in each UTC hour, judged by days, one row per year, period, UTC
+      hour and liquidity group (and all, every coin together), from January 2020 and delisted coins
+      included. Each day's move in an hour is the average of every trading coin's return in it (each
+      clipped to 10% either way); the statistics are over those days. The sums let rows be pooled
+      exactly, which the Markets page's Insights graphs do. Rebuilt every run from int_candle_1h_all.
+    columns:
+      - name: year
+        description: The UTC year of the days in the row.
+        data_tests: [not_null]
+      - name: period
+        description: in_sample (before held_back_from, where a pattern is chosen) or held_back (from it on, where it is checked).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['in_sample', 'held_back']
+      - name: utc_hour
+        description: Hour of the day, 0 to 23 (UTC).
+        data_tests: [not_null]
+      - name: liquidity
+        description: The coins' liquidity group, from each coin's average daily traded value over its previous 30 days (large is 100 million USDT a day or more, mid 10 million or more, small less), or all for every coin together.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['large', 'mid', 'small', 'all']
+      - name: days
+        description: Days behind the row, each one value (the market's move in that hour that day).
+        data_tests: [not_null]
+      - name: first_date
+        description: First day in the row.
+      - name: last_date
+        description: Last day in the row.
+      - name: coin_hours
+        description: Coin-hours behind those days (how many coins traded in the hour, added up).
+      - name: sum_return
+        description: Sum of the days' moves, for pooling rows (mean = sum_return / days).
+      - name: sum_sq_return
+        description: Sum of the squared moves, for pooling rows (variance from it, sum_return and days).
+      - name: up_days
+        description: Days on which the market rose in this hour.
+      - name: avg_return
+        description: Average of the days' moves (0.0001 = 1 basis point).
+      - name: sd_return
+        description: Standard deviation of the days' moves.
+      - name: t_stat
+        description: avg_return / (sd_return / sqrt(days)). Roughly, below 2 either way could easily be chance, and with 24 hours a few pass by luck.
+
   - name: coin_baseline
     description: >
       Gold: each coin's "normal" as of its latest day, one row per coin, for MEDUSA's live scanner.

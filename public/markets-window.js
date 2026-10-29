@@ -1,13 +1,13 @@
 // MEDUSA Markets: one number's calculation in its own window, opened by a ‹› button on the Markets page
-// (/markets-window?panel=breadth&kind=all, or panel=market&symbol=BTCUSDT; the file is markets-window.html,
-// served without its extension).
+// (/markets-window?panel=breadth&kind=all, or panel=market&symbol=BTCUSDT, or a graph's window such as
+// panel=moves&dir=up&hz=4&year=2024; the file is markets-window.html, served without its extension).
 //
 // The window runs the Markets page's own code (markets.js) with its own copy of the data, its own SQL
 // engine and its own live prices, but only the queries of the number it shows. So it stays live while
 // the Markets page is hidden, on another page or closed. It needs no more than the page does: the
 // signed-in session (the same cookie) and the app's local storage.
 
-import { renderWindow } from './markets.js?v=11';
+import { renderWindow } from './markets.js?v=12';
 
 const root = document.getElementById('mkt-win');
 
@@ -70,4 +70,7 @@ function toast(msg, tone = '', ms = 0) {
 }
 
 const q = new URLSearchParams(location.search);
-renderWindow(root, { call, log, store, toast }, { panel: q.get('panel'), symbol: q.get('symbol'), kind: q.get('kind') || store.get('mktKind', 'all') });
+renderWindow(root, { call, log, store, toast }, {
+  panel: q.get('panel'), symbol: q.get('symbol'), kind: q.get('kind') || store.get('mktKind', 'all'),
+  params: Object.fromEntries(q),   // a graph's window: up or down moves, the hours, and what was clicked
+});

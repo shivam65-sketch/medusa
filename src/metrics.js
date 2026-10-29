@@ -22,7 +22,8 @@ import { replaceTable, rebuildAnswer } from './market.js';
 const WAREHOUSE_NAME = 'Serverless Starter Warehouse';
 const SHARED_TABLE = 'market.semantic.metric_definitions';
 const OWN_TABLE = 'market.semantic.user_metric_definitions';
-const PARAMS = ['kind', 'yesterday', 'symbol'];
+// The parameters the Markets page fills in (markets.js PARAMS); the Insights graphs added the last seven.
+const PARAMS = ['kind', 'yesterday', 'symbol', 'direction', 'horizon', 'year', 'hour', 'bucket', 'z_band', 'liquidity'];
 const DAY = 86_400_000;
 // A day's allowance, per account and in all: every save and every history read wakes the warehouse.
 const LIMITS = {
@@ -43,7 +44,7 @@ function sqlProblem(sql) {
   if (!/^(SELECT|WITH)[^A-Z0-9_]/i.test(sql.trim())) return 'A query must start with SELECT or WITH, so it can only read (a comment can go after that word, not before it).';
   if (sql.includes(';')) return 'Only one statement, so no ; anywhere.';
   const unknown = [...new Set([...sql.replace(/--[^\n]*/g, '').matchAll(/(?<![\w:]):([A-Za-z_]\w*)/g)].map((m) => m[1]))].filter((p) => !PARAMS.includes(p));
-  if (unknown.length) return `${unknown.map((p) => `:${p}`).join(', ')} isn't a parameter the page fills in (it has :kind, :yesterday and :symbol).`;
+  if (unknown.length) return `${unknown.map((p) => `:${p}`).join(', ')} isn't a parameter the page fills in (it has ${PARAMS.map((p) => `:${p}`).join(', ')}).`;
   return null;
 }
 

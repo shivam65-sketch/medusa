@@ -43,6 +43,8 @@ their own, `ops`, and each account's private trades to `journal`, so access is g
 itself, and every table is tagged with its domain, its layer and whether it holds personal data.
 Every workflow run, with its jobs, steps and errors, and MEDUSA's own errors, are logged in `ops.logs`
 ([step 31](docs/steps/31-ops-log-tables.md)): `SELECT * FROM ops.logs.daily_etl_status` shows each day.
+MEDUSA's Markets page draws graphs from the gold tables, each one a versioned definition with its SQL,
+drillable into the moves behind it ([step 32](docs/steps/32-insights-graphs.md)).
 
 ## Documentation
 
@@ -90,9 +92,9 @@ Every workflow run, with its jobs, steps and errors, and MEDUSA's own errors, ar
 | [29. Patterns on SQL, release 1.7.0](docs/steps/29-patterns-on-sql-and-release.md) | The Patterns view calculated by three versioned SQL definitions (seeded as version 1 by a second idempotent seed), editable in its window like Today; MEDUSA release 1.7.0 | Done |
 | [30. Catalog layout](docs/steps/30-catalog-layout.md) | One catalog per kind of data and permission boundary: `market` (unchanged), `journal` (private trades), `ops` (logs); every schema, table and column described in Databricks (schemas numbered in the order data flows), every table tagged `domain`, `layer` and `personal_data`, naming rules written down, no renames | Done |
 | [31. Operations logs](docs/steps/31-ops-log-tables.md) | Every lakehouse workflow run in `ops.logs`: `etl_runs` (scheduled or manual, how late, the days loaded) → `etl_jobs` → `etl_steps` (dbt's counts), `etl_errors` (a failed step with the line that says why, each failed dbt check), a `daily_etl_status` view; MEDUSA's page and server errors in `app_events`, copied daily through a read-only export; all append-only, filled back to 19 October | Done |
-| 32. Journal trades in the lakehouse | A daily copy of each account's trades into a private `journal` catalog, journal statistics and trades against the market, published back to MEDUSA | Next |
-| 33. Lab history from the lakehouse | Backtests on the lakehouse's checked history plus the last hours from Binance, with the dataset recorded in each result | Planned |
-| 34. More Markets tabs | A market's history, a live chart per market, and data health, from more gold tables published to MEDUSA | Planned |
+| [32. Insights: graphs that look for an edge](docs/steps/32-insights-graphs.md) | **32.1 (done):** graphs that are definitions too (SQL plus a chart spec, drawn as SVG by the page, editable and versioned), drillable into windows by year, hour, outcome, size, liquidity and market; the moves since 2020 and a new `gold.hour_drift` (the market by hour, every year) sent to MEDUSA as one checked gzip file. **32.2:** a playbook per unusual market, crowded or alone, positioning, regime gauges, a risk table. **32.3:** on-chain data from the free sources | 32.1 done, 32.2 next |
+| 33. Journal trades in the lakehouse | A daily copy of each account's trades into a private `journal` catalog, journal statistics and trades against the market, published back to MEDUSA | Planned |
+| 34. Lab history from the lakehouse | Backtests on the lakehouse's checked history plus the last hours from Binance, with the dataset recorded in each result | Planned |
 
 ## Folder layout
 
