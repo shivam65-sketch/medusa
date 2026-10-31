@@ -28,7 +28,9 @@ import { DEFINITIONS } from './markets-metrics.js?v=3';
 import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=1';
 
 const RULE = { z: 3 };
-const STREAM = 'wss://fstream.binance.com/market/ws/!miniTicker@arr';
+// The daily run is set for 13:23 UTC, but GitHub starts it hours late (ops.logs.etl_runs: finished 16:50 to 19:36).
+const PUBLISHED_BY = 'usually by 20:00 UTC';
+const STREAM ='wss://fstream.binance.com/market/ws/!miniTicker@arr';
 const REST = 'https://fapi.binance.com/fapi/v1';
 const ENGINE = '/markets-sql.js?v=3';
 const DAY = 86_400_000;
@@ -527,7 +529,7 @@ const csvCell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"
 let PENDING = [];
 const SOURCES = {
   live_prices: () => `Binance's live prices, kept up to date from the stream while this ${S.win ? 'window' : 'page'} is open (last message ${clockS(S.lastMsg)}). Only in this browser.`,
-  binance_markets: () => 'Each market\'s type from Binance\'s contract list (once a day), and yesterday\'s close from Binance\'s daily candle until the lakehouse publishes yesterday (about 13:30 UTC). Only in this browser.',
+  binance_markets: () => `Each market's type from Binance's contract list (once a day), and yesterday's close from Binance's daily candle until the lakehouse publishes yesterday (${PUBLISHED_BY}). Only in this browser.`,
   market_baseline: () => `Each market's normal (last close, average daily return, σ, days of history, average volume): MEDUSA's copy of the lakehouse's <code>gold.coin_baseline</code>, built by ${ghLink('coin_baseline.sql')}. Lakehouse day ${shortDay((S.data.published.market_baseline || {}).as_of)}.`,
   market_evidence: () => `What similar moves did next: MEDUSA's copy of the lakehouse's <code>gold.event_evidence</code>, built by ${ghLink('event_evidence.sql')}. Lakehouse day ${shortDay((S.data.published.market_evidence || {}).as_of)}.`,
   market_events: () => `Every unusual move since 2020 and the price 1, 4 and 24 hours later: MEDUSA's copy of the lakehouse's <code>gold.intraday_events</code>, built by ${ghLink('intraday_events.sql')}${insDay()}. It reaches this browser in one file when a graph needs it, and isn't in D1.`,
@@ -1037,6 +1039,8 @@ const CSS = `
 .mkt-bar .toggle, .mkt-tools .toggle, .mkt-win-head .toggle { flex-wrap: wrap; gap: 6px; }
 .mkt-status { flex-direction: column; gap: 4px; }
 .mkt-status .row { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
+.mkt-status .warn { color: #e8c547; }
+.mkt-status .warn b { color: inherit; }
 .mkt-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); margin-right: 7px; vertical-align: 1px; }
 .mkt-dot.live { background: var(--green); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18); }
 .mkt-dot.warn { background: #eab308; }
@@ -1258,7 +1262,7 @@ function shell() {
       <summary>How the scanner works</summary>
       <ul>
         <li><b>The markets</b> are every Binance USDⓈ-M perpetual futures contract quoted in USDT: crypto coins and tokens, and the TradFi perpetuals on stocks, commodities, a currency and indices. The type next to each name comes from Binance's contract list.</li>
-        <li><b>Each market's normal</b> comes from MEDUSA's market data lakehouse: the average and spread (σ) of its daily moves over its last 30 days with trades, built from Binance's checked daily files and published once a day (about 13:30 UTC).</li>
+        <li><b>Each market's normal</b> comes from MEDUSA's market data lakehouse: the average and spread (σ) of its daily moves over its last 30 days with trades, built from Binance's checked daily files and published once a day (${PUBLISHED_BY}). If a day didn't arrive, the top of this page says so and the daily load tries it again for a week.</li>
         <li><b>Live prices</b> come straight from Binance to this browser, about once a second. MEDUSA's server never sees them.</li>
         <li><b>Every number here is calculated by SQL</b>, in a small SQLite database inside this browser that holds the lakehouse's tables and the live prices. The queries are kept in the lakehouse too, with every version, and published to MEDUSA with the data. They run about once a second; each <b>‹›</b> button opens one in its own window, live: the query exactly as it runs, which version it is, its result, and a copy that runs in MEDUSA's database or in Databricks.</li>
         <li><b>Today's move</b> is measured from yesterday's close (UTC). z is that move in the market's usual daily moves; ${RULE.z} or more (|z| ≥ ${RULE.z}) is flagged as unusual: the same rule the lakehouse applies to every hour since 2020.</li>
@@ -1281,18 +1285,41 @@ function choices(used) {
     used.includes('horizon') ? group('Over', 'hz', HZS, S.hz) : ''].join('');
 }
 
-/** Replace a part of the page only when it changed (keeps focus, hover and text selection). A part is
- * held still while the pointer is over its details, or over a window's live result, so they can be read,
- * selected and copied. The queries a part's panels registered are kept for Copy only when the part was
- * redrawn. */
+/** Make what is on the page match the new, changing only what differs. The elements stay, so a table
+ * keeps its sideways scroll and a scrollbar being dragged stays in the hand. */
+function patch(to, from) {
+  const have = [...to.childNodes], want = [...from.childNodes];
+  want.forEach((n, i) => {
+    const c = have[i];
+    if (!c) to.appendChild(n);
+    else if (c.nodeName !== n.nodeName) to.replaceChild(n, c);
+    else if (n.nodeType !== Node.ELEMENT_NODE) { if (c.nodeValue !== n.nodeValue) c.nodeValue = n.nodeValue; }
+    else {
+      for (const a of [...c.attributes]) if (!n.hasAttribute(a.name)) c.removeAttribute(a.name);
+      for (const a of n.attributes) if (c.getAttribute(a.name) !== a.value) c.setAttribute(a.name, a.value);
+      patch(c, n);
+    }
+  });
+  have.slice(want.length).forEach((c) => c.remove());
+}
+
+/** Is text selected in this part of the page? */
+const selectedIn = (el) => { const s = getSelection(); return !s.isCollapsed && s.containsNode(el, true); };
+
+/** Update a part of the page only when it changed (keeps focus, hover, scrolling and text selection). A
+ * part is held still while text in it is selected, so it can be copied, and while the pointer is over
+ * its details or a window's live result, so they can be read. The queries a part's panels registered
+ * are kept for Copy only when the part was redrawn. */
 function put(id, html) {
   const copies = PENDING;
   PENDING = [];
   if (S.html.get(id) === html) { for (const [k, v] of copies) S.sql.set(k, v); return; }
   const el = document.getElementById(id);
-  if (!el || el.querySelector('.mkt-more:hover') || (el.classList.contains('mkt-hold') && el.matches(':hover'))) return;
+  if (!el || el.querySelector('.mkt-more:hover') || (el.classList.contains('mkt-hold') && el.matches(':hover')) || selectedIn(el)) return;
   S.html.set(id, html);
-  el.innerHTML = html;
+  const next = document.createElement('template');
+  next.innerHTML = html;
+  patch(el, next.content);
   for (const [k, v] of copies) S.sql.set(k, v);
 }
 
@@ -1350,6 +1377,20 @@ function draw() {
   paintAll();
 }
 
+/** What's wrong with the lakehouse's days, in words (ADR-036). The first comes from gold.missing_days. The
+ * second the page works out itself: when a load fails nothing is published, so no table can report it. */
+function dataGaps() {
+  const out = [], days = S.data.missing, shown = days.slice(0, 5).map((d) => shortDay(d.trade_date));
+  if (days.length) {
+    const more = days.length - shown.length, last = more ? `${more} more` : shown.pop();
+    out.push(`<b>Not in the lakehouse: ${shown.length ? `${shown.join(', ')} and ` : ''}${last}.</b> Each market's normal and the history are built without ${days.length === 1 ? 'that day' : 'those days'} until ${days.length === 1 ? 'it is' : 'they are'} loaded, and the day after has no daily move. ${days.some((d) => d.status === 'manual') ? 'The daily load only tries the last week again, so older days need loading by hand.' : 'The daily load tries again every day.'}`);
+  }
+  const asOf = (S.data.published.market_baseline || {}).as_of;
+  const behind = asOf ? Math.round((Date.parse(yesterday()) - Date.parse(asOf)) / DAY) : 0;
+  if (behind >= 2) out.push(`<b>The lakehouse is ${behind} days behind:</b> its newest day is ${shortDay(asOf)}, so each market's normal is older than it should be. The daily load has failed, or Binance's files are late.`);
+  return out;
+}
+
 function paintStatus() {
   const pub = S.data.published.market_baseline || {};
   let priced = 0;
@@ -1366,14 +1407,14 @@ function paintStatus() {
   const ref = !S.ref
     ? (S.refTotal ? `Getting yesterday's closes from Binance: ${S.refDone} of ${S.refTotal}…` : 'Getting yesterday\'s closes…')
     : S.ref.src === 'lakehouse' ? `Today's move is measured from yesterday's (${shortDay(y)}) close, from the lakehouse`
-      : S.ref.src === 'binance' ? `Today's move is measured from yesterday's (${shortDay(y)}) close, from Binance (the lakehouse publishes ${shortDay(y)} at about 13:30 UTC)${S.ref.missing ? `; ${S.ref.missing} markets without it aren't scored` : ''}`
-        : `Yesterday's closes couldn't be fetched from Binance, so ${S.ref.missing} markets aren't scored until the lakehouse publishes ${shortDay(y)} (about 13:30 UTC)`;
+      : S.ref.src === 'binance' ? `Today's move is measured from yesterday's (${shortDay(y)}) close, from Binance (the lakehouse publishes ${shortDay(y)}, ${PUBLISHED_BY})${S.ref.missing ? `; ${S.ref.missing} markets without it aren't scored` : ''}`
+        : `Yesterday's closes couldn't be fetched from Binance, so ${S.ref.missing} markets aren't scored until the lakehouse publishes ${shortDay(y)} (${PUBLISHED_BY})`;
   const engine = S.eng.err
     ? `<span class="warn"><b>The SQL engine couldn't start:</b> ${esc(S.eng.err)}</span> <button class="btn btn-sm" data-mkt="engine">Try again</button>`
     : !S.eng.ok ? 'Starting the SQL engine…'
       : S.runErr ? `<span class="warn">${esc(S.runErr)}</span>`
         : S.lastRun ? `Numbers calculated by SQL in this browser: ${S.lastRun.n} quer${S.lastRun.n === 1 ? 'y' : 'ies'} at ${clockS(S.lastRun.at)} in ${S.lastRun.ms} ms, defined ${DEFS.get('breadth').from === 'lakehouse' ? 'in the lakehouse' : 'by the built-in copy'}${SRC.mine.rows.length ? ` (${SRC.mine.rows.length} of them your own version${SRC.mine.rows.length === 1 ? '' : 's'})` : ''}` : 'Calculating…';
-  put('mkt-status', `
+  put('mkt-status', `${dataGaps().map((g) => `<div class="row"><span class="warn">${g}</span></div>`).join('')}
     <div class="row"><span>${live}</span><span class="faint">${priced} markets priced</span></div>
     <div class="row faint"><span>Each market's normal: lakehouse day ${shortDay(pub.as_of)}${pub.published_at ? `, published ${clock(pub.published_at)}` : ''}</span><span>${ref}</span></div>
     <div class="row faint"><span>${engine}</span></div>
@@ -1840,7 +1881,8 @@ async function load() {
       const published = d.published || {};
       if (S.data && (S.data.published.market_baseline || {}).as_of !== (published.market_baseline || {}).as_of) S.ref = null;   // a new day arrived
       const empty = { columns: [], rows: [] };
-      S.data = { published, base, ev, at: Date.now(), raw: { market_baseline: d.market_baseline || empty, market_evidence: d.market_evidence || empty } };
+      const missing = rowsOf(d.market_missing_days).filter((r) => r.status !== 'waiting');   // yesterday is expected to be on its way
+      S.data = { published, base, ev, missing, at: Date.now(), raw: { market_baseline: d.market_baseline || empty, market_evidence: d.market_evidence || empty } };
       SRC.shared = rowsOf(d.market_metrics);
       const own = await mine;
       if (own) SRC.mine = { rows: own.rows || [], canSave: Boolean(own.canSave), saves: own.saves === 'shared' ? 'shared' : 'own', name: own.name || '' };
@@ -1883,8 +1925,8 @@ async function loadTypes() {
   schedule();
 }
 
-// Today's move is measured from yesterday's close. The lakehouse has it after its daily run (about
-// 13:30 UTC); before that its newest day is the day before, so yesterday's closes come from Binance's
+// Today's move is measured from yesterday's close. The lakehouse has it after its daily run (usually
+// by 20:00 UTC); before that its newest day is the day before, so yesterday's closes come from Binance's
 // daily candles instead: one small request per market, once a day per browser (kept in local storage).
 // The queries choose between the two (market_now): these closes go into binance_markets.
 async function ensureRef() {
@@ -2048,6 +2090,7 @@ async function downloadCsv(key, what) {
 function onClick(e) {
   const el = e.target.closest('[data-mkt]');
   if (!el || !host.contains(el)) return;
+  if (/^T[RD]$/.test(el.tagName) && !getSelection().isCollapsed) return;   // a drag that selected text in a row isn't a click on it
   const act = el.dataset.mkt;
   if (act === 'retry') { S.loadErr = null; paint(); start(); return; }
   if (act === 'engine') { restartEngine(); draw(); return; }

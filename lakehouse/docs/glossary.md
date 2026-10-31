@@ -19,6 +19,7 @@ The data engineering terms used in this project, in plain words.
 | **Breadth** | The share of moving coins that went up | `market_daily.breadth` |
 | **Bronze / silver / gold** | The medallion layers: raw data, cleaned and typed data, business-ready tables | Schemas in `market` |
 | **Catalog** | Top level of Unity Catalog's `catalog.schema.table` names, roughly a database in SQL Server; here one per kind of data, each its own permission boundary | `market`, `journal`, `ops` ([ADR-032](decisions.md#adr-032-one-catalog-per-kind-of-data-described-and-tagged-in-place-no-renames)) |
+| **Catch-up load** | A scheduled load that also tries again the recent days that never finished, so a late day fills itself | The `recheck` job's step **Load recent days that never finished** |
 | **Chart spec** | A small description of how to draw a query's result: which column goes on which axis, how marks are coloured, what a click opens. The query decides what, the spec how it looks | A definition's `display.chart` ([ADR-035](decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page)) |
 | **Checksum (SHA-256)** | A fingerprint of a file's bytes. If the fingerprint doesn't match the published one, the file is damaged | The downloader |
 | **CI/CD** | Automatically checking and deploying code when it changes | Planned |
@@ -27,8 +28,10 @@ The data engineering terms used in this project, in plain words.
 | **Data contract** | The rules data must meet before a consumer gets it, checked automatically; data that breaks them doesn't reach the consumer | The dbt tests on `metric_definitions`: a broken definition stops the publish |
 | **Data domain** | One area of data with its own owner, meaning and access rules (market data, a person's trades, logs). Keeping domains apart means a grant on one never opens another | One catalog per domain: `market`, `journal`, `ops` |
 | **Data observability** | A pipeline reporting on its own data: completeness, freshness, unexpected changes | `data_health` |
+| **Date spine** | One row per calendar day, built to compare data against, so that a day with nothing shows up as a row with no match | `gold.missing_days` |
 | **Declarative** | Describing what should exist and letting the tool work out how | Bundles, pipelines |
 | **Dimension / fact** | Kimball's split: facts are measurements (candles), dimensions describe what is measured (coins) | `dim_coin`, `fct_candle_1m` |
+| **DOM** | The page as the browser holds it: a tree of elements. Replacing an element loses what it was holding, such as its scroll position or a text selection | `put()` in `public/markets.js` changes only what differs, so the elements stay |
 | **Drill-down (drill-through)** | Clicking a part of a graph or table to open the detail behind it, with what was clicked passed on as parameters | A bar, cell, point or row on Insights opens a window of the moves behind it |
 | **Event study** | Finding every moment something specific happened and measuring what followed it | `intraday_events` |
 | **Exactly once** | Each input is processed one time: never skipped, never twice | Auto Loader |
@@ -50,6 +53,7 @@ The data engineering terms used in this project, in plain words.
 | **Lakehouse** | Data stored as open-format files in cheap storage, with warehouse features (tables, SQL, transactions) on top | The whole platform |
 | **Lambda architecture** | A slow, complete and checked batch layer plus a fast, approximate live layer, combined where the data is served; the batch layer later replaces the live numbers | The live scanner: this lakehouse plus Binance's live stream, combined in each browser ([ADR-027](decisions.md#adr-027-the-live-layer-runs-in-each-browser)) |
 | **Landing zone** | Where raw files arrive, unchanged, before any processing | `market.landing.binance` |
+| **Late-arriving data** | Data that comes after the days around it have been processed, so what was built from it has to be built again | A late Binance day: `coin_daily` rebuilds it and the day after it |
 | **Least privilege** | Giving each credential only the access its job needs, so a leak does as little harm as possible | MEDUSA's ingest token can only replace the serving tables ([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)); the save login can only use the warehouse and the two definitions tables |
 | **Lineage** | Knowing where each piece of data came from, and what uses it | `source_file`, `loaded_at`; each Markets number's query; the `markets_page` exposure |
 | **Liquid clustering** | Delta's way of keeping data files grouped by chosen columns as data arrives, replacing partitions and Z-ordering | Silver tables |

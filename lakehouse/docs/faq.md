@@ -255,3 +255,12 @@ is drawn under the current one), then saved as your own version or, for the owne
 SQL decides what is drawn; which columns go where is the chart spec in its display, which the page keeps
 ([ADR-035](decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page)).
 A version that stops returning a column the graph draws can't be saved.
+
+## What happens if a day of data doesn't arrive?
+
+It used to go unnoticed: on 2026-10-28 Binance left out a day's candles, and every test still passed,
+because a test looks at rows that exist. Now `gold.missing_days` compares the calendar with the days loaded
+on every run, dbt warns, and the top of the Markets page says which days are missing. Every daily load
+tries each of the last 7 days again, so a day that comes late fills itself and repairs what was built on
+it, the next day's return included. A day older than that needs loading by hand, and the page says so
+([step 32a](steps/32a-missing-days.md), [ADR-036](decisions.md#adr-036-a-missing-day-is-found-against-the-calendar-shown-on-the-page-and-tried-again-for-a-week)).

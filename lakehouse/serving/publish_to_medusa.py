@@ -1,4 +1,4 @@
-"""Copy the live scanner's tables into MEDUSA's database (the serving layer, step 24): two gold tables,
+"""Copy the live scanner's tables into MEDUSA's database (the serving layer, step 24): three gold tables,
 the current version of every metric definition (market.semantic, step 27) and each account's own
 version in use (step 28). Then the Insights data (step 32): every unusual move since 2020 and the
 market's drift by hour, as one gzip file.
@@ -49,6 +49,10 @@ TABLES = {
                held_back_avg_continuation, held_back_t, held_back_hit_rate, side, held_back_net_after_cost,
                verdict, round_trip_cost
         from market.gold.event_evidence""",
+    # The days the lakehouse should have and doesn't, for the page's warning. Usually empty.
+    "market_missing_days": """
+        select cast(trade_date as string) as trade_date, status
+        from market.gold.missing_days""",
     # Only the version in use of each definition; the full history stays in the lakehouse.
     "market_metrics": """
         select metric_id, version, kind, name, description, sql_text, display,

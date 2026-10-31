@@ -1,7 +1,8 @@
 # MEDUSA lakehouse: daily load.
 # Every day at 13:23 UTC: loads yesterday's Binance futures files into the Databricks landing
-# volume (lakehouse-load-day.yml), re-checks the days before it against Binance (recheck), then
-# refreshes bronze, silver and gold (lakehouse-transform.yml). Runs on GitHub's servers.
+# volume (lakehouse-load-day.yml), re-checks the days before it against Binance and tries again any
+# that never finished loading (recheck), then refreshes bronze, silver and gold
+# (lakehouse-transform.yml). Runs on GitHub's servers.
 name: Lakehouse daily load
 
 on:
@@ -42,7 +43,7 @@ jobs:
   recheck:
     needs: load
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: lakehouse/ingest
@@ -74,6 +75,26 @@ jobs:
 
       - name: Compare with Binance and download changed files
         run: python recheck_binance.py
+
+      # A day with no manifest never finished loading: Binance published it late, as with 2026-10-28,
+      # or a run failed. Trying again here lets a late day arrive by itself. A day still not ready
+      # leaves nothing behind, the same rule as the daily load, and is tried again tomorrow;
+      # gold.missing_days and the Markets page show it until then (ADR-036).
+      - name: Load recent days that never finished
+        run: |
+          for i in $(seq 2 8); do
+            day=$(date -u -d "-$i days" +%F)
+            if [ -f "../data/manifests/date=$day/manifest.csv" ]; then
+              continue
+            fi
+            echo "$day never finished loading; trying again."
+            if python download_binance.py --symbols ALL --date "$day"; then
+              echo "::warning title=Late day loaded::$day has been loaded by the catch-up."
+            else
+              rm -rf ../data/landing/*/date="$day"
+              echo "::warning title=Day still missing::$day isn't complete at Binance yet; it will be tried again tomorrow."
+            fi
+          done
 
       - name: Upload changed files
         run: |

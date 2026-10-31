@@ -157,13 +157,14 @@ filled:
   `intraday_events` has no moves on the 28th or 29th.
 - **Nothing on the page shows this.** The status line gives the newest day, and the 139 dbt tests check
   the rows that exist, not the days that don't. The recheck only re-checks days already loaded, so
-  nothing fills the day by itself. This led to the plan for a missing-days check, a banner on Markets and a
-  catch-up in the daily load.
+  nothing fills the day by itself. [Step 32a](32a-missing-days.md) fixes all three: a missing-days check,
+  a warning on Markets and a catch-up in the daily load.
 
 ## Next: 32.2 and 32.3
 
-- **Before them:** fill 28 October (October's monthly 1-minute file, expected around 2 November, if it
-  holds that day; otherwise the live API), and the missing-days check.
+- **Before them:** [step 32a](32a-missing-days.md), the missing-days check, and filling 28 October
+  (October's monthly 1-minute file, expected around 2 November, if it holds that day; otherwise the live
+  API).
 - **32.2, from data already here:** the market's type on each move, so graphs can split crypto from the
   stock and commodity perpetuals; a playbook table per live unusual market (similar past moves, median
   next 1/4/24 h, how often it kept going, the worst 5%), crowded or alone (a move on a day many markets

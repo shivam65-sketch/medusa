@@ -1685,6 +1685,10 @@
         log('app', `Detailed logging ${LOG.verbose ? 'on' : 'off'}`);
       }
     });
+    // A drag that selected text in a table's row isn't a click on the row, on any page.
+    document.addEventListener('click', (ev) => {
+      if (ev.target.closest('tbody tr') && !ev.target.closest('a, button, summary') && !getSelection().isCollapsed) ev.stopPropagation();
+    }, true);
     document.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape') {
         hideTip();
@@ -1840,7 +1844,7 @@
     const host = $('#markets');
     if (!mktLoad) {
       host.innerHTML = '<div class="loading">Opening Markets…</div>';
-      mktLoad = import('/markets.js?v=12').catch((e) => {
+      mktLoad = import('/markets.js?v=13').catch((e) => {
         mktLoad = null;
         log('markets', `Markets couldn't be opened: ${e.message}`, null, 'error');
         host.innerHTML = `<div class="banner"><div><b>Markets couldn’t be opened.</b> ${esc(e.message)} Reload the page to try again.</div></div>`;
@@ -1944,7 +1948,7 @@
   function paintMarkets() {
     const el = $('#mkts');
     if (!el) return;
-    const now = Date.now();
+    const now = Date.now(), left = el.scrollLeft;
     el.innerHTML = MARKETS.map((mk) => {
       const iv = sessions(mk, now);
       const open = iv.find(([a, b]) => a <= now && now < b);
@@ -1954,6 +1958,7 @@
       return `<span class="mkt ${open ? 'on' : ''}" role="listitem" tabindex="0" data-tip="${esc(`${mk.full}. ${open ? 'Open now' : 'Next session'}: ${hours} (your time). Regular hours; holidays not included.`)}">
         <i aria-hidden="true"></i><b>${esc(mk.name)}</b><span>${open ? `open · closes ${whenText(open[1], now)}` : next ? `opens ${whenText(next[0], now)}` : 'closed'}</span></span>`;
     }).join('');
+    el.scrollLeft = left;
   }
 
   /* ---------- the INR switch ---------- */

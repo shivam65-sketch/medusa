@@ -149,6 +149,29 @@ models:
               arguments:
                 values: ['complete', 'check']
 
+  - name: missing_days
+    description: >
+      Gold: the days that should be in the lakehouse and aren't: the calendar from the first day in
+      coin_daily to yesterday, against the days coin_daily has. One row per day; no rows is the good
+      answer. Rebuilt every run, so a day leaves by itself when its data arrives. Published to MEDUSA
+      as market_missing_days for the Markets page's warning.
+    columns:
+      - name: trade_date
+        description: The UTC day that isn't there.
+        data_tests: [unique, not_null]
+      - name: status
+        description: >
+          Who is dealing with the day. waiting is yesterday, whose load hasn't had its turn; retrying
+          is 2 to 8 days old, tried again by every daily load; manual is older, and has to be loaded by hand.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['waiting', 'retrying', 'manual']
+      - name: days_old
+        description: Days between the day and today (UTC); yesterday is 1.
+        data_tests: [not_null]
+
   - name: unusual_moves
     description: >
       Gold: coin-days that were unusual for that coin, compared with the coin's own previous 30

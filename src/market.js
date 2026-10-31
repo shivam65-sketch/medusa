@@ -1,6 +1,7 @@
 // MEDUSA's copy of the market data lakehouse's small tables, for the live scanner: each market's normal
 // (market_baseline), the evidence (market_evidence), the definition of every number on the page
-// (market_metrics) and each account's own versions of those definitions (market_user_metrics).
+// (market_metrics), the days the lakehouse should have and doesn't (market_missing_days) and each
+// account's own versions of those definitions (market_user_metrics).
 //
 // Once a day the lakehouse's publish job sends each table here: POST /api/market/ingest with
 //   Authorization: Bearer <MARKET_INGEST_TOKEN>
@@ -44,6 +45,15 @@ export const TABLES = {
       side: TEXT, held_back_net_after_cost: NUM, verdict: TEXT, round_trip_cost: NUM,
     },
   },
+  // The days the lakehouse should have and doesn't (gold.missing_days), for the page's warning (ADR-036).
+  // Usually empty.
+  market_missing_days: {
+    maxRows: 400,
+    allowEmpty: true,
+    key: ['trade_date'],
+    required: ['trade_date', 'status'],
+    columns: { trade_date: DATE, status: TEXT },
+  },
   // The definition of every number on the Markets page: the current version of each row of the
   // lakehouse's market.semantic.metric_definitions (lakehouse step 27). The page runs these queries.
   market_metrics: {
@@ -71,7 +81,9 @@ export const TABLES = {
   },
 };
 // The tables in the scanner's answer, which is the same for every account.
-const SHARED = ['market_baseline', 'market_evidence', 'market_metrics'];
+const SHARED = ['market_baseline', 'market_evidence', 'market_missing_days', 'market_metrics'];
+// Added by later migrations: until one has run, the answer goes without its table.
+const LATER = ['market_metrics', 'market_missing_days'];
 // The Insights data (lakehouse step 32), one file in KV; only its publish records are in the answer.
 const INSIGHTS = ['market_events', 'market_hours'];
 
@@ -255,7 +267,8 @@ const readAnswer = (body, from) => new Response(body, {
 
 /** The market tables and their publish records, read in one batch: one transaction, so the tables and
  * their records always belong together. Before migration 004 has run there is no market_metrics, and the
- * answer goes without it (the page then uses its built-in definitions). */
+ * answer goes without it (the page then uses its built-in definitions); likewise market_missing_days
+ * before migration 006 (the page then warns about nothing). */
 async function buildAnswer(env, names = SHARED) {
   const db = env.DB;
   let results;
@@ -266,9 +279,8 @@ async function buildAnswer(env, names = SHARED) {
       db.prepare(`SELECT tbl, as_of, rows, published_at FROM market_publish WHERE tbl IN (${[...SHARED, ...INSIGHTS].map((t) => `'${t}'`).join(', ')})`),
     ]);
   } catch (e) {
-    if (names.includes('market_metrics') && /no such table: market_metrics/i.test(String(e && e.message))) {
-      return buildAnswer(env, names.filter((t) => t !== 'market_metrics'));
-    }
+    const absent = LATER.find((t) => names.includes(t) && new RegExp(`no such table: ${t}`, 'i').test(String(e && e.message)));
+    if (absent) return buildAnswer(env, names.filter((t) => t !== absent));
     throw e;
   }
   const answer = { published: Object.fromEntries(results.at(-1).results.map(({ tbl, ...p }) => [tbl, p])) };

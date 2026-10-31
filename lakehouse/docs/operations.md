@@ -8,12 +8,12 @@ How the platform runs day to day, and what to do when something goes wrong.
 
 | What | When | Where to look |
 |---|---|---|
-| Download + upload (`Lakehouse daily load`, job `load`) | 13:23 UTC (18:53 India time), after Binance has published the previous day ([ADR-021](decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)). GitHub can start scheduled runs late, by minutes or even hours; the odd minute avoids the busiest start of the hour. | GitHub → **Actions** → Lakehouse daily load |
-| Re-check the previous 7 days (job `recheck`) | Right after the load | The same run's `recheck` job: one line per day ("1814 files checked, 0 changed, 0 new, 0 removed"); a yellow warning on the run's page when Binance changed a file ([ADR-023](decisions.md#adr-023-re-check-loaded-days-against-binance-for-a-week)) |
+| Download + upload (`Lakehouse daily load`, job `load`) | Set for 13:23 UTC (18:53 India time), after Binance has published the previous day ([ADR-021](decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)). GitHub starts it hours late: from 23 to 30 October it started 200 to 362 minutes late and finished between 16:50 and 19:36 UTC. | GitHub → **Actions** → Lakehouse daily load |
+| Re-check the previous 7 days (job `recheck`) | Right after the load | The same run's `recheck` job: one line per day ("1814 files checked, 0 changed, 0 new, 0 removed"); a yellow warning on the run's page when Binance changed a file ([ADR-023](decisions.md#adr-023-re-check-loaded-days-against-binance-for-a-week)). Its step **Load recent days that never finished** tries again any of those days with no manifest, with a yellow warning for each ([ADR-036](decisions.md#adr-036-a-missing-day-is-found-against-the-calendar-shown-on-the-page-and-tried-again-for-a-week)) |
 | Bronze, freshness check, `dbt build` (job `transform`) | Right after a successful upload, in the same run | The same run's `transform` job; Databricks → **Jobs & Pipelines** → lakehouse-bronze for the pipeline |
 | Publish to MEDUSA (last step of `transform`) | Only after every dbt test passed | The run's summary page: a table of lakehouse rows against MEDUSA rows for `market_baseline`, `market_evidence` and `market_metrics`, all "OK" ([ADR-024](decisions.md#adr-024-a-write-only-endpoint-for-the-serving-copy)), and **Scanner answer** `kv` (MEDUSA rebuilt the Markets page's ready-made answer, [ADR-026](decisions.md#adr-026-the-scanners-answer-is-kept-ready-made-in-workers-kv)) |
 | Log the run (job `log`) | Last, whatever happened before | The run, its jobs, steps and errors in `ops.logs.etl_runs`, `etl_jobs`, `etl_steps`, `etl_errors`; MEDUSA's errors since the last copy in `ops.logs.app_events` ([step 31](steps/31-ops-log-tables.md)). The run's summary page shows how many MEDUSA errors were copied |
-| Check the result | After the run | `SELECT * FROM ops.logs.daily_etl_status` (one row per day: the scheduled run's result, how late GitHub started it, the day loaded); the last line of `dbt build` in the log; `market.gold.data_health` for the new day |
+| Check the result | After the run | `SELECT * FROM ops.logs.daily_etl_status` (one row per day: the scheduled run's result, how late GitHub started it, the day loaded); the last line of `dbt build` in the log; `market.gold.data_health` for the new day; `market.gold.missing_days` for the days that didn't come |
 
 A failed scheduled run sends GitHub's failure email.
 
@@ -75,7 +75,34 @@ GROUP BY date
 ORDER BY date DESC;
 ```
 
-A complete day has about 872 coins × 1,440 rows. A data-health table will automate this check later.
+A complete day has about 872 coins × 1,440 rows. `market.gold.data_health` shows each day's coins and
+missing minutes, and `market.gold.missing_days` the days with nothing at all:
+
+```sql
+SELECT * FROM market.gold.missing_days ORDER BY trade_date;
+```
+
+No rows is the good answer. Yesterday as `waiting` is normal until the daily load has run.
+
+## When a day is missing
+
+The Markets page says **Not in the lakehouse: …**, or dbt warns `assert_no_missing_days`
+([step 32a](steps/32a-missing-days.md), [ADR-036](decisions.md#adr-036-a-missing-day-is-found-against-the-calendar-shown-on-the-page-and-tried-again-for-a-week)).
+
+| `status` | What to do |
+|---|---|
+| `waiting` | Nothing: it is yesterday, and the daily load hasn't run yet |
+| `retrying` | Usually nothing: every daily load tries it again, and it leaves the table when it arrives. Look at the `recheck` job's **Load recent days that never finished** for *NOT READY*, which says what Binance is missing |
+| `manual` | The catch-up has stopped trying. If Binance has the day: Actions → **Lakehouse daily load** → Run workflow → the date. If its daily files never came, see below |
+
+**To load a day by hand:** the workflow takes one date and stops if the day isn't complete at Binance. A
+late day repairs everything above it by itself: silver takes its files as new rows, `coin_daily` rebuilds
+that day and the day after it, and the other gold tables are rebuilt in full.
+
+**When Binance never publishes the daily files.** Look for the month in its monthly archive: monthly
+1-minute files appear around the 2nd of the next month at about 09:40 UTC, and the pipeline doesn't fetch
+them. Check the file really holds the day, for several coins, before using it. The live API is the last
+resort: compare it with a day we have first, and run it from a computer that Binance accepts.
 
 ## When the daily run fails
 
@@ -86,6 +113,10 @@ A complete day has about 872 coins × 1,440 rows. A data-health table will autom
 | Download step: `NOT READY ... no files yet` or `NOT READY ... coins have metrics but no candles yet` | Binance hasn't finished publishing the day. Nothing was uploaded. | Later the same day: open the run → **Re-run failed jobs**. The whole load runs again from the start. |
 | Download step: `FAILED ... Connection reset by peer` or a timeout | The network dropped 4 times in a row for one file (each file is tried 4 times) | **Re-run failed jobs** |
 | Download step: `FAILED ... checksum mismatch` | A file was damaged in transfer | Re-run; if it repeats, the file on Binance's side is broken: report and skip the day |
+| Warning "Late day loaded" on the run's page | A day with no manifest was complete at Binance this time, and the catch-up loaded it | Nothing to do: the transform in the same run took it through |
+| Warning "Day still missing" on the run's page | A recent day with no manifest still isn't complete at Binance. Nothing of it was uploaded | Nothing to do for a week: every daily load tries again. The step's log shows *NOT READY* with what is missing |
+| `dbt build` warns on `assert_no_missing_days` | A day older than yesterday isn't in the lakehouse | See **When a day is missing** above. The run stays green and goes on to publish |
+| Publish: `market_missing_days` failed with `MEDUSA answered 400` or `500` | Migration 006 not applied, or the app wasn't redeployed after step 32a | `npx wrangler@4 d1 execute medusa --remote --file=migrations/006_missing_days.sql`, then `npx wrangler@4 deploy`, then re-run the transform |
 | Warning "Binance changed files" on the run's page | Binance rewrote or added files after their day was loaded | Nothing to do: the recheck job loaded them and the transform rebuilt those days. The `recheck` log lists the files. |
 | `recheck` job failed (`FAILED ...` or an upload error); the transform still ran | A network problem while re-checking | **Re-run failed jobs**, or wait: the next day's run checks the same days again |
 | Step **Publish to MEDUSA** skipped | The `MEDUSA_URL` secret doesn't reach the job | Settings → Secrets and variables → Actions → **Secrets** tab → *Repository secrets* must list `MEDUSA_URL` and `MEDUSA_INGEST_TOKEN` (not under Variables, not an environment secret) |
@@ -131,6 +162,8 @@ the page calculated correctly and any surprise is in the data. Start there.
 | `x-cache: D1` on every load (DevTools → Network → `scanner`) | Tick **Disable cache** and wait a minute: the browser keeps its copy for 5 minutes, and KV remembers a missing key for up to a minute | Still `D1`: the ready-made answer is missing; see the publish summary's **Scanner answer**, or re-run **Lakehouse transform** |
 | Insights says **The lakehouse hasn't published the history** | `SELECT * FROM market_publish WHERE tbl = 'market_events'` in D1 | No row: the publish hasn't sent the Insights file yet (the first after step 32 is deployed), or its last step failed: see the publish summary's `market_events` and `market_hours` rows. The live graph works without it |
 | Insights says **The history couldn't be loaded** or **couldn't be unpacked** | The message, and DevTools → Network → `insights` | A 404: no file in KV (re-run **Lakehouse transform**). A file the browser can't unpack: build one locally with `--insights-file` and check it opens; **Try again** fetches it again |
+| Markets says **Not in the lakehouse: …** | `SELECT * FROM market.gold.missing_days` | See **When a day is missing** above. The page shows what was last published, so a day that has just arrived goes when the next publish and the browser's 5-minute copy have passed |
+| Markets says **The lakehouse is N days behind** | The latest **Lakehouse daily load** on GitHub, and `SELECT * FROM ops.logs.daily_etl_status` | The load failed, or Binance's files are late: see **When the daily run fails**. Nothing was published, so `missing_days` on the page can't say it |
 | A graph looks wrong | Its ‹› window: the query as it runs, its raw result, **Copy for Databricks** | Run the copy in Databricks (it reads `market.gold.intraday_events` and `market.gold.hour_drift` themselves); if Databricks agrees, the graph drew its result correctly and the question is about the data. The table under each graph is the same result |
 | A graph says **The query doesn't return …, which this graph draws** | The column it names, in the window's raw result | A version of the definition that no longer returns a column the chart uses: rename it back in a new version (Save refuses such a version, so it was changed in Databricks) |
 
@@ -158,6 +191,7 @@ A calculation window shows the server's message in its save form. Nothing is hal
 
 | Date | What happened | Cause | Fix |
 |---|---|---|---|
+| 2026-10-28 | Binance's daily archive left out every coin's candles for 2026-10-28; its metrics and raw trades were there, and the days either side came on time. The runs of 29 October stopped at the download check. The next day's run loaded the 29th, and everything looked healthy: gold had no row for the 28th, the 29th had no daily returns, and no test or page showed it. Found by a person's query on 31 October. | Tests look at rows that exist, a daily load only fetches its own day, and the recheck only covers days with a manifest. The source's gap is Binance's; ours was not noticing. | `gold.missing_days`, a warning test, a warning on the Markets page and a daily catch-up for the last 7 days ([ADR-036](decisions.md#adr-036-a-missing-day-is-found-against-the-calendar-shown-on-the-page-and-tried-again-for-a-week)). The day itself: waiting for Binance's monthly file, expected around 2 November. |
 | 2026-10-25 | The first real save, version 2 of `bitcoin`, was removed by hand in the Databricks SQL editor (a `DELETE` of version 2 and an `UPDATE` making version 1 current again). MEDUSA kept running version 2 until **Lakehouse transform** republished the definitions at 05:46 UTC. | MEDUSA's copy changes only with a save from the page or a publish, so a hand change in Databricks waited for the next publish. | Undo now means **Use this version again**, which saves the old SQL as the next version; the owner's **Reload** brings any hand change to MEDUSA in seconds ([step 28](steps/28-editing-the-definitions.md)). |
 | 2026-10-21 | The first scheduled daily load (for 2026-10-20) failed in the download step: `FAILED metrics ATHUSDT 2026-10-20: [Errno 104] Connection reset by peer` (1,527 saved, 280 missing, 1 failed). Re-run at 21:51 UTC: all 872 coins loaded and every test passed; no data was lost. | 1. The downloader retried a connection that failed to open, but not one that dropped mid-download. 2. GitHub started the 06:00 schedule at 11:19, before Binance had finished publishing: 88 coins' candle files appeared only at 11:55. Without the network error, the day would have loaded without those coins. | Mid-download errors are retried; the schedule moved to 13:00 UTC; the download step refuses a day that isn't fully published ([ADR-021](decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)). |
 

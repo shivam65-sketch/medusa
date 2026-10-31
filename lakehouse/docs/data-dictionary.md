@@ -327,6 +327,21 @@ Is each day's data complete? One row per UTC day, rebuilt from `coin_daily` on e
 | `last_loaded_at` | Newest bronze load time behind the day |
 | `candle_status` | `complete`, or `check` when a coin is missing minutes or dropped out |
 
+## Gold: `market.gold.missing_days`
+
+The days that should be in the lakehouse and aren't: the calendar from the first day in `coin_daily` to
+yesterday, against the days `coin_daily` has ([model](../dbt/models/gold/missing_days.sql),
+[step 32a](steps/32a-missing-days.md), [ADR-036](decisions.md#adr-036-a-missing-day-is-found-against-the-calendar-shown-on-the-page-and-tried-again-for-a-week)). One row per missing day; no rows is the good
+answer. Rebuilt every run, so a day leaves by itself when its data arrives. Key `trade_date`.
+
+| Column | Meaning |
+|---|---|
+| `trade_date` | The UTC day that isn't there |
+| `status` | `waiting`: yesterday, whose load hasn't had its turn. `retrying`: 2 to 8 days old, tried again by every daily load. `manual`: older, has to be loaded by hand |
+| `days_old` | Days between the day and today (UTC); yesterday is 1 |
+
+Tested by `assert_no_missing_days` (a warning, for every status but `waiting`).
+
 ## Gold: `market.gold.unusual_moves`
 
 Coin-days that were unusual for that coin, rebuilt from `coin_daily` on every run
@@ -654,7 +669,8 @@ current personal versions as well. Each table is replaced as a whole in one tran
 `market_user_metrics` are shared by every account and have no `user_id`
 ([`migrations/003_market.sql`](../../migrations/003_market.sql),
 [`migrations/004_metrics.sql`](../../migrations/004_metrics.sql),
-[`migrations/005_user_metrics.sql`](../../migrations/005_user_metrics.sql)). A save on the Markets page
+[`migrations/005_user_metrics.sql`](../../migrations/005_user_metrics.sql),
+[`migrations/006_missing_days.sql`](../../migrations/006_missing_days.sql)). A save on the Markets page
 also writes the new version straight into `market_metrics` or `market_user_metrics`, and the owner's
 **Reload** replaces both from Databricks on demand
 ([ADR-031](decisions.md#adr-031-edits-are-saved-to-databricks-by-medusas-server-as-shared-or-personal-versions)).
@@ -663,6 +679,7 @@ also writes the new version straight into `market_metrics` or `market_user_metri
 |---|---|---|---|
 | `market_baseline` | `symbol` | `gold.coin_baseline` | `symbol`, `base_asset`, `status`, `as_of_date`, `last_close`, `history_days`, `avg_return_30d`, `sd_return_30d`, `avg_abs_return_30d`, `avg_quote_volume_30d`, `avg_log_volume_30d`, `sd_log_volume_30d`, `avg_abs_hour_return_30d` |
 | `market_evidence` | `direction`, `z_band`, `liquidity`, `horizon_hours` | `gold.event_evidence` | The key, `events`, `days`, `avg_continuation`, `median_continuation`, `hit_rate`, `in_sample_days`, `in_sample_avg_continuation`, `in_sample_t`, `held_back_days`, `held_back_avg_continuation`, `held_back_t`, `held_back_hit_rate`, `side`, `held_back_net_after_cost`, `verdict`, `round_trip_cost` |
+| `market_missing_days` | `trade_date` | `gold.missing_days` | `trade_date`, `status`. Usually empty. The page's warning (`waiting` left out) |
 | `market_metrics` | `metric_id` | `semantic.metric_definitions`, current versions only | `metric_id`, `version`, `kind`, `name`, `description`, `sql_text`, `display`, `valid_from` (`YYYY-MM-DD HH:MM:SS` text, UTC), `changed_by`, `change_note` |
 | `market_user_metrics` | `user_id`, `metric_id` | `semantic.user_metric_definitions`, current versions only | `user_id` (the account), `metric_id`, `version`, `sql_text`, `description`, `based_on`, `valid_from`, `changed_by`, `change_note`. Read only by its own account (`GET /api/market/metrics/mine`); never part of the scanner's shared answer |
 | `market_publish` | `tbl` | Written by the endpoints | `tbl`, `as_of` (the lakehouse day), `rows`, `published_at` (ms). Since step 32 also `market_events` and `market_hours`, the Insights file's two tables (below) |
@@ -684,7 +701,7 @@ After replacing a shared table (and after a shared save or a **Reload**), MEDUSA
 | Part | Holds |
 |---|---|
 | `published` | One entry per table: `as_of`, `rows`, `published_at`, as in `market_publish` |
-| `market_baseline`, `market_evidence`, `market_metrics` | `columns` (the D1 columns, in order) and `rows` (one list of values per row, in key order). `market_metrics` is left out while D1 doesn't have the table (before migration 004). `market_user_metrics` is never in it: the answer is the same for every account |
+| `market_baseline`, `market_evidence`, `market_missing_days`, `market_metrics` | `columns` (the D1 columns, in order) and `rows` (one list of values per row, in key order). `market_metrics` and `market_missing_days` are left out while D1 doesn't have the table (before migrations 004 and 006). `market_user_metrics` is never in it: the answer is the same for every account |
 
 Each browser keeps the answer for 5 minutes (`private, max-age=300`). After a shared save or a
 **Reload**, the page that made it fetches the answer once past that copy, so windows opened next get the

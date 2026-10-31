@@ -858,3 +858,50 @@ table's columns), with its own window to preview and save.
 preview beside the current one, the daily publish. A new graph type needs code in `markets-charts.js`;
 a new graph of an existing type needs only SQL and a spec. The SQL is written for both engines (SQLite and
 Databricks), which rules out some functions (no `percentile_cont`, `MEDIAN` instead).
+
+## ADR-036: A missing day is found against the calendar, shown on the page and tried again for a week
+
+**Status:** Accepted, 2026-10-31 (step 32a).
+
+**Context:** Binance's archive left out the candles of 2026-10-28. The run of 29 October stopped at the
+download check, as designed (ADR-021), and the next day's run loaded the 29th. From then on everything
+looked healthy: all 139 tests passed, the next run succeeded, and the Markets page gave the newest day,
+which was recent. The hole was found by a person running a query. Three things let it through: a test
+looks at rows that exist, and a day that never arrived has none; a daily load only fetches its own day;
+and the recheck (ADR-023) only covers days that have a manifest, which a skipped day doesn't.
+
+**Decision:**
+- **Compare with the calendar.** `gold.missing_days` builds every day from the first in `coin_daily` to
+  yesterday and keeps those with no data. It is rebuilt every run, so a day leaves by itself when it
+  arrives. `status` says who is dealing with the day: `waiting` (yesterday), `retrying` (2 to 8 days old)
+  or `manual` (older).
+- **A warning, not a failure.** `assert_no_missing_days` has severity `warn`: the run stays green, and the
+  warning reaches `ops.logs.etl_errors`.
+- **Say so where the numbers are read.** The table is published as `market_missing_days`, a shared table
+  in the scanner's answer, and the page shows it at the top of the status box, `waiting` left out.
+- **The page also checks for itself.** When a load fails, the transform doesn't run and nothing is
+  published, so no table can report it. The page compares the newest lakehouse day with yesterday, and two
+  days or more apart says the lakehouse is behind.
+- **Try again for a week.** A step in the `recheck` job runs the normal download for each of the last 7
+  days with no manifest, the same days the recheck covers. A complete day gets its manifest and is never
+  tried again. A day still not ready leaves nothing behind (ADR-021). No change was needed downstream:
+  silver loads late files as new rows, `coin_daily` rebuilds a day and the day after it, and the tables
+  above it are rebuilt in full.
+
+**Alternatives:**
+- *Fail the run when a day is missing.* It would hold back the days that did arrive, every day until the
+  hole is filled, for something nobody here can fix.
+- *Fill a missing day from the live API automatically.* A different source, with no checksum and a run
+  from GitHub's servers that Binance may refuse, would quietly change what a checked day means. It stays a
+  last resort, by hand, compared against a day we have first.
+- *Read it from the run log.* `daily_etl_status` is about runs, not data: the runs around the hole
+  succeeded, so it would show the wrong thing.
+- *Extend `data_health`.* It has a row for each day that exists, so it can't have one for a day that doesn't.
+- *Try forever.* The window needs an end to keep the run short, and a week matches the recheck. An older
+  day shows `manual` and stays on the page until someone loads it.
+
+**Consequences:** A missing day now shows up the next run, on the page and in the logs, and most fill
+themselves. A day Binance never publishes stays on the page: it can only be filled by hand. The page's
+warning depends on one more D1 table (migration 006), though the scanner's answer works without it. The
+catch-up can add a few minutes to a run for each day it tries, so the `recheck` job's limit went from 30
+to 45 minutes.
