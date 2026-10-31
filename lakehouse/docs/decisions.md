@@ -940,3 +940,10 @@ GitHub's servers.
 **Consequences:** The verdicts now describe the markets they were tested on. On 2026-10-31 no verdict or side changed,
 and the five patterns that held up improved slightly. Stocks and commodities have no verdict at all, and can't get one
 from this rule. The list needs a person to refresh it, which the warning prompts.
+
+**Added the same day: the filter reaches everything.** `hour_drift` gained `market_type`, with `all` rows that match the
+table before it exactly. *Every kind of move at a glance* is built from the moves of the type chosen, and takes only its
+verdicts from the evidence. The Bitcoin card stays unfiltered on purpose. A filter that shows but does nothing is worse
+than no filter, so an open page now asks for a new publish every 5 minutes, and a browser keeps the answer for 1 minute
+instead of 5 (it was 30 and 5). That is 12 small requests an hour per open page, and a page reloads its tables only when
+the publish records changed.

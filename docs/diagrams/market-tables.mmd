@@ -81,6 +81,7 @@ erDiagram
     string period PK
     int utc_hour PK
     string liquidity PK
+    string market_type PK
   }
   dim_coin ||--o{ fct_candle_1m : "symbol"
   dim_coin ||--o{ fct_metrics_5m : "symbol"

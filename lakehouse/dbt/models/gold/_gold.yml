@@ -239,8 +239,8 @@ models:
   - name: hour_drift
     description: >
       Gold: the whole market's move in each UTC hour, judged by days, one row per year, period, UTC
-      hour and liquidity group (and all, every coin together), from January 2020 and delisted coins
-      included. Each day's move in an hour is the average of every trading coin's return in it (each
+      hour, liquidity group and market type (each with all, every coin together), from January 2020 and
+      delisted coins included. Each day's move in an hour is the average of every trading coin's return in it (each
       clipped to 10% either way); the statistics are over those days. The sums let rows be pooled
       exactly, which the Markets page's Insights graphs do. Rebuilt every run from int_candle_1h_all.
     columns:
@@ -264,6 +264,13 @@ models:
           - accepted_values:
               arguments:
                 values: ['large', 'mid', 'small', 'all']
+      - name: market_type
+        description: crypto, stock, commodity, other or unknown, on the rule of intraday_events; all is every market together.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['crypto', 'stock', 'commodity', 'other', 'unknown', 'all']
       - name: days
         description: Days behind the row, each one value (the market's move in that hour that day).
         data_tests: [not_null]

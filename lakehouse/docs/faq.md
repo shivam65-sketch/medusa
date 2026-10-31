@@ -147,7 +147,7 @@ About once a second, a timer in the page:
 3. redraws the numbers that changed.
 
 There is no server in this loop and the page doesn't reload. MEDUSA's server only hands over the
-lakehouse's daily tables when the page opens and every 30 minutes. Each viewer has their own database,
+lakehouse's daily tables when the page opens, and when it finds a new publish, which it asks about every 5 minutes. Each viewer has their own database,
 fed straight from Binance; closing the tab deletes it. In SQL Server terms: a database on your own
 laptop, a small program running `MERGE` for every message from a feed, and a SQL Agent job re-running
 the report's queries every second.

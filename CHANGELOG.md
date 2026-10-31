@@ -6,7 +6,8 @@ app's menu and on the sign-in page); each release adds a section here with the s
 ## Unreleased
 
 - Markets: stocks and commodities now show **not tested** instead of a verdict. Binance only listed them from December 2025, so the verdicts, chosen on 2020 to 2024, were never tested on them, and on real data they behave differently from crypto.
-- Markets, **Insights**: the type filter at the top now applies to the live graph and to every graph of past moves, so crypto and stocks can be looked at apart.
+- Markets: the type filter at the top now shows on all three views and reaches every graph and table: Today, every Insights graph and its windows, and the live counts on Patterns. Only the Bitcoin card ignores it, on purpose. On stocks and commodities, *Every kind of move at a glance* and the market by hour show *not tested* where there are no 2020 to 2024 years.
+- Markets: an open page now finds a new publish within 5 minutes (it was 30), and a reload gets it within a minute (it was 5).
 - Market data lakehouse (step 32.2): `silver.dim_market_type`, a list of what each market is, and `market_type` on every unusual move. The evidence covers crypto and other markets only. No verdict or side changed.
 - Documentation: **How the data works** (`docs/how-the-data-works.md`), the whole journey from a Binance file to a number on the Markets page: every table with its grain, keys and joins, a day in the pipeline, a page refresh, the one-second loop, Bitcoin's z and the *Year by year* graph followed through every layer with real values, and how to trace a problem back upstream. Seven new diagrams; the lineage diagram now includes `hour_drift` and `missing_days`.
 - `schema.sql` now lists `market_missing_days`, so a brand-new install has it without running migration 006.

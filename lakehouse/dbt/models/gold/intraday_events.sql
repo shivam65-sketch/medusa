@@ -119,11 +119,7 @@ select
     f24.close / e.close - 1                             as fwd_return_24h,
     case when e.candle_date < cast('{{ var("held_back_from") }}' as date)
          then 'in_sample' else 'held_back' end          as period,
-    -- A stock or commodity contract can take over an old crypto ticker: MDTUSDT was a token until
-    -- 2024 and has been Medtronic since 2026. Before its listing day, the moves were the old market's.
-    case when m.symbol is null then 'unknown'
-         when m.market_type in ('stock', 'commodity') and e.candle_date < m.onboard_date then 'crypto'
-         else m.market_type end                         as market_type
+    {{ market_type_on('m', 'e.candle_date') }}          as market_type
 from events e
 -- A missing hour (the coin stopped trading, or the data ends) leaves the forward return empty.
 left join hours f1  on f1.symbol  = e.symbol and f1.hour_start  = e.hour_start + interval 1 hour

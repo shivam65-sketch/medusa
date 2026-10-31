@@ -24,7 +24,7 @@
 // Each ‹› button opens one number's or graph's calculation in its own window (markets-window.html):
 // the same code with its own data, engine and live prices, running only that window's queries.
 
-import { DEFINITIONS } from './markets-metrics.js?v=4';
+import { DEFINITIONS } from './markets-metrics.js?v=5';
 import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=1';
 
 const RULE = { z: 3 };
@@ -32,8 +32,9 @@ const RULE = { z: 3 };
 const PUBLISHED_BY = 'usually by 20:00 UTC';
 const STREAM ='wss://fstream.binance.com/market/ws/!miniTicker@arr';
 const REST = 'https://fapi.binance.com/fapi/v1';
-const ENGINE = '/markets-sql.js?v=4';
+const ENGINE = '/markets-sql.js?v=5';
 const DAY = 86_400_000;
+const CHECK_EVERY = 5 * 60_000;   // how often an open page asks whether the lakehouse has published
 const HORIZONS = [1, 4, 24];
 const BANDS = ['3-4', '4-6', '6+'], LIQS = ['large', 'mid', 'small'];
 
@@ -231,7 +232,7 @@ const pageParams = () => ({
 let api = null, host = null;
 const S = {
   data: null, loadErr: null, loading: null,          // the lakehouse's copy: {published, raw, base, ev, at}
-  live: new Map(), snapAt: 0, dirty: new Set(),      // symbol -> {price, q (USDT traded in the last 24 h), t, raw, via}; changed since the last run
+  live: new Map(), snapAt: 0, checkedAt: 0, dirty: new Set(),      // symbol -> {price, q (USDT traded in the last 24 h), t, raw, via}; changed since the last run
   ref: null, refBusy: null, refDone: 0, refTotal: 0, // yesterday's closes: {day, close: Map, binance: Map, src, missing}
   types: new Map(), typesDay: null, marketsVer: 0,   // symbol -> {group, label}; bumped when the types or Binance closes change
   ws: null, wsState: 'off', everOpen: false, fails: 0, lastMsg: 0, retry: 0, tick: 0, stopped: true,
@@ -902,7 +903,7 @@ function applyReload({ shared, mine }) {
   rebuildDefs();
 }
 
-/** The browser keeps the shared answer (/api/market/scanner) for 5 minutes. After a change to the shared
+/** The browser keeps the shared answer (/api/market/scanner) for 1 minute. After a change to the shared
  * definitions it is fetched once past that copy, which puts the new one in its place, so a window or page
  * opened next gets the new versions too (the tabs already open have them from the channel). */
 const refreshShared = () => fetch('/api/market/scanner', { cache: 'reload', credentials: 'same-origin' }).catch(() => {});
@@ -1355,7 +1356,6 @@ function draw() {
     b.setAttribute('aria-pressed', String(b.dataset.v === String(S[b.dataset.mkt])));
   });
   if (!S.win) {
-    document.getElementById('mkt-kinds').hidden = S.view === 'patterns';   // the patterns aren't split by type
     document.getElementById('mkt-ins-pick').hidden = S.view !== 'insights';
     document.getElementById('mkt-today').hidden = S.view !== 'today';
     document.getElementById('mkt-patterns').hidden = S.view !== 'patterns';
@@ -1610,14 +1610,17 @@ function paintPatterns() {
   if (S.pat && ev.get(S.pat)) {
     const e = ev.get(S.pat);
     const flagged = objects(S.res.get('unusual_all_types'));   // live, every type
-    const m = flagged.filter((r) => r.direction === e.direction && (e.z_band === 'all' || (r.z_band === e.z_band && r.liquidity === e.liquidity)));
+    const chosen = (r) => { const g = (typeOf(r.market) || {}).group; return ['crypto', 'other'].includes(g) && (S.kind === 'all' || g === S.kind); };   // as the Now column counts them
+    const m = flagged.filter((r) => chosen(r) && r.direction === e.direction && (e.z_band === 'all' || (r.z_band === e.z_band && r.liquidity === e.liquidity)));
     detail = `<div class="mkt-more"><p><b>${kindName(e.direction, e.z_band, e.liquidity)}</b>${e.z_band === 'all' ? ' (any size, any market)' : ''}.</p>${evWords(e, e.horizon_hours)}<p>Right now: ${m.length ? m.map((r) => `${name(r.market)} ${sig(r.z)}`).join(', ') : 'no market is in this group'}.</p>
       <h4>Where these numbers come from</h4><p>The lakehouse's <code>gold.event_evidence</code> (${ghLink('event_evidence.sql')}), built from <code>gold.intraday_events</code> (${ghLink('intraday_events.sql')}), copied to MEDUSA's <code>market_evidence</code>. <b>Now</b> is live; the table's queries are under ‹›.</p>${evidenceSql(e.direction, e.z_band, e.liquidity)}</div>`;
   }
 
   const counts = state(sumRes) || `<div class="mkt-counts"><span><b>${n(sum.held_up)}</b> held up</span><span><b>${n(sum.did_not_hold)}</b> did not hold</span><span><b>${n(sum.no_pattern)}</b> no pattern</span><span><b>${n(sum.too_few)}</b> too few</span><span>of <b>${n(sum.kinds)}</b> kinds of move and horizons</span></div>`;
   const moves = sum.moves_up == null ? '' : `: about ${n(Number(sum.moves_up) + Number(sum.moves_down))} moves (${n(sum.moves_up)} up, ${n(sum.moves_down)} down), almost all of them crypto`;
-  put('mkt-patterns', `
+  const untested = ['stock', 'commodity'].includes(S.kind)
+    ? `<section class="card"><p class="warn">${S.kind === 'stock' ? 'Stocks are' : 'Commodities are'} <b>not tested</b>: Binance only listed them from December 2025, so they have no 2020–2024 years to choose a side on, and the verdicts below are for crypto and other markets. Insights shows how past moves on them went.</p></section>` : '';
+  put('mkt-patterns', `${untested}
     <section class="card">
       <div class="card-head"><div><h2>What similar moves did next</h2><p>Every time a market's move during a day reached ${RULE.z} of its usual daily moves since January 2020, the lakehouse recorded what the price did over the next 1, 4 and 24 hours${moves}. Lakehouse day ${shortDay(pub.as_of)}.</p></div>${srcBtn('patterns')}</div>
       ${counts}
@@ -1627,7 +1630,7 @@ function paintPatterns() {
       <div class="mkt-held">${heldHtml}</div>
     </section>
     <section class="card">
-      <div class="card-head"><div><h2>Every kind of move</h2><p>By direction, size (z) and the market's liquidity; <b>Now</b> counts the markets in each group right now. Tap a cell for the details.</p></div>${srcBtn('patterns')}</div>
+      <div class="card-head"><div><h2>Every kind of move</h2><p>By direction, size (z) and the market's liquidity; <b>Now</b> counts the tested markets of the type chosen in each group right now. Tap a cell for the details.</p></div>${srcBtn('patterns')}</div>
       ${gridHtml}
       ${detail}
     </section>
@@ -1679,7 +1682,7 @@ function insStatus() {
   const st = S.ins.state, n = (v) => Number(v || 0).toLocaleString('en-US');
   if (st === 'ok' && S.ins.info) {
     const r = S.ins.info.rows || {};
-    return `History: ${n(r.market_events)} unusual moves since 2020 and ${n(r.market_hours)} rows of the market by hour, lakehouse day ${shortDay(S.ins.info.as_of)}, in this browser's SQL engine. A graph is drawn again whenever its query's result changes; <b>Every market right now</b> is live. The type chosen at the top applies to that graph and to the graphs of past moves. <b>Every kind of move at a glance</b> covers the tested markets only, and the graph of the market by hour every market.`;
+    return `History: ${n(r.market_events)} unusual moves since 2020 and ${n(r.market_hours)} rows of the market by hour, lakehouse day ${shortDay(S.ins.info.as_of)}, in this browser's SQL engine. A graph is drawn again whenever its query's result changes; <b>Every market right now</b> is live. The type chosen at the top applies to every graph here.`;
   }
   if (st === 'error') return `<span class="warn">The history couldn't be loaded: ${esc(S.ins.err)}</span> <button class="btn btn-sm" type="button" data-mkt="ins-retry">Try again</button>`;
   if (st === 'none') return 'The lakehouse hasn\'t published the history for these graphs yet (it comes with the daily publish). The live graph works already.';
@@ -1883,11 +1886,15 @@ async function load() {
       const base = new Map(rowsOf(d.market_baseline).map((r) => [r.symbol, r]));
       const ev = new Map(rowsOf(d.market_evidence).map((r) => [evKey(r.direction, r.z_band, r.liquidity, r.horizon_hours), r]));
       const published = d.published || {};
-      if (S.data && (S.data.published.market_baseline || {}).as_of !== (published.market_baseline || {}).as_of) S.ref = null;   // a new day arrived
-      const empty = { columns: [], rows: [] };
-      const missing = rowsOf(d.market_missing_days).filter((r) => r.status !== 'waiting');   // yesterday is expected to be on its way
-      S.data = { published, base, ev, missing, at: Date.now(), raw: { market_baseline: d.market_baseline || empty, market_evidence: d.market_evidence || empty } };
-      SRC.shared = rowsOf(d.market_metrics);
+      S.checkedAt = Date.now();
+      // Nothing new since the data in hand: keep it, and every kept result with it.
+      if (!S.data || S.loadErr || JSON.stringify(published) !== JSON.stringify(S.data.published)) {
+        if (S.data && (S.data.published.market_baseline || {}).as_of !== (published.market_baseline || {}).as_of) S.ref = null;   // a new day arrived
+        const empty = { columns: [], rows: [] };
+        const missing = rowsOf(d.market_missing_days).filter((r) => r.status !== 'waiting');   // yesterday is expected to be on its way
+        S.data = { published, base, ev, missing, at: Date.now(), raw: { market_baseline: d.market_baseline || empty, market_evidence: d.market_evidence || empty } };
+        SRC.shared = rowsOf(d.market_metrics);
+      }
       const own = await mine;
       if (own) SRC.mine = { rows: own.rows || [], canSave: Boolean(own.canSave), saves: own.saves === 'shared' ? 'shared' : 'own', name: own.name || '' };
       rebuildDefs();
@@ -2031,19 +2038,19 @@ function connect() {
   };
 }
 
-/* Every 10 seconds: restart a stream that went quiet, pick up the lakehouse's new day after its daily
-   publish, and move to a new reference close (and contract list) at midnight UTC. */
+/* Every 10 seconds: restart a stream that went quiet, ask every few minutes whether the lakehouse has
+   published, and move to a new reference close (and contract list) at midnight UTC. */
 function watch() {
   if (S.stopped) return;
   if (S.ws && S.wsState === 'live' && Date.now() - S.lastMsg > 30_000) S.ws.close();
-  if (S.data && Date.now() - S.data.at > 30 * 60_000) load().then(ensureRef);
+  if (S.data && Date.now() - S.checkedAt > CHECK_EVERY) load().then(ensureRef);
   else ensureRef();
   loadTypes();
   schedule();
 }
 
 async function start() {
-  if (!S.data || S.loadErr || Date.now() - S.data.at > 30 * 60_000) { await load(); paint(); }
+  if (!S.data || S.loadErr || Date.now() - S.checkedAt > CHECK_EVERY) { await load(); paint(); }
   if (S.stopped || !S.data || S.loadErr) return;
   connect();
   if (Date.now() - S.snapAt > 60_000) snapshot();

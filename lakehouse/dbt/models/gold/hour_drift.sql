@@ -1,8 +1,8 @@
 {{ config(materialized = 'table') }}
 
 -- Gold: does the whole market tend to rise or fall in a given UTC hour, and is it the same every
--- year? One row per year, period, UTC hour and liquidity group (and 'all', every coin together),
--- from January 2020.
+-- year? One row per year, period, UTC hour, liquidity group and market type (each with 'all', every
+-- coin together), from January 2020. The rows with both at 'all' are the whole market.
 --
 -- Judged by days, like the evidence: first the market's move in each hour of each day (the average
 -- of every trading coin's return in that hour, each coin counted once), then statistics over those
@@ -55,25 +55,34 @@ scored as (
              when l.avg_quote_volume_30d >= 10000000 then 'mid'
              else 'small' end                               as liquidity,
         case when h.candle_date < cast('{{ var("held_back_from") }}' as date)
-             then 'in_sample' else 'held_back' end          as period
+             then 'in_sample' else 'held_back' end          as period,
+        {{ market_type_on('m', 'h.candle_date') }}          as market_type
     from hours h
     join liquidity l
       on l.symbol = h.symbol
      and l.candle_date = h.candle_date
+    left join {{ ref('dim_market_type') }} m on m.symbol = h.symbol
     where l.history_days >= 20
 ),
 
--- The market's move in each hour of each day: for each liquidity group, and for every coin together.
+-- The market's move in each hour of each day: for each liquidity group and market type, for each
+-- of them alone, and for every coin together.
 day_hours as (
     select
         candle_date,
         period,
         utc_hour,
         coalesce(liquidity, 'all')                          as liquidity,
+        coalesce(market_type, 'all')                        as market_type,
         avg(hour_return)                                    as market_return,
         count(*)                                            as coins
     from scored
-    group by grouping sets ((candle_date, period, utc_hour, liquidity), (candle_date, period, utc_hour))
+    group by grouping sets (
+        (candle_date, period, utc_hour, liquidity, market_type),
+        (candle_date, period, utc_hour, liquidity),
+        (candle_date, period, utc_hour, market_type),
+        (candle_date, period, utc_hour)
+    )
 )
 
 select
@@ -81,6 +90,7 @@ select
     period,
     utc_hour,
     liquidity,
+    market_type,
     count(*)                                                as days,
     min(candle_date)                                        as first_date,
     max(candle_date)                                        as last_date,
@@ -95,4 +105,4 @@ select
     avg(market_return) / nullif(stddev(market_return) / sqrt(count(*)), 0)
                                                             as t_stat
 from day_hours
-group by year(candle_date), period, utc_hour, liquidity
+group by year(candle_date), period, utc_hour, liquidity, market_type

@@ -25,7 +25,9 @@
 //   market_hours      the whole market's move in each UTC hour by year (gold.hour_drift): the
 //                     Insights data, one gzip file loaded when Insights opens (lakehouse step 32)
 // Parameters, filled in by the page:
-//   :kind       the type chosen at the top of the page: all, crypto, stock, commodity or other
+//   :kind       the type chosen at the top of the page: all, crypto, stock, commodity or other. A query
+//               filters by it with :kind IN ('all', market_type), or market_type = :kind on market_hours,
+//               which keeps a row for 'all'.
 //   :yesterday  yesterday's date (UTC), the day today's move is measured from
 //   :symbol     one market, for its details (NULL in a graph's window: every market)
 //   :direction  Insights: up or down moves;  :horizon  Insights: the next 1, 4 or 24 hours
@@ -348,10 +350,11 @@ FROM market_evidence`,
        e.events,
        e.days,
        ROUND(100 * e.round_trip_cost, 2) AS cost_pct,
-       f.symbol AS market,                                  -- a tested market in this group right now
+       f.symbol AS market,                                  -- a tested market of the type chosen, in this group right now
        ROUND(f.z, 1) AS z
 FROM market_evidence e
 LEFT JOIN flagged f ON f.tested = 1
+                   AND :kind IN ('all', f.market_type)
                    AND f.direction = e.direction
                    AND (e.z_band = 'all' OR (f.z_band = e.z_band AND f.liquidity = e.liquidity))
 WHERE e.verdict = 'held up'
@@ -363,15 +366,16 @@ ORDER BY e.held_back_net_after_cost DESC, e.direction, e.z_band, e.liquidity, e.
     name: 'Every kind of move',
     description: 'Each kind of move (direction, size band, liquidity, and every up or down move together), how many markets are in it right now, and its verdict over the next 1, 4 and 24 hours.',
     columns: [{ name: 'direction', label: 'Direction' }, { name: 'z_band', label: 'Size band' }, COL.liquidity,
-      { name: 'now', label: 'Now', format: 'int', title: 'Tested markets in this group right now' },
+      { name: 'now', label: 'Now', format: 'int', title: 'Tested markets of the type chosen in this group right now' },
       ...verdictCols.filter((c) => c.format === 'verdict').map(({ sub, ...c }) => c)],
     sql: `SELECT v.direction,
        v.z_band,
        v.liquidity,
-       COUNT(f.symbol) AS now,                              -- tested markets in this group right now
+       COUNT(f.symbol) AS now,                              -- tested markets of the type chosen, in this group right now
        v.next_1h, v.next_4h, v.next_24h
 FROM verdicts v
 LEFT JOIN flagged f ON f.tested = 1
+                   AND :kind IN ('all', f.market_type)
                    AND f.direction = v.direction
                    AND (v.z_band = 'all' OR (f.z_band = v.z_band AND f.liquidity = v.liquidity))
 GROUP BY v.direction, v.z_band, v.liquidity, v.next_1h, v.next_4h, v.next_24h
@@ -442,6 +446,7 @@ WHERE (:year IS NULL OR year = :year)
             / (SUM(days) - 1)) AS sd_return,        -- how much the days vary
        SUM(up_days) AS up_days
 FROM market_hours
+WHERE market_type = :kind                           -- the type chosen at the top ('all': every market)
 GROUP BY utc_hour, liquidity, period`,
   },
   {
@@ -478,7 +483,7 @@ WHERE t.z IS NOT NULL
     id: 'insight_patterns_map',
     kind: 'metric',
     name: 'Every kind of move at a glance',
-    description: 'What each kind of move did next, on average over days since 2020 (blue kept going, red turned back, grey where there are too few days to judge), and its verdict: the side and its result from 2025 when the pattern held up.',
+    description: 'What each kind of move did next on the markets chosen, on average over days since 2020 (blue kept going, red turned back, grey where there are too few days to judge), and its verdict: the side and its result from 2025 when the pattern held up. Stocks and commodities are not tested.',
     columns: [{ name: 'kind_of_move', label: 'Kind of move' }, { name: 'horizon', label: 'Over' },
       { name: 'avg_pct', label: 'Average next move, all years', format: 'pct' }, { name: 'verdict_text', label: 'Verdict' },
       { name: 'events', label: 'Moves', format: 'int' }, { name: 'days', label: 'Days', format: 'int' },
@@ -488,29 +493,67 @@ WHERE t.z IS NOT NULL
     chart: { type: 'heatmap', x: 'horizon', y: 'kind_of_move', value: 'avg_pct', text: 'verdict_text', unit: '%', scale: 'x', faint: 'too_few',
       tip: ['verdict_text', 'events', 'days', 'in_sample_t', 'held_back_t'],
       drill: { panel: 'moves', set: { direction: 'direction', horizon: 'horizon_hours', z_band: 'pick_band', liquidity: 'pick_liquidity' } } },
-    sql: `SELECT CASE WHEN z_band = 'all' THEN CONCAT('Every ', direction, ' move')
-            ELSE CONCAT(CASE direction WHEN 'up' THEN 'Up ' ELSE 'Down ' END, z_band, 'σ, ', liquidity)
+    sql: `WITH moved AS (                                     -- the moves of the type chosen, one row per horizon
+  SELECT direction, z_band, liquidity, event_date, 1 AS horizon_hours, fwd_return_1h AS r
+  FROM market_events
+  WHERE :kind IN ('all', market_type)
+  UNION ALL
+  SELECT direction, z_band, liquidity, event_date, 4, fwd_return_4h
+  FROM market_events
+  WHERE :kind IN ('all', market_type)
+  UNION ALL
+  SELECT direction, z_band, liquidity, event_date, 24, fwd_return_24h
+  FROM market_events
+  WHERE :kind IN ('all', market_type)
+),
+kept AS (                                           -- + kept going, - turned back
+  SELECT direction, z_band, liquidity, horizon_hours, event_date,
+         CASE WHEN direction = 'up' THEN r ELSE -r END AS c
+  FROM moved
+  WHERE r IS NOT NULL
+  UNION ALL                                         -- each move also counts in every move of its direction
+  SELECT direction, 'all', 'all', horizon_hours, event_date,
+         CASE WHEN direction = 'up' THEN r ELSE -r END
+  FROM moved
+  WHERE r IS NOT NULL
+),
+by_day AS (                                         -- days, not moves, as in the evidence
+  SELECT direction, z_band, liquidity, horizon_hours, event_date, AVG(c) AS day_c, COUNT(*) AS n
+  FROM kept
+  GROUP BY direction, z_band, liquidity, horizon_hours, event_date
+),
+kinds AS (
+  SELECT direction, z_band, liquidity, horizon_hours,
+         AVG(day_c) AS avg_continuation, SUM(n) AS events, COUNT(*) AS days
+  FROM by_day
+  GROUP BY direction, z_band, liquidity, horizon_hours
+)
+SELECT CASE WHEN e.z_band = 'all' THEN CONCAT('Every ', e.direction, ' move')
+            ELSE CONCAT(CASE e.direction WHEN 'up' THEN 'Up ' ELSE 'Down ' END, e.z_band, 'σ, ', e.liquidity)
        END AS kind_of_move,
-       CONCAT('Next ', horizon_hours, ' h') AS horizon,
-       ROUND(100 * avg_continuation, 2) AS avg_pct,  -- + kept going, - turned back
-       CASE WHEN verdict = 'held up'                 -- the side, and a trade from 2025 after costs
-            THEN CONCAT(side, ' ', ROUND(100 * held_back_net_after_cost, 2), '%')
-            ELSE verdict
+       CONCAT('Next ', e.horizon_hours, ' h') AS horizon,
+       ROUND(100 * k.avg_continuation, 2) AS avg_pct,  -- + kept going, - turned back
+       CASE WHEN :kind IN ('stock', 'commodity') THEN 'not tested'  -- no 2020-2024 years
+            WHEN e.verdict = 'held up'                 -- the side, and a trade from 2025 after costs
+            THEN CONCAT(e.side, ' ', ROUND(100 * e.held_back_net_after_cost, 2), '%')
+            ELSE e.verdict
        END AS verdict_text,
-       events,
-       days,
-       ROUND(in_sample_t, 1) AS in_sample_t,
-       ROUND(held_back_t, 1) AS held_back_t,
-       CASE WHEN verdict = 'too few' THEN 1 ELSE 0 END AS too_few,                -- drawn grey: too thin to judge
-       direction,
-       horizon_hours,
-       CASE WHEN z_band = 'all' THEN NULL ELSE z_band END AS pick_band,         -- for the click
-       CASE WHEN liquidity = 'all' THEN NULL ELSE liquidity END AS pick_liquidity
-FROM market_evidence
-ORDER BY CASE direction WHEN 'up' THEN 1 ELSE 2 END,
-         CASE z_band WHEN 'all' THEN 0 WHEN '3-4' THEN 1 WHEN '4-6' THEN 2 ELSE 3 END,
-         CASE liquidity WHEN 'large' THEN 1 WHEN 'mid' THEN 2 ELSE 3 END,
-         horizon_hours`,
+       COALESCE(k.events, 0) AS events,
+       COALESCE(k.days, 0) AS days,
+       CASE WHEN :kind IN ('stock', 'commodity') THEN NULL ELSE ROUND(e.in_sample_t, 1) END AS in_sample_t,
+       CASE WHEN :kind IN ('stock', 'commodity') THEN NULL ELSE ROUND(e.held_back_t, 1) END AS held_back_t,
+       CASE WHEN COALESCE(k.days, 0) < 20 THEN 1 ELSE 0 END AS too_few,           -- drawn grey: too thin to judge
+       e.direction,
+       e.horizon_hours,
+       CASE WHEN e.z_band = 'all' THEN NULL ELSE e.z_band END AS pick_band,       -- for the click
+       CASE WHEN e.liquidity = 'all' THEN NULL ELSE e.liquidity END AS pick_liquidity
+FROM market_evidence e
+LEFT JOIN kinds k ON k.direction = e.direction AND k.z_band = e.z_band
+                 AND k.liquidity = e.liquidity AND k.horizon_hours = e.horizon_hours
+ORDER BY CASE e.direction WHEN 'up' THEN 1 ELSE 2 END,
+         CASE e.z_band WHEN 'all' THEN 0 WHEN '3-4' THEN 1 WHEN '4-6' THEN 2 ELSE 3 END,
+         CASE e.liquidity WHEN 'large' THEN 1 WHEN 'mid' THEN 2 ELSE 3 END,
+         e.horizon_hours`,
   },
   {
     id: 'insight_by_year',
@@ -597,7 +640,7 @@ ORDER BY z_band, CASE liquidity WHEN 'large' THEN 1 WHEN 'mid' THEN 2 ELSE 3 END
     id: 'insight_hour_drift',
     kind: 'metric',
     name: 'The market by hour of the day',
-    description: 'The whole market\'s average move in each UTC hour, in basis points (0.01%), in 2020–2024 and again from 2025, before costs. An hour that leaned one way in 2020–2024 only counts if it kept leaning that way from 2025.',
+    description: 'The average move of the markets chosen in each UTC hour, in basis points (0.01%), in 2020–2024 and again from 2025, before costs. An hour that leaned one way in 2020–2024 only counts if it kept leaning that way from 2025.',
     columns: [{ name: 'hour', label: 'Hour (UTC)' }, { name: 'in_sample_bp', label: '2020–2024 (bp)' }, { name: 'held_back_bp', label: 'From 2025 (bp)' },
       { name: 'in_sample_t', label: 't 2020–2024' }, { name: 'held_back_t', label: 't from 2025' }, { name: 'verdict', label: 'Verdict' },
       { name: 'in_sample_days', label: 'Days 2020–2024', format: 'int' }, { name: 'held_back_days', label: 'Days from 2025', format: 'int' }],
@@ -608,23 +651,24 @@ ORDER BY z_band, CASE liquidity WHEN 'large' THEN 1 WHEN 'mid' THEN 2 ELSE 3 END
        held_back_bp,
        in_sample_t,
        held_back_t,
-       CASE WHEN ABS(in_sample_t) < 2 THEN 'no pattern'                        -- nothing to choose in 2020-2024
+       CASE WHEN in_sample_t IS NULL THEN 'not tested'                         -- no 2020-2024 years: stocks and commodities
+            WHEN ABS(in_sample_t) < 2 THEN 'no pattern'                        -- nothing to choose in 2020-2024
             WHEN in_sample_t * held_back_t > 0 AND ABS(held_back_t) >= 2 THEN 'held up'
             ELSE 'did not hold'
        END AS verdict,
        in_sample_days,
        held_back_days
-FROM (SELECT i.utc_hour AS hour,
+FROM (SELECT h.utc_hour AS hour,
              ROUND(10000 * i.avg_return, 2) AS in_sample_bp,                   -- 1 bp = 0.01%
              ROUND(10000 * h.avg_return, 2) AS held_back_bp,
              ROUND(i.avg_return / (i.sd_return / SQRT(i.days)), 1) AS in_sample_t,
              ROUND(h.avg_return / (h.sd_return / SQRT(h.days)), 1) AS held_back_t,
              i.days AS in_sample_days,
              h.days AS held_back_days
-      FROM hour_stats i
-      JOIN hour_stats h ON h.utc_hour = i.utc_hour AND h.liquidity = i.liquidity AND h.period = 'held_back'
-      WHERE i.period = 'in_sample'
-        AND i.liquidity = 'all') s
+      FROM hour_stats h
+      LEFT JOIN hour_stats i ON i.utc_hour = h.utc_hour AND i.liquidity = h.liquidity AND i.period = 'in_sample'
+      WHERE h.period = 'held_back'
+        AND h.liquidity = 'all') s
 ORDER BY hour`,
   },
 
@@ -709,7 +753,7 @@ LIMIT 300`,
     id: 'drift_by_year',
     kind: 'metric',
     name: 'This hour, year by year',
-    description: 'The whole market\'s average move in the hour picked, each year, in basis points (0.01%), before costs.',
+    description: 'The average move of the markets chosen in the hour picked, each year, in basis points (0.01%), before costs.',
     columns: [{ name: 'year', label: 'Year' }, { name: 'avg_bp', label: 'Average (bp)' }, { name: 't', label: 't' },
       { name: 'days', label: 'Days', format: 'int' }, { name: 'up_share', label: 'Days up', format: 'share' }],
     chart: { type: 'bar', x: 'year', y: 'avg_bp', sign: true, unit: 'bp', pos_label: 'Rose on average', neg_label: 'Fell on average', tip: ['t', 'days', 'up_share'] },
@@ -722,6 +766,7 @@ FROM (SELECT year, SUM(sum_return) AS s, SUM(sum_sq_return) AS sq, SUM(days) AS 
       FROM market_hours
       WHERE utc_hour = :hour
         AND liquidity = 'all'
+        AND market_type = :kind
       GROUP BY year) y
 ORDER BY year`,
   },
@@ -737,19 +782,20 @@ ORDER BY year`,
        in_sample_t,
        held_back_bp,
        held_back_t,
-       CASE WHEN ABS(in_sample_t) < 2 THEN 'no pattern'
+       CASE WHEN in_sample_t IS NULL THEN 'not tested'
+            WHEN ABS(in_sample_t) < 2 THEN 'no pattern'
             WHEN in_sample_t * held_back_t > 0 AND ABS(held_back_t) >= 2 THEN 'held up'
             ELSE 'did not hold'
        END AS verdict
-FROM (SELECT i.liquidity,
+FROM (SELECT h.liquidity,
              ROUND(10000 * i.avg_return, 2) AS in_sample_bp,
              ROUND(i.avg_return / (i.sd_return / SQRT(i.days)), 1) AS in_sample_t,
              ROUND(10000 * h.avg_return, 2) AS held_back_bp,
              ROUND(h.avg_return / (h.sd_return / SQRT(h.days)), 1) AS held_back_t
-      FROM hour_stats i
-      JOIN hour_stats h ON h.utc_hour = i.utc_hour AND h.liquidity = i.liquidity AND h.period = 'held_back'
-      WHERE i.period = 'in_sample'
-        AND i.utc_hour = :hour) s
+      FROM hour_stats h
+      LEFT JOIN hour_stats i ON i.utc_hour = h.utc_hour AND i.liquidity = h.liquidity AND i.period = 'in_sample'
+      WHERE h.period = 'held_back'
+        AND h.utc_hour = :hour) s
 ORDER BY CASE liquidity WHEN 'all' THEN 0 WHEN 'large' THEN 1 WHEN 'mid' THEN 2 ELSE 3 END`,
   },
 ];

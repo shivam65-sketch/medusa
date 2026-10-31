@@ -252,14 +252,15 @@ export async function insightsGet(env, url) {
 // It sits in the Lab's KV namespace under market/; the Lab finds its own keys through D1 and never
 // lists the namespace. When the answer isn't there (before the first publish, or after a failed
 // rebuild) it comes from D1 and is kept for 10 minutes, so even a copy that raced a publish soon goes.
-// x-cache says which answered: KV or D1. Each browser keeps its copy 5 minutes ("private").
+// x-cache says which answered: KV or D1. Each browser keeps its copy 1 minute ("private"), so a publish
+// reaches a reloaded page almost at once.
 const ANSWER_KEY = 'market/scanner.json';
 const FALLBACK_SECONDS = 600;
 
 const readAnswer = (body, from) => new Response(body, {
   headers: {
     'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'private, max-age=300',
+    'cache-control': 'private, max-age=60',
     'x-cache': from,
     ...SECURITY,
   },

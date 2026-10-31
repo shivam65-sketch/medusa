@@ -109,7 +109,7 @@ page's answer is the same for every account, which is why it can be made once an
 | `silver.fct_candle_1m` | 52,387,310 | | `gold.missing_days` | 1 |
 | `silver.fct_metrics_5m` | 8,602,522 | | `gold.unusual_moves` | 728 |
 | `silver.fct_candle_1h` | 873,132 | | `gold.hour_profile` | 21,288 |
-| `silver.fct_candle_1h_archive` | 15,887,385 | | `gold.hour_drift` | 672 |
+| `silver.fct_candle_1h_archive` | 15,887,385 | | `gold.hour_drift` | 2,088 |
 | `silver.int_candle_1h_all` (view) | 16,494,486 | | `gold.coin_baseline` | 759 |
 | `silver.dim_coin` | 1,896 | | `gold.intraday_events` | 21,373 |
 | `silver.dim_market_type` | 924 | | | |
@@ -143,7 +143,7 @@ Read it as a funnel: 52 million rows of candles become 36,000 coin-days, and tho
 | `gold.missing_days` | Day that should exist and doesn't | `trade_date` | Rebuilt in full |
 | `gold.unusual_moves` | Flagged coin, day | `symbol`, `trade_date` | Rebuilt in full |
 | `gold.hour_profile` | Coin, UTC hour of the day | `symbol`, `utc_hour` | Rebuilt in full |
-| `gold.hour_drift` | Year, period, UTC hour, liquidity | All four | Rebuilt in full |
+| `gold.hour_drift` | Year, period, UTC hour, liquidity, market type | All five | Rebuilt in full |
 | `gold.coin_baseline` | Coin | `symbol` | Rebuilt in full |
 | `gold.intraday_events` | Coin, day, at most one | `symbol`, `event_date` | Rebuilt in full |
 | `gold.event_evidence` | Direction, size band, liquidity, horizon | All four | Rebuilt in full |
@@ -430,9 +430,9 @@ One snapshot fills every price at the start.
 
 | Request | Goes to | Size | When | Kept |
 |---|---|---|---|---|
-| `GET /api/market/scanner` | MEDUSA, KV | About 160 KB | Page load, then every 30 minutes | 5 minutes in the browser |
+| `GET /api/market/scanner` | MEDUSA, KV | About 200 KB | Page load, then every 5 minutes | 1 minute in the browser |
 | `GET /api/market/metrics/mine` | MEDUSA, D1 | Small | With the scanner | No |
-| `GET /api/market/insights?v=…` | MEDUSA, KV | About 0.6 MB | Only when Insights or a graph's window opens, once per version | A day in the browser |
+| `GET /api/market/insights?v=…` | MEDUSA, KV | About 0.7 MB | Only when Insights or a graph's window opens, once per version | A day in the browser |
 | Stream `!miniTicker@arr` | Binance | Stays open | All the time | Only in the tab's memory |
 | `GET /fapi/v1/ticker/price` | Binance | Every price | Page load | Tab's memory |
 | `GET /fapi/v1/exchangeInfo` | Binance | About 1 MB | Once a day per browser | Local storage, a short type per market |
@@ -505,7 +505,7 @@ selections survive. A part is also held still while you have text selected in it
 | It checks | And then |
 |---|---|
 | Has the stream been quiet for 30 seconds? | Closes it. Reconnecting waits 1, 2, 5, 10, then 30 seconds |
-| Is the daily data older than 30 minutes? | Fetches it again, so an open page picks up a publish by itself |
+| Have 5 minutes passed since it last asked? | Asks for the daily answer, and loads it only if the publish records changed, so an open page picks up a publish by itself |
 | Has the UTC day changed? | Fetches the new reference closes and the contract list |
 
 ### When something goes wrong
@@ -637,8 +637,8 @@ did over the next 1, 4 and 24 hours. The largest up move of 2022: UNFIUSDT on 7 
 then down 40.1% in four hours.
 
 **2. Packing the file.** After the build, `publish_to_medusa.py` reads all 21,373 rows, checks each column's type
-and that no key repeats, rounds the numbers to what a graph can show, and gzips the lot: about 2.8 MB of JSON
-becomes about 0.6 MB.
+and that no key repeats, rounds the numbers to what a graph can show, and gzips the lot: about 3.2 MB of JSON
+becomes about 0.7 MB.
 
 **3. Sending it.** `PUT /api/market/insights` stores the file in KV exactly as it came, without opening it. MEDUSA
 reports the file's SHA-256 back, and the job checks it matches.
@@ -800,6 +800,7 @@ day. What it did about that is in the
 | The stream says reconnecting or refused | The browser's network tab | Binance can't be reached from this network. Not the lakehouse |
 | One market has no z | Its row in `market_baseline` | Fewer than 20 days of history |
 | A stock shows *not tested* | Nothing: this is expected | It has no 2020 to 2024 years to test a verdict on |
+| The type filter changes nothing, just after a publish | Reload the page | It opened before the publish. An open page catches up within 5 minutes |
 | dbt warns `assert_market_types_known` | `dim_market_type` | Binance has listed a new market: refresh the list |
 | One market isn't listed at all | `gold.coin_baseline` | New today, or marked `not trading` |
 | A number differs from a chart elsewhere | The query under the number | MEDUSA uses UTC days and perpetuals, not spot |

@@ -201,8 +201,7 @@ stock was claiming something the data doesn't show.
 - **`event_evidence` keeps crypto and other markets only.** Stocks and commodities have no moves in the in-sample
   years, so leaving them out changes nothing that chose a side.
 - **The page.** `flagged` gains `tested`. A stock or commodity shows *not tested* in place of a verdict, and isn't
-  counted as being in a pattern. The type filter now also shows on Insights, where it filters the live graph and
-  every graph of past moves. Seven definitions moved to version 2, the first new versions made by a seed:
+  counted as being in a pattern. Seven definitions moved to version 2, the first new versions made by a seed:
   [`004_metric_definitions_market_type.sql`](../../sql/seed/004_metric_definitions_market_type.sql) closes
   version 1 and adds version 2 in one `MERGE`, the way a save on the page does.
 
@@ -231,8 +230,38 @@ while crypto rows keep theirs.
   warning says when one is missing.
 - Stocks can't be tested by this rule until enough years pass. A test of their own, on their own short history,
   is a separate question for later.
-- `gold.hour_drift`, the market by hour, still includes every market. Stocks are a small part of each hour's
-  average, and the graph is about the whole market.
+
+### The filter everywhere, and a publish that arrives
+
+After the first version went live, the owner chose Stocks and nothing changed: 2020 still showed 227 moves. Two
+separate things were wrong.
+
+**The page was holding the old definitions.** Everything live was right: `moves` version 2 and the Insights file
+with its 606 stock moves were both there from 23:16 UTC. But a browser kept the daily answer for 5 minutes, and an
+open page only asked again every 30, so a page opened before the publish went on running version 1, showing a filter
+that did nothing. Now a browser keeps the answer for 1 minute, and an open page asks every 5 minutes, loading only
+if the publish records changed, so kept results aren't thrown away for nothing. An open page was left running during
+the test: it picked up the new definitions by itself at the 5-minute mark, with no reload.
+
+**Some numbers never had the filter.** They read tables with no market type:
+
+| Graph or table | What changed |
+|---|---|
+| The market by hour of the day, and its window's two tables | `gold.hour_drift` gains `market_type`, each with an `all` row. `hour_stats` and `drift_by_year` read `market_type = :kind` |
+| Every kind of move at a glance | Built from the moves of the type chosen instead of from `market_evidence`, which has no type. Its verdicts still come from the evidence; stocks and commodities show *not tested* |
+| Patterns: *Right now* and *Now* | Count markets of the type chosen. For stocks and commodities the view says they aren't tested |
+
+The filter now shows on all three views. **Only the Bitcoin card ignores it, on purpose:** it is the reference
+point whatever type is chosen.
+
+| Check | Result |
+|---|---:|
+| `hour_drift`'s `all` rows against the table as it stands | 672 of 672 the same, 0 differ |
+| Rows after the change | 2,088: 672 all, 672 crypto, 504 other, 144 commodity, 96 stock |
+| The seven graphs of Insights, for each of the 5 types, locally with real data | All change with the type, none fails |
+| Stocks, hour 0, against Databricks | +4.1 bp, t 1.6, the same |
+| Insights file | 0.67 MB, from 0.60 |
+| A filter click to the screen on Today, 8 tries | 0.1 to 0.3 seconds for 6, 0.75 for one, and one of 5.9 that wasn't explained or seen again, in a test browser running unfocused |
 
 ## Next: 32.2 and 32.3
 

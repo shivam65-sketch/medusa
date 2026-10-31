@@ -39,9 +39,9 @@ CREATE TABLE market_events (
 );
 CREATE TABLE market_hours (
   year INTEGER NOT NULL, period TEXT NOT NULL, utc_hour INTEGER NOT NULL, liquidity TEXT NOT NULL,
-  days INTEGER, first_date TEXT, last_date TEXT, coin_hours INTEGER, sum_return REAL, sum_sq_return REAL,
+  market_type TEXT NOT NULL DEFAULT 'all', days INTEGER, first_date TEXT, last_date TEXT, coin_hours INTEGER, sum_return REAL, sum_sq_return REAL,
   up_days INTEGER, avg_return REAL, sd_return REAL, t_stat REAL,
-  PRIMARY KEY (year, period, utc_hour, liquidity)
+  PRIMARY KEY (year, period, utc_hour, liquidity, market_type)
 );`;
 
 const INSIGHTS = ['market_events', 'market_hours'];

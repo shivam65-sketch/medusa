@@ -16,8 +16,9 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
-| [29](#issue-29) | 2026-11-01 | Lakehouse | The transform failed: *dim_market_type was not found* | Bug | Fixed, waiting for the push |
-| [28](#issue-28) | 2026-11-01 | Markets | Stocks and commodities showed verdicts tested on crypto | Bug | Built, waiting to go live |
+| [30](#issue-30) | 2026-11-01 | Markets | The market filter did nothing on Insights | Bug | Built, waiting to go live |
+| [29](#issue-29) | 2026-11-01 | Lakehouse | The transform failed: *dim_market_type was not found* | Bug | Fixed |
+| [28](#issue-28) | 2026-11-01 | Markets | Stocks and commodities showed verdicts tested on crypto | Bug | Fixed |
 | [27](#issue-27) | 2026-10-31 | Lab | The Python engine takes a long time to start | Limit | Known, unchanged |
 | [26](#issue-26) | 2026-10-31 | Lab Chart | Pages slow and getting stuck | Bug | Fixed |
 | [25](#issue-25) | 2026-10-31 | Lab Chart | Zigzag lines across the chart | Bug | Fixed |
@@ -48,6 +49,26 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 ## Details
 
+<a id="issue-30"></a>
+### 30. The market filter did nothing on Insights
+
+- **Seen:** on Insights with *Stocks* chosen, *Year by year* still showed 227 moves for 2020, every market's number,
+  right after the filter went live.
+- **Why:** two things. First, the page was out of date. Everything published was right, but a browser kept the daily
+  answer for 5 minutes and an open page only asked again every 30, so a page opened before the 23:16 UTC publish was
+  still running version 1 of the definitions, which ignore the filter. Second, a real gap: the market by hour, *Every kind
+  of move at a glance* and the live counts on Patterns read tables with no market type, so they ignored it whatever
+  the timing.
+- **Change:** an open page asks every 5 minutes and reloads only if the publish records changed, and a browser keeps the
+  answer for 1 minute. `gold.hour_drift` gained `market_type`, *Every kind of move at a glance* is built from the moves
+  of the type chosen, Patterns counts that type, and the filter shows on all three views. Only the Bitcoin card ignores
+  it, on purpose ([ADR-037](../lakehouse/docs/decisions.md#adr-037-market-type-comes-from-a-reference-list-and-only-tested-markets-get-a-verdict)).
+- **Checked:** the live answer and Insights file were read directly: both were right, which confirmed the cause. Locally
+  with real data, all seven Insights graphs change with each of the 5 types, with no failures, and the Stocks figures match
+  Databricks. A page left open picked up a publish by itself at the 5-minute mark. `hour_drift`'s `all` rows match the
+  old table on all 672 rows.
+- **State:** built, waiting to go live.
+
 <a id="issue-29"></a>
 ### 29. The transform failed: *dim_market_type was not found*
 
@@ -63,7 +84,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
   with the seed found and 153 tests. The failed run built and published nothing, so the live site was unaffected,
   and the definitions' version 2 had already gone in correctly. Before a commit that adds files, the same two checks
   now run.
-- **State:** fixed, waiting for the push.
+- **State:** fixed. **Lakehouse transform** run 10 succeeded with the seed loaded.
 
 <a id="issue-28"></a>
 ### 28. Stocks and commodities showed verdicts tested on crypto
@@ -79,7 +100,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 - **Checked:** on the real tables, 0 of 60 verdicts and 0 sides changed, and no in-sample number moved. Locally with the
   real moves, the Stocks graphs match Databricks, and a stock and a commodity show *not tested* while crypto rows keep
   their verdicts.
-- **State:** built, waiting to go live.
+- **State:** fixed and live since transform run 10.
 
 <a id="issue-27"></a>
 ### 27. The Python engine takes a long time to start

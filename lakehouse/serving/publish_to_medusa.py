@@ -91,15 +91,15 @@ INSIGHTS = {
     ),
     "market_hours": (
         """
-        select year, period, utc_hour, liquidity, days, cast(first_date as string) as first_date,
+        select year, period, utc_hour, liquidity, market_type, days, cast(first_date as string) as first_date,
                cast(last_date as string) as last_date, coin_hours, sum_return, sum_sq_return, up_days,
                avg_return, sd_return, t_stat
         from market.gold.hour_drift
-        order by year, period, utc_hour, liquidity""",
-        {"year": int, "period": str, "utc_hour": int, "liquidity": str, "days": int, "first_date": str,
+        order by year, period, utc_hour, liquidity, market_type""",
+        {"year": int, "period": str, "utc_hour": int, "liquidity": str, "market_type": str, "days": int, "first_date": str,
          "last_date": str, "coin_hours": int, "sum_return": float, "sum_sq_return": float,
          "up_days": int, "avg_return": float, "sd_return": float, "t_stat": float},
-        ["year", "period", "utc_hour", "liquidity"],
+        ["year", "period", "utc_hour", "liquidity", "market_type"],
     ),
 }
 INSIGHTS_MAX_BYTES = 10 * 1024 * 1024
