@@ -1,0 +1,46 @@
+%%{init: {"theme": "neutral"}}%%
+flowchart LR
+  subgraph TBL["Tables in the browser"]
+    mb[("market_baseline<br>daily")]
+    lp[("live_prices<br>every second")]
+    bm[("binance_markets<br>once a day")]
+    me[("market_evidence<br>daily")]
+    ev[("market_events<br>Insights file")]
+    hr[("market_hours<br>Insights file")]
+  end
+  subgraph MOD["Shared steps (models)"]
+    now["market_now<br>one row per trading market"]
+    tod["today<br>move, z, liquidity"]
+    fl["flagged<br>z of 3 or more, either way"]
+    vd["verdicts<br>what each kind of move did next"]
+    mv["moves<br>past moves, chosen direction and hours"]
+    pk["moves_picked<br>what a click picked"]
+    hs["hour_stats<br>the years pooled"]
+  end
+  subgraph OUT["What you see"]
+    c1["Cards: Bitcoin, breadth, median move"]
+    c2["Tables: gainers, losers, every market"]
+    c3["Card: unusual count"]
+    c4["Table: unusual moves, with verdicts"]
+    c5["Patterns view"]
+    c6["Insights: five history graphs"]
+    c7["A graph's window"]
+  end
+  mb --> now
+  lp --> now
+  bm --> now
+  now --> tod --> fl
+  me --> vd
+  ev --> mv --> pk
+  hr --> hs
+  tod --> c1
+  tod --> c2
+  fl --> c2
+  fl --> c3
+  fl --> c4
+  vd --> c4
+  fl --> c5
+  vd --> c5
+  mv --> c6
+  hs --> c6
+  pk --> c7

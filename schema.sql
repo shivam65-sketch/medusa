@@ -263,9 +263,15 @@ CREATE TABLE IF NOT EXISTS market_user_metrics (
   PRIMARY KEY (user_id, metric_id)
 );
 
+-- The days the lakehouse should have and doesn't (gold.missing_days), so the Markets page can say so.
+CREATE TABLE IF NOT EXISTS market_missing_days (
+  trade_date TEXT PRIMARY KEY,       -- the UTC day, YYYY-MM-DD
+  status TEXT NOT NULL               -- waiting | retrying | manual
+);
+
 -- One row per market table: when it was last published, for which day, and how many rows it holds.
 CREATE TABLE IF NOT EXISTS market_publish (
-  tbl TEXT PRIMARY KEY,              -- market_baseline | market_evidence | market_metrics | market_user_metrics
+  tbl TEXT PRIMARY KEY,              -- market_baseline | market_evidence | market_missing_days | market_metrics | market_user_metrics | market_events | market_hours
   as_of TEXT,                        -- the lakehouse day the copy reflects
   rows INTEGER NOT NULL,
   published_at INTEGER NOT NULL      -- ms since 1970

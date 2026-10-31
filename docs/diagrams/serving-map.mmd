@@ -1,0 +1,42 @@
+%%{init: {"theme": "neutral"}}%%
+flowchart LR
+  subgraph DBX["Databricks"]
+    cb["gold.coin_baseline"]
+    ee["gold.event_evidence"]
+    ms["gold.missing_days"]
+    md["semantic.metric_definitions"]
+    ud["semantic.user_metric_definitions"]
+    ie["gold.intraday_events"]
+    hd["gold.hour_drift"]
+  end
+  subgraph D1["Cloudflare D1"]
+    mb["market_baseline"]
+    me["market_evidence"]
+    mm["market_missing_days"]
+    mx["market_metrics"]
+    mu["market_user_metrics"]
+  end
+  subgraph KV["Workers KV"]
+    sj["market/scanner.json"]
+    ij["market/insights.json.gz"]
+  end
+  subgraph BRW["The browser tab"]
+    sb["SQLite: market_baseline"]
+    se["SQLite: market_evidence"]
+    sv["SQLite: market_events"]
+    sh["SQLite: market_hours"]
+    dp["The page's memory:<br>definitions, missing days"]
+  end
+  cb --> mb --> sj
+  ee --> me --> sj
+  ms --> mm --> sj
+  md --> mx --> sj
+  ud --> mu
+  mu -->|"your own row only"| dp
+  ie --> ij
+  hd --> ij
+  sj --> sb
+  sj --> se
+  sj --> dp
+  ij --> sv
+  ij --> sh

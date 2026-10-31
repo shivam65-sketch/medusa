@@ -12,6 +12,11 @@ on:
         type: string
         required: false
         default: ""
+      from_monthly:
+        description: "Cut the 1-minute candles out of the month's file: for a day Binance's daily archive left out"
+        type: boolean
+        required: false
+        default: false
       upload_concurrency:
         description: "Files uploaded at the same time. The backfill lowers it, because it runs several days at once."
         type: number
@@ -43,7 +48,8 @@ jobs:
       - name: Download and check Binance files
         env:
           DAY: ${{ inputs.date }}
-        run: python download_binance.py --symbols ALL ${DAY:+--date "$DAY"}
+          FROM_MONTHLY: ${{ inputs.from_monthly && '1' || '' }}
+        run: python download_binance.py --symbols ALL ${DAY:+--date "$DAY"} ${FROM_MONTHLY:+--from-monthly}
 
       - name: Install the Databricks CLI
         uses: databricks/setup-cli@v1.21.0

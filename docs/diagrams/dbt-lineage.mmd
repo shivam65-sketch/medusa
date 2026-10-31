@@ -1,5 +1,5 @@
 %%{init: {"theme": "neutral"}}%%
-flowchart LR
+flowchart TB
   subgraph BRZ["Bronze (Lakeflow pipeline)"]
     bk[("klines_1m")]
     bm[("metrics")]
@@ -18,11 +18,13 @@ flowchart LR
     cd["coin_daily<br>coin x day"]
     md["market_daily<br>day"]
     dh["data_health<br>day"]
+    ms["missing_days<br>a day that should be there and isn't"]
     um["unusual_moves<br>coin x day, flagged"]
     hp["hour_profile<br>coin x UTC hour"]
     cb["coin_baseline<br>coin, its normal"]
     ie["intraday_events<br>coin x day, unusual moves since 2020"]
     ee["event_evidence<br>kind of move x horizon"]
+    hd["hour_drift<br>year x UTC hour x liquidity"]
   end
   bk --> c1
   bm --> m5
@@ -36,9 +38,11 @@ flowchart LR
   m5 --> cd
   cd --> md
   cd --> dh
+  cd --> ms
   cd --> um
   c1h --> hp
   cd --> cb
   c1h --> cb
   dc --> cb
   all --> ie --> ee
+  all --> hd

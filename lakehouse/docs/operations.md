@@ -99,10 +99,20 @@ The Markets page says **Not in the lakehouse: …**, or dbt warns `assert_no_mis
 late day repairs everything above it by itself: silver takes its files as new rows, `coin_daily` rebuilds
 that day and the day after it, and the other gold tables are rebuilt in full.
 
-**When Binance never publishes the daily files.** Look for the month in its monthly archive: monthly
-1-minute files appear around the 2nd of the next month at about 09:40 UTC, and the pipeline doesn't fetch
-them. Check the file really holds the day, for several coins, before using it. The live API is the last
-resort: compare it with a day we have first, and run it from a computer that Binance accepts.
+**When Binance never publishes the daily files.** Use its monthly archive: monthly 1-minute files appear
+around the 2nd of the next month at about 09:40 UTC.
+
+1. Check the month's file is there (this should print `200`), for example for October 2026:
+   `curl.exe -s -o NUL -w "%{http_code}" https://data.binance.vision/data/futures/um/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2026-10.zip`
+2. Actions → **Lakehouse daily load** → Run workflow → the date, and tick **Cut the 1-minute candles out of
+   the month's file**. The metrics still come from the day's own files.
+3. Each coin's day is cut out and saved as that day's usual file, so everything after it works as on any
+   other day, the transform included. If the month's file doesn't hold the day either, the run stops with
+   *NOT READY* and uploads nothing. Then `SELECT * FROM market.gold.missing_days` should no longer list it.
+
+A cut day matches Binance's daily files line for line (checked on 2026-09-15, 6 coins, 8,640 rows). The
+live API is the last resort: compare it with a day we have first, and run it from a computer that Binance
+accepts.
 
 ## When the daily run fails
 

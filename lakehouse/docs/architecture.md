@@ -8,6 +8,9 @@ Every day it collects the previous day's market data for every Binance USDⓈ-M 
 (about 870 coins), keeps the full history in a lakehouse, and turns it into daily tables that
 dashboards analyse: yesterday on its own, and yesterday against the past.
 
+For the whole journey in detail, with how the tables relate and one number followed from Binance to the
+screen, see [How the data works](../../docs/how-the-data-works.md).
+
 ## Data flow
 
 ```mermaid

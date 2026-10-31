@@ -1,0 +1,89 @@
+%%{init: {"theme": "neutral"}}%%
+erDiagram
+  dim_coin {
+    string symbol PK
+    timestamp dbt_valid_from PK
+    timestamp dbt_valid_to
+    string status
+  }
+  fct_candle_1m {
+    string symbol PK
+    timestamp open_time PK
+    date candle_date
+  }
+  fct_metrics_5m {
+    string symbol PK
+    timestamp metric_time PK
+    date metric_date
+  }
+  fct_candle_1h {
+    string symbol PK
+    timestamp hour_start PK
+    date candle_date
+  }
+  fct_candle_1h_archive {
+    string symbol PK
+    timestamp hour_start PK
+    date candle_date
+  }
+  coin_daily {
+    string symbol PK
+    date trade_date PK
+    double close
+    double return_1d
+  }
+  market_daily {
+    date trade_date PK
+  }
+  data_health {
+    date trade_date PK
+    string candle_status
+  }
+  missing_days {
+    date trade_date PK
+    string status
+  }
+  unusual_moves {
+    string symbol PK
+    date trade_date PK
+  }
+  hour_profile {
+    string symbol PK
+    int utc_hour PK
+  }
+  coin_baseline {
+    string symbol PK
+    date as_of_date
+    double last_close
+    double sd_return_30d
+  }
+  intraday_events {
+    string symbol PK
+    date event_date PK
+    string direction
+    string z_band
+    string liquidity
+  }
+  event_evidence {
+    string direction PK
+    string z_band PK
+    string liquidity PK
+    int horizon_hours PK
+  }
+  hour_drift {
+    int year PK
+    string period PK
+    int utc_hour PK
+    string liquidity PK
+  }
+  dim_coin ||--o{ fct_candle_1m : "symbol"
+  dim_coin ||--o{ fct_metrics_5m : "symbol"
+  dim_coin ||--o{ fct_candle_1h : "symbol"
+  dim_coin ||--o{ coin_daily : "symbol"
+  dim_coin ||--o| coin_baseline : "symbol"
+  dim_coin ||--o{ hour_profile : "symbol"
+  fct_candle_1h |o--o| fct_candle_1h_archive : "symbol, hour_start"
+  coin_daily ||--o| unusual_moves : "symbol, trade_date"
+  coin_daily }o--|| market_daily : "trade_date"
+  coin_daily }o--|| data_health : "trade_date"
+  intraday_events }o--o{ event_evidence : "direction, z_band, liquidity"

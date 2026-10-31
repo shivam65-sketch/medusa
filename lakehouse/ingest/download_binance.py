@@ -17,12 +17,15 @@ With --symbols ALL, the list of coins comes from Binance's archive itself: every
 perpetual it has ever published (coins delisted long ago simply come back as missing).
 A daily run over every coin also checks that Binance has finished publishing the day, and fails
 if it hasn't, so a half-published day is never loaded.
+For a day Binance's daily archive left out, --from-monthly cuts the 1-minute candles out of the
+month's file instead, and saves them as that day's usual files.
 
 Standard library only: nothing to install.
 
   python download_binance.py --symbols BTCUSDT --date 2026-10-19
   python download_binance.py --symbols ALL                  (date defaults to yesterday, UTC)
   python download_binance.py --symbols ALL --months 2020-01..2020-12
+  python download_binance.py --symbols ALL --date 2026-10-28 --from-monthly
 """
 import argparse
 import concurrent.futures
@@ -118,6 +121,59 @@ def month_range(text):
     return months
 
 
+def checked_zip(url):
+    """The zip at `url` and Binance's fingerprint of it, checked against its .CHECKSUM file.
+    (None, "") if there is no such file."""
+    data = fetch(url)
+    if data is None:
+        return None, ""
+
+    # The .CHECKSUM file looks like "<sha256>  <file name>".
+    checksum = fetch(url + ".CHECKSUM")
+    if checksum is None:
+        raise RuntimeError(f"{url}: Binance has no .CHECKSUM file for it")
+    expected = checksum.decode().split()[0].lower()
+    actual = hashlib.sha256(data).hexdigest()
+    if actual != expected:
+        raise RuntimeError(f"{url}: checksum mismatch (expected {expected}, got {actual})")
+    return data, expected
+
+
+def save_gz(out_file, csv_bytes):
+    """Write to a temporary name first and rename at the end, so a half-written file never appears
+    in the landing folder."""
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out_file.with_name(out_file.name + ".tmp")
+    tmp.write_bytes(gzip.compress(csv_bytes))
+    tmp.replace(out_file)
+
+
+def cut_from_month(symbol, day):
+    """One day of 1-minute candles cut out of the month's file, for a day Binance's daily archive left
+    out, saved as that day's usual file so nothing after this can tell the difference. Returns what
+    download_one returns, with no fingerprint: the month's file isn't the day's, and this way the
+    recheck takes the daily file if Binance ever publishes it."""
+    out_file = LANDING / "klines_1m" / f"date={day}" / f"{symbol}-1m-{day}.csv.gz"
+    if out_file.exists():
+        return "skipped", "", out_file.name
+
+    path = DATASETS["klines_1m"][1].format(symbol=symbol, period=day[:7])
+    data, _ = checked_zip(f"{BASE_URL}/monthly/{path}")
+    if data is None:
+        return "missing", "", ""
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        lines = z.read(z.namelist()[0]).splitlines()
+    if not lines[0].startswith(b"open_time"):              # bronze reads the first line as the header
+        raise RuntimeError(f"{path}: the first line isn't the header")
+
+    start = int(dt.datetime.fromisoformat(day).replace(tzinfo=dt.timezone.utc).timestamp() * 1000)
+    rows = [r for r in lines[1:] if r and start <= int(r.split(b",", 1)[0]) < start + 86_400_000]
+    if not rows:                                           # the month's file doesn't hold this day either
+        return "missing", "", ""
+    save_gz(out_file, b"\n".join([lines[0], *rows]) + b"\n")
+    return "saved", "", out_file.name
+
+
 def download_one(dataset, symbol, period, suffix=""):
     """Download, check and save one file. Returns (result, sha256, file name) with result
     'saved', 'skipped' or 'missing'; the SHA-256 is Binance's fingerprint of the zip, known only
@@ -130,29 +186,13 @@ def download_one(dataset, symbol, period, suffix=""):
     if out_file.exists():
         return "skipped", "", out_file.name
 
-    url = f"{BASE_URL}/{kind}/{zip_path}"
-    data = fetch(url)
+    data, expected = checked_zip(f"{BASE_URL}/{kind}/{zip_path}")
     if data is None:
         return "missing", "", ""
 
-    # The .CHECKSUM file looks like "<sha256>  <file name>".
-    checksum = fetch(url + ".CHECKSUM")
-    if checksum is None:
-        raise RuntimeError(f"{url}: Binance has no .CHECKSUM file for it")
-    expected = checksum.decode().split()[0].lower()
-    actual = hashlib.sha256(data).hexdigest()
-    if actual != expected:
-        raise RuntimeError(f"{url}: checksum mismatch (expected {expected}, got {actual})")
-
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         csv_bytes = z.read(z.namelist()[0])  # each Binance zip holds exactly one CSV
-
-    # Write to a temporary name first and rename at the end, so a half-written
-    # file never appears in the landing folder.
-    out_dir.mkdir(parents=True, exist_ok=True)
-    tmp = out_dir / (out_file.name + ".tmp")
-    tmp.write_bytes(gzip.compress(csv_bytes))
-    tmp.replace(out_file)
+    save_gz(out_file, csv_bytes)
     return "saved", expected, out_file.name
 
 
@@ -198,6 +238,8 @@ def main():
     parser.add_argument("--date", help="day to download, YYYY-MM-DD in UTC (default: yesterday)")
     parser.add_argument("--months", help="monthly files instead: one month or a range, e.g. 2020-01..2020-12")
     parser.add_argument("--datasets", help="default: the daily datasets, or the monthly ones with --months")
+    parser.add_argument("--from-monthly", action="store_true",
+                        help="with --date: cut the 1-minute candles out of the month's file (a day the daily archive left out)")
     parser.add_argument("--workers", type=int, default=16, help="downloads at the same time (default: 16)")
     args = parser.parse_args()
     # Print each line as it happens, so the log keeps messages and errors in order.
@@ -205,6 +247,8 @@ def main():
 
     if args.months and args.date:
         parser.error("use --date or --months, not both")
+    if args.from_monthly and not args.date:
+        parser.error("--from-monthly needs --date")
     kind = "monthly" if args.months else "daily"
     if args.months:
         try:
@@ -233,7 +277,8 @@ def main():
     found = set()  # (dataset, symbol, period) of every file Binance has published
     manifest = {p: [] for p in periods}  # each day's rows: dataset, symbol, status, file, sha256
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = {pool.submit(download_one, d, s, p): (d, s, p) for d, s, p in jobs}
+        futures = {(pool.submit(cut_from_month, s, p) if args.from_monthly and d == "klines_1m"
+                    else pool.submit(download_one, d, s, p)): (d, s, p) for d, s, p in jobs}
         for future in concurrent.futures.as_completed(futures):
             dataset, symbol, period = futures[future]
             try:

@@ -1,0 +1,33 @@
+%%{init: {"theme": "neutral"}}%%
+sequenceDiagram
+  autonumber
+  participant P as The page (markets.js)
+  participant W as SQL engine (background worker)
+  participant M as MEDUSA server
+  participant K as Workers KV
+  participant B as Binance
+  P->>M: GET /api/session, is this session signed in?
+  M-->>P: yes
+  P->>P: draw the empty page
+  P->>M: GET /api/market/metrics/mine
+  P->>M: GET /api/market/scanner
+  M->>K: read market/scanner.json
+  K-->>M: about 160 KB, ready-made
+  M-->>P: your definitions, the daily tables, the publish records
+  par All at once, nothing waits for anything else
+    P->>W: start SQLite (WebAssembly)
+  and
+    P->>B: open the live stream
+  and
+    P->>B: GET /ticker/price, every price once
+  and
+    P->>B: GET /exchangeInfo, each market's type (once a day)
+  and
+    P->>B: GET /klines per market, only while the lakehouse is behind
+  end
+  W-->>P: ready, empty tables
+  B-->>P: prices, types, yesterday's closes
+  P->>W: fill the tables, run the queries for the view on screen
+  W-->>P: every number
+  P->>P: draw them
+  Note over P,B: From here on: the live loop, about once a second

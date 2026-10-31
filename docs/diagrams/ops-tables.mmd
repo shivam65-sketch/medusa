@@ -1,0 +1,49 @@
+%%{init: {"theme": "neutral"}}%%
+erDiagram
+  etl_runs {
+    string run_key PK
+    string workflow
+    string run_type
+    date data_date
+    string status
+    int start_delay_minutes
+  }
+  etl_jobs {
+    string job_key PK
+    string run_key FK
+    string job_name
+    string status
+  }
+  etl_steps {
+    string step_key PK
+    string job_key FK
+    string run_key FK
+    string step_name
+    string status
+  }
+  etl_errors {
+    string error_key PK
+    string run_key FK
+    string job_key FK
+    string step_key FK
+    string category
+    string message
+  }
+  app_events {
+    string event_id PK
+    string source
+    timestamp event_time
+    string area
+    string message
+  }
+  data_health {
+    date trade_date PK
+    string candle_status
+  }
+  etl_runs ||--o{ etl_jobs : "run_key"
+  etl_jobs ||--o{ etl_steps : "job_key"
+  etl_runs ||--o{ etl_steps : "run_key"
+  etl_runs ||--o{ etl_errors : "run_key"
+  etl_jobs ||--o{ etl_errors : "job_key"
+  etl_steps |o--o{ etl_errors : "step_key"
+  etl_runs }o--o| data_health : "data_date = trade_date"

@@ -26,7 +26,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 | [20](#issue-20) | 2026-10-31 | Lakehouse | A check for missing days also listed yesterday | Explained | Closed |
 | [19](#issue-19) | 2026-10-31 | Lakehouse | A missing day showed nowhere | Bug | Fixed |
 | [18](#issue-18) | 2026-10-30 | Lab data | *Download to this computer* refused | Limit | Closed |
-| [17](#issue-17) | 2026-10-29 | Journal | The CoinDCX key expired, and a new one asks for an IP | Limit | **Open** |
+| [17](#issue-17) | 2026-10-29 | Journal | The CoinDCX key expired, and a new one asks for an IP | Limit | **Open**, parked by the owner |
 | [16](#issue-16) | 2026-10-29 | Markets | Insights graphs were empty | Explained | Closed |
 | [15](#issue-15) | 2026-10-29 | Lakehouse | The daily load failed twice | Source data | Waiting for Binance |
 | [14](#issue-14) | 2026-10-25 | Lakehouse | A Databricks login test failed | Setup | Closed |
@@ -194,9 +194,9 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 - **Seen:** the API key expired, and CoinDCX asked for an IP address to bind a new key to.
 - **Why:** MEDUSA imports from Cloudflare, which has no fixed outgoing address, so a key bound to one IP
   can't be used by the import.
-- **State:** **open, a decision for the owner.** Reading the journal is unaffected, on any device. Only new
-  imports are. The first thing to check is whether CoinDCX still allows a key with no IP, even one that
-  expires.
+- **State:** **open, parked by the owner on 2026-11-01** to be picked up later. Reading the journal is
+  unaffected, on any device. Only new imports are. The first thing to check is whether CoinDCX still allows
+  a key with no IP, even one that expires.
 
 <a id="issue-16"></a>
 ### 16. Insights graphs were empty
@@ -215,7 +215,8 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 - **Why:** Binance's archive has no 1-minute candles for 2026-10-28, on any coin, and its download check
   stops a day that isn't complete, as designed.
 - **State:** waiting for Binance. The live API has the candles, and October's monthly file is due around 2
-  November. See [19](#issue-19) for what changed around it.
+  November. The daily load can now cut a day out of a monthly file, tested against September's daily files.
+  See [19](#issue-19) for what changed around it.
 
 <a id="issue-14"></a>
 ### 14. A Databricks login test failed

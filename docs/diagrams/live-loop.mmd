@@ -1,0 +1,14 @@
+%%{init: {"theme": "neutral"}}%%
+flowchart TB
+  A["Binance sends a list of the markets that changed"] --> B["The page keeps each price in memory<br>and notes the symbol as changed"]
+  B --> C{"Is a redraw<br>already booked?"}
+  C -->|"yes"| D["Nothing more:<br>the booked redraw takes it"]
+  C -->|"no"| E["Book one, at most one per second"]
+  E --> F["Send the SQL engine the changed prices<br>and the queries for the view on screen"]
+  F --> G["Upsert the prices into live_prices,<br>in one transaction"]
+  G --> H["Run the queries with the database<br>switched to read-only"]
+  H --> I["Send the results back to the page"]
+  I --> J["Turn each part's result into HTML text"]
+  J --> K{"Same text<br>as last time?"}
+  K -->|"yes"| L["Leave that part alone"]
+  K -->|"no"| M["Change only the cells that differ,<br>so scrolling and selections survive"]

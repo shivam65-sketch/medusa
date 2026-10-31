@@ -1,0 +1,24 @@
+%%{init: {"theme": "neutral"}}%%
+flowchart TB
+  subgraph DAILY["Once a day: what is normal"]
+    direction LR
+    A["Binance archive<br>yesterday's files"] --> G["GitHub Actions<br>download, check, upload"]
+    G --> L["Landing<br>the files as they came"]
+    L --> B["Bronze<br>raw rows, all text"]
+    B --> S["Silver<br>typed and clean"]
+    S --> O["Gold<br>answers to questions"]
+    SEM["Semantic<br>every number's SQL"]
+  end
+  subgraph SERVE["MEDUSA on Cloudflare"]
+    direction LR
+    D["D1 database<br>market_* tables"] --> K["Workers KV<br>the ready-made answer<br>and the Insights file"]
+  end
+  subgraph PAGE["Your browser tab"]
+    direction LR
+    Q["SQLite in a background worker<br>daily tables + live prices"] --> R["Query results"] --> V["The page<br>cards, tables, graphs"]
+  end
+  W["Binance live stream<br>about once a second"]
+  O -->|"publish, only after every test passed"| D
+  SEM -->|"same publish"| D
+  K -->|"when the page loads"| Q
+  W -->|"prices, straight to the browser"| Q
