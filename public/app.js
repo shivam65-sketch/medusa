@@ -1818,7 +1818,7 @@
     $('#side-toggle').dataset.tip = collapsed ? 'Expand the menu' : 'Collapse the menu';
     store.set('side', collapsed);
   }
-  const LAB_JS = '/lab/main.js?v=7', LAB_CSS = '/lab/lab.css?v=11';
+  const LAB_JS = '/lab/main.js?v=8', LAB_CSS = '/lab/lab.css?v=11';
   function openLab(tab) {
     if (labLoad) { labLoad.then((m) => { if (m) m.goTab(tab); }); return; }
     const css = document.createElement('link');

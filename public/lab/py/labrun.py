@@ -253,11 +253,41 @@ def warmup(key, params_json, interval):
 
 
 MAX_PLOTS = 12
+SCALE_TEST_CANDLES = 20_000
+
+
+def _in_price(key, params, d):
+    """The names of the arrays a strategy keeps that are measured in price: multiply every price by 10 and
+    they grow 10 times too. A counter of candles, an RSI or a z-score doesn't change, however close its
+    numbers happen to be to this coin's price. None if the strategy can't be run this way."""
+    n = min(len(d), SCALE_TEST_CANDLES)
+
+    def arrays(scale):
+        strat = LIB[key](params)
+        extra = {k: v[-n:] if k == "tbv" else v for k, v in d.extra.items()}
+        strat.prepare(engine.Candles(t=d.t[-n:], o=d.o[-n:] * scale, h=d.h[-n:] * scale, l=d.l[-n:] * scale, c=d.c[-n:] * scale,
+                                     v=d.v[-n:], interval=d.interval, symbol=d.symbol, market=d.market, extra=extra))
+        return vars(strat)
+
+    try:
+        base, big = arrays(1.0), arrays(10.0)
+    except Exception:
+        return None
+    names = set()
+    for name, a in base.items():
+        b = big.get(name)
+        if isinstance(a, np.ndarray) and isinstance(b, np.ndarray) and a.dtype.kind == "f" and a.shape == b.shape:
+            ok = np.isfinite(a) & np.isfinite(b) & (a != 0)
+            if ok.sum() >= 2 and np.allclose(b[ok], a[ok] * 10, rtol=1e-6, atol=0):
+                names.add(name)
+    return names
 
 
 def plots(key, params_json, meta_json, cols):
     """The lines a strategy computes in prepare(), for drawing on the Chart tab: every 1-D float array of one
-    value per candle that it keeps on self (self.upper, self.atr ...), except copies of the prices.
+    value per candle that it keeps on self (self.upper, self.atr ...), except copies of the prices. A line
+    goes on the candles when it is measured in price and sits near it; any other (an ATR, an RSI, a candle
+    counter) gets a pane of its own, which is off until it is chosen.
     meta: from/to (ms, the candles the backtest used, warm-up included), interval, symbol, market.
     Returns JSON: {"start": time of the first value, "n", "plots": [{"name", "kind": "price"|"pane", "b64"}]}
     with the values as little-endian float32 (NaN where there is none), or {"error"}."""
@@ -280,9 +310,11 @@ def plots(key, params_json, meta_json, cols):
             extra.update(funding_t=ft.astype(np.int64), funding_r=fr)
         d = engine.Candles(t=t[lo:hi], o=o, h=h, l=l, c=c, v=v, interval=str(meta.get("interval") or "1h"),
                            symbol=str(meta.get("symbol", "")), market=str(meta.get("market", "")), extra=extra)
-        strat = LIB[key](json.loads(params_json or "{}"))
+        params = json.loads(params_json or "{}")
+        strat = LIB[key](params)
         strat.prepare(d)
         n, out = len(d), []
+        priced = _in_price(key, params, d)
         prices = (d.o, d.h, d.l, d.c, d.v)
         absc = np.abs(d.c)
         for name, a in vars(strat).items():
@@ -293,7 +325,8 @@ def plots(key, params_json, meta_json, cols):
             if ok.sum() < 2:
                 continue
             ratio = float(np.median(np.abs(a[ok]) / absc[ok]))
-            out.append({"name": name, "kind": "price" if 0.5 <= ratio <= 2 else "pane",
+            near = 0.5 <= ratio <= 2 and (priced is None or name in priced)
+            out.append({"name": name, "kind": "price" if near else "pane",
                         "b64": base64.b64encode(np.asarray(a, dtype="<f4").tobytes()).decode()})
             if len(out) >= MAX_PLOTS:
                 break

@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Built** | 2026-10-31, between 32.1 and 32.2 |
-| **Commits** | The missing-days check and the catch-up, and the page's table and selection fixes |
+| **Commits** | `75bd8d4` (the missing-days check and the catch-up, and the page's table and selection fixes) |
 | **Files** | [`dbt/models/gold/missing_days.sql`](../../dbt/models/gold/missing_days.sql) and its test [`assert_no_missing_days.sql`](../../dbt/tests/assert_no_missing_days.sql) · [`serving/publish_to_medusa.py`](../../serving/publish_to_medusa.py) · [`.github/workflows/lakehouse-daily.yml`](../../../.github/workflows/lakehouse-daily.yml) (the catch-up) · [`migrations/006_missing_days.sql`](../../../migrations/006_missing_days.sql) · [`src/market.js`](../../../src/market.js) · [`public/markets.js`](../../../public/markets.js) |
 | **Decisions** | [ADR-036](../decisions.md#adr-036-a-missing-day-is-found-against-the-calendar-shown-on-the-page-and-tried-again-for-a-week) |
 
@@ -105,6 +105,7 @@ The Journal, the Lab and Dev tools never had the first problem: they aren't redr
 | MEDUSA, locally | The ingest takes no rows and real rows, and refuses a bad date, a repeated day and a wrong token. Without the D1 table, as if the code were deployed before the migration, the scanner's answer is still a normal 200 without that table |
 | The page, locally | One missing day, seven with one needing a manual load (the list stops at five, *and 2 more*), and `waiting` hidden. *7 days behind* on the local copy, whose data really is from 23 October |
 | Scrolling and selecting, with a real mouse | In the window from the owner's screenshot: the scrollbar dragged to the end and held at 202 of 202 for 5 seconds while prices updated. Text selected in a row stayed selected and the row did not open. Row clicks, Patterns and all seven Insights graphs still work |
+| Live, the first run | **Lakehouse transform** run 8, started by hand, 4 min 25 s: 17 models and snapshots built, `missing_days` among them, 144 tests passed and 1 warned, the expected `assert_no_missing_days`, which reached `ops.logs.etl_errors`. `gold.missing_days` holds one row, `2026-10-28 retrying`, and MEDUSA's `market_missing_days` the same, lakehouse day 2026-10-30 |
 | Not tested | A real Ctrl+C: the test browser's key press doesn't reach the clipboard on any page, the Journal included |
 
 ## Problems we hit

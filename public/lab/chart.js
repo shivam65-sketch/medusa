@@ -422,7 +422,7 @@ const newTick = () => ({ orders: [], actions: [], seq: 0, ver: 0 });
 function newPane(i) {
   return {
     i, el: null, id: null, row: null, ds: null, base: 0, prec: 2, type: 'candles', ind: defaultInd(), log: false,
-    loading: false, error: null,
+    loading: false, error: null, w0: 0, w1: -1, windowTimer: 0,
     B: null,             // the chart's candles: {n, T, O, H, L, C, V, first (index of each bar's first file candle)}
     ha: null,
     runners: new Map(),  // indicator results, kept while the candles stay the same
@@ -929,12 +929,11 @@ function build() {
   if (!st.ds) { destroyChart(); paintEmpty(); paintStrat(); return; }
   const tfKey = `${st.id}:${G.tf}`;
   const same = st.B && st.B.tfKey === tfKey;
-  const keepRange = st.chart && same ? st.chart.timeScale().getVisibleLogicalRange() : null;
+  const keepRange = st.chart && same ? viewRange() : null;
   if (!same) {
     st.B = aggregate(st.ds, G.tf);
     st.B.tfKey = tfKey;
     st.runners.clear();
-    if (st.B.n > 400_000) toast(`${st.B.n.toLocaleString('en-US')} candles: the chart may be slow. A bigger timeframe keeps it quick.`);
   }
   st.ha = st.type === 'ha' ? haOf(st.B) : null;
   destroyChart();
@@ -986,9 +985,11 @@ function build() {
   main.attachPrimitive(st.layer);
   st.markers = createSeriesMarkers(main, []);
   const p = st;
-  chart.subscribeCrosshairMove((param) => on(p, () => onMove(param)));
-  chart.timeScale().subscribeVisibleLogicalRangeChange((r) => on(p, () => onRange(r)));
-  setAll(G.replay ? kAt(st, G.replay.cut) : st.ds.n);
+  chart.subscribeCrosshairMove((param) => on(p, () => onMove(param.logical == null ? param : { ...param, logical: param.logical + st.w0 })));
+  chart.timeScale().subscribeVisibleLogicalRangeChange((r) => on(p, () => onRange(r && { from: r.from + st.w0, to: r.to + st.w0 })));
+  const K = G.replay ? kAt(st, G.replay.cut) : st.ds.n;
+  if (!same && K >= 1) endWindowAt(lastBar(K));
+  setAll(K);
   paintHlines();
   paintMarkers();
   if (G.replay) focusReplay();
@@ -1003,9 +1004,58 @@ function build() {
   placeLegendsSoon();
 }
 
+/*
+ * A big file on a small timeframe would give the chart library hundreds of thousands of points for every
+ * line: each redraw then froze the page for many seconds and held over a gigabyte (644,000 5m candles with
+ * a backtest: 23 seconds for one checkbox, 1.6 GB). So the library only gets WINDOW candles around what is
+ * on the screen, and the window moves when the view nears its edge. Everything else stays whole: st.B, the
+ * indicators, the strategy's lines and the trades count every candle of the file, in candles of st.B. The
+ * library's position of candle j is j - st.w0 (st.w1 is the last candle it has), and only these functions
+ * and the two subscriptions in build() translate between them.
+ */
+const WINDOW = 50_000;
+const WINDOW_EDGE = 5_000;
+const REPLAY_WINDOW = 5_000;                                 // each new candle of a replay costs time in proportion to what the library holds
+
+/** What is on the screen, in candles of st.B (fractional, and it can run past either end). */
+function viewRange(p = st) {
+  const r = p.chart.timeScale().getVisibleLogicalRange();
+  return r && { from: r.from + p.w0, to: r.to + p.w0 };
+}
+const barToX = (j) => st.chart.timeScale().logicalToCoordinate(j - st.w0);
+const xToBar = (x) => { const L = st.chart.timeScale().coordinateToLogical(x); return L == null ? null : L + st.w0; };
+
+/** A window that ends at candle j, unless the one in use already holds it. */
+function endWindowAt(j) {
+  if (j < st.w0 || j >= st.w0 + WINDOW || st.w1 < 0) st.w0 = Math.max(0, j - (G.replay ? REPLAY_WINDOW : WINDOW) + 1);
+}
+/** Centres the window on candle j. False if it is there already. */
+function shiftWindow(j) {
+  const w0 = Math.max(0, Math.min(Math.round(j) - WINDOW / 2, st.B.n - WINDOW));
+  if (w0 === st.w0) return false;
+  const K = st.K;
+  setAll(0);                                                 // empty first: otherwise each series is merged with the others' old candles
+  st.w0 = w0;
+  setAll(K);
+  paintMarkers(true);
+  return true;
+}
+/** When the view nears the edge of what the library has, moves the window there once it stops moving. */
+function watchWindow(range) {
+  if (!(st.w0 > 0 && range.from < st.w0 + WINDOW_EDGE) && !(st.w1 < st.shownTo && range.to > st.w1 - WINDOW_EDGE)) return;
+  const p = st;
+  clearTimeout(p.windowTimer);
+  p.windowTimer = setTimeout(() => on(p, () => {
+    const r = st.chart && viewRange();
+    if (r && shiftWindow((r.from + r.to) / 2)) st.chart.timeScale().setVisibleLogicalRange({ from: r.from - st.w0, to: r.to - st.w0 });
+  }), 250);
+}
+
 /** Sets the visible candles. share: linked charts show the same times (else they are left as they are). */
 function setRange(range, share = true) {
-  st.chart.timeScale().setVisibleLogicalRange(range);
+  const a = Math.max(0, range.from), b = Math.min(st.shownTo, range.to);
+  if (a < st.w0 || b > st.w1) shiftWindow((a + b) / 2);
+  st.chart.timeScale().setVisibleLogicalRange({ from: range.from - st.w0, to: range.to - st.w0 });
   if (share && G.sync && G.n > 1) shareRange(range);
 }
 /** Shows the last ~160 candles, the way TradingView opens a chart. */
@@ -1016,7 +1066,7 @@ function showRecent(end = st.B.n - 1) {
 function followOthers() {
   if (!G.sync || G.n < 2) return false;
   const q = loaded().find((x) => x !== st && x.chart);
-  const r = q && q.chart.timeScale().getVisibleLogicalRange();
+  const r = q && viewRange(q);
   if (!r) return false;
   const a = on(q, () => logicalToMs(r.from)), b = on(q, () => logicalToMs(r.to));
   if (b < st.B.T[0] || a > st.B.T[st.B.n - 1]) return false;
@@ -1050,18 +1100,18 @@ const histColor = (v, pv) => (v >= 0 ? (fin(pv) && v < pv ? '#b2dfdb' : '#26a69a
  * a gap is hidden too (each piece of line takes the colour of the point it starts from).
  */
 const HIDE = 'transparent';
-function feedPoints(f, vals, J) {
-  const out = new Array(J + 1);
+function feedPoints(f, vals, a, b) {
+  const n = b - a + 1, out = new Array(n);
   let last = NaN;
-  for (let j = 0; j <= J; j++) {
-    const time = sec(st.B.T[j]), v = vals[j];
-    if (f.hist) out[j] = fin(v) ? { time, value: v, color: histColor(v, j > 0 ? vals[j - 1] : NaN) } : { time };
-    else if (fin(v)) { last = v; out[j] = j < J && !fin(vals[j + 1]) ? { time, value: v, color: HIDE } : { time, value: v }; }
-    else out[j] = fin(last) ? { time, value: last, color: HIDE } : { time };
+  for (let i = 0; i < n; i++) {
+    const time = sec(st.B.T[a + i]), v = vals[i];
+    if (f.hist) out[i] = fin(v) ? { time, value: v, color: histColor(v, i > 0 ? vals[i - 1] : NaN) } : { time };
+    else if (fin(v)) { last = v; out[i] = i < n - 1 && !fin(vals[i + 1]) ? { time, value: v, color: HIDE } : { time, value: v }; }
+    else out[i] = fin(last) ? { time, value: last, color: HIDE } : { time };
   }
   f.last = last;
-  f.lastOk = fin(vals[J]);
-  f.lastJ = J;
+  f.lastOk = fin(vals[n - 1]);
+  f.lastJ = b;
   return out;
 }
 /** The point of chart candle j added or changed in a replay step (the candle before is hidden when a gap starts). */
@@ -1084,30 +1134,30 @@ function valueAt(f, j) {
   return f.get(j, K, partial(j, K), false);
 }
 
-/** Sets every series to the candles revealed so far (file candles 0..K-1; none in a replay before the file starts). */
+/** Sets every series to the window's part of the candles revealed so far (file candles 0..K-1; none in a replay before the file starts). */
 function setAll(K) {
   if (K < 1) {
     st.main.setData([]);
     if (st.vol) st.vol.setData([]);
     for (const f of st.feeds) { f.series.setData([]); Object.assign(f, { last: NaN, lastOk: false, lastJ: -1 }); }
     st.shownTo = -1;
+    st.w1 = -1;
     st.K = 0;
     return;
   }
-  const J = lastBar(K);
-  const M = new Array(J + 1), Vv = st.vol ? new Array(J + 1) : null, vals = st.feeds.map(() => new Float64Array(J + 1));
-  for (let j = 0; j <= J; j++) {
-    const fb = j < J ? null : barFor(j, K);
+  const J = lastBar(K), a = Math.min(st.w0, J), b = Math.min(J, a + WINDOW - 1), n = b - a + 1;
+  const M = new Array(n), Vv = st.vol ? new Array(n) : null, vals = st.feeds.map(() => new Float64Array(n));
+  for (let i = 0; i < n; i++) {
+    const j = a + i, fb = j < J ? null : barFor(j, K);
     const bar = fb ? fb.bar : fullBar(j), done = fb ? fb.done : true;
-    M[j] = mainPoint(j, bar, done);
-    if (Vv) Vv[j] = volPoint(j, bar);
-    for (let q = 0; q < st.feeds.length; q++) vals[q][j] = st.feeds[q].get(j, K, bar, done);
+    M[i] = mainPoint(j, bar, done);
+    if (Vv) Vv[i] = volPoint(j, bar);
+    for (let q = 0; q < st.feeds.length; q++) vals[q][i] = st.feeds[q].get(j, K, bar, done);
   }
   st.main.setData(M);
   if (st.vol) st.vol.setData(Vv);
-  st.feeds.forEach((f, q) => f.series.setData(feedPoints(f, vals[q], J)));
-  st.shownTo = J;
-  st.K = K;
+  st.feeds.forEach((f, q) => f.series.setData(feedPoints(f, vals[q], a, b)));
+  Object.assign(st, { shownTo: J, w0: a, w1: b, K });
 }
 
 /** Moves a replay from file candle k0 to k1 (> k0) with small updates instead of redrawing it all. */
@@ -1119,14 +1169,14 @@ function advance(k0, k1) {
     if (st.vol) st.vol.update(volPoint(j, bar));
     for (const f of st.feeds) feedUpdate(f, j, k1, bar, done);
   }
-  st.shownTo = j1;
-  st.K = k1;
+  Object.assign(st, { shownTo: j1, w1: j1, K: k1 });
 }
-/** Shows file candles 0..k-1 (a replay step), the quick way when it only moves forward. */
+/** Shows file candles 0..k-1 (a replay step), the quick way when it only moves forward from what the library has. */
 function moveTo(k) {
   if (k === st.K) return;
-  if (k > st.K && st.K >= 1) advance(st.K, k);
-  else setAll(k);
+  if (k > st.K && st.K >= 1 && st.w1 === st.shownTo) { advance(st.K, k); return; }
+  if (k >= 1) endWindowAt(lastBar(k));
+  setAll(k);
 }
 
 /* ======================= the backtest on the chart ======================= */
@@ -1144,14 +1194,18 @@ function setStrat(R, id, rebuild = true) {
     G.sform.params[key] = { ...(R.meta.params || {}) };
     save('sform', G.sform);
   }
+  // The trades go on the chart at once. Its lines and account value need new series, so the chart is
+  // rebuilt once, when Python has sent the lines (rebuilding before that as well froze the page twice).
+  const lines = () => { if (G.sshow.equity || (s.plots && s.plots.length)) build(); else paintStrat(); };
   ctx.plots(R).then((out) => on(p, () => {
     if (p.strat !== s) return;
     s.plotsLoading = false;
-    if (out.error) { s.plotsErr = out.error; paintStrat(); return; }
-    s.plots = prepPlots(out);
-    if (s.plots.length) build(); else paintStrat();
-  })).catch((e) => { if (p.strat === s) { s.plotsLoading = false; s.plotsErr = e.message; paintStrat(); } });
-  if (rebuild) build();
+    if (out.error) s.plotsErr = out.error;
+    else s.plots = prepPlots(out);
+    lines();
+  })).catch((e) => { if (p.strat === s) on(p, () => { s.plotsLoading = false; s.plotsErr = e.message; lines(); }); });
+  if (rebuild && st.chart) { paintMarkers(true); redrawAll(); paintStrat(true); }
+  else if (rebuild) build();
 }
 
 function removeStrat() {
@@ -1283,7 +1337,8 @@ function paintMarkers(force = false) {
     for (const p of sv.open) if (p.o.src === 'ticket') m.push(buy(p.side, t[p.k]));
   }
   m.sort((a, b) => a.time - b.time);
-  st.markers.setMarkers(m);
+  const t0 = sec(st.B.T[st.w0]), t1 = st.w1 < 0 ? t0 : sec(st.B.T[st.w1]);
+  st.markers.setMarkers(m.filter((x) => x.time >= t0 && x.time <= t1));
   // the price lines of your orders: a waiting entry, and an open trade's entry, stop loss, take profit and trailing stop
   for (const pl of st.simLines) st.main.removePriceLine(pl);
   st.simLines = [];
@@ -1312,7 +1367,7 @@ function focusTrade(i) {
   setRange({ from: eb - pad, to: xb + pad });
   paintMarkers();
   if (st.layer) st.layer.redraw();
-  paintStrat(true);
+  markTrade();
 }
 function stepTrade(dir) {
   const s = st.strat;
@@ -1323,7 +1378,7 @@ function stepTrade(dir) {
   const cur = list.findIndex((x) => x.n - 1 === s.sel);
   if (cur >= 0) pos = cur + dir;
   else {
-    const r = st.chart.timeScale().getVisibleLogicalRange();
+    const r = viewRange();
     const mid = r ? (r.from + r.to) / 2 : st.shownTo;
     if (dir > 0) { pos = list.findIndex((x) => indexOfTime(x.et) > mid); if (pos < 0) pos = list.length - 1; }
     else { pos = -1; list.forEach((x, q) => { if (indexOfTime(x.et) < mid) pos = q; }); if (pos < 0) pos = 0; }
@@ -1343,7 +1398,7 @@ function paintStratNow(force) {
   const now = nowT();
   const nShown = upto(s.trades, now), lastT = s.trades[nShown - 1];
   const open = lastT && lastT.xt > now ? lastT : null;
-  const sig = `${st.i}|${s.R.meta.made}|${s.id}|${nShown}|${open ? open.n : 0}|${s.sel}|${G.sshow.trades}|${G.sshow.lines}|${G.sshow.equity}|${s.plotsLoading}|${s.plotsErr}|${s.plots ? s.plots.map((p) => +p.on).join('') : ''}|${Boolean(G.replay)}`;
+  const sig = `${st.i}|${s.R.meta.made}|${s.id}|${nShown}|${open ? open.n : 0}|${G.sshow.lines}|${G.sshow.equity}|${s.plotsLoading}|${s.plotsErr}|${s.plots ? s.plots.map((p) => +p.on).join('') : ''}|${Boolean(G.replay)}`;
   if (!force && sig === stratSig && !el.hidden) { paintStratLive(); return; }
   stratSig = sig;
   el.hidden = false;
@@ -1406,6 +1461,14 @@ function paintStratNow(force) {
     if (sel) box.scrollTop = sel.offsetTop - box.clientHeight / 2;
     else if (G.replay) box.scrollTop = box.scrollHeight;
   }
+}
+/** Marks the chosen trade in the list, which keeps its rows (there can be 3,000). */
+function markTrade() {
+  const box = $('#lab-ch-tscroll', host), s = st.strat;
+  if (!box || !s) return;
+  const was = $('tr.on', box), row = $(`tr[data-n="${s.sel}"]`, box);
+  if (was) was.classList.remove('on');
+  if (row) { row.classList.add('on'); box.scrollTop = row.offsetTop - box.clientHeight / 2; }
 }
 /** In a replay: the open trade's result follows the price. */
 function paintStratLive() {
@@ -1780,7 +1843,7 @@ function dragTo(x, y) {
   if (!d || !st.chart) return;
   if (!g.moved && Math.hypot(x - g.x0, y - g.y0) < 3) return;
   g.moved = true;
-  const L = st.chart.timeScale().coordinateToLogical(x);
+  const L = xToBar(x);
   const pt = L == null ? null : pointAt({ point: { x, y }, logical: L });
   if (!pt) return;
   pt.p = roundP(pt.p);
@@ -2407,9 +2470,9 @@ function msToLogical(ms) {
 /** The x of logical position L. The library has no x for a place to the right of the last candle
     shown (a replay's future), so there it is counted on from that candle with the candle spacing. */
 function xOf(L) {
-  const ts = st.chart.timeScale(), last = st.shownTo;
-  if (last < 1 || L <= last) return ts.logicalToCoordinate(L);
-  const a = ts.logicalToCoordinate(last), b = ts.logicalToCoordinate(last - 1);
+  const last = st.w1;
+  if (last < 1 || L <= last) return barToX(L);
+  const a = barToX(last), b = barToX(last - 1);
   return a == null || b == null ? null : a + (L - last) * (a - b);
 }
 /** The x of a replay cut: the line just after the last candle it shows. */
@@ -2477,7 +2540,7 @@ function paintEnd(g, size) {
 
 function paintFills(g) {
   if (!st.fills.length || !st.chart) return;
-  const ts = st.chart.timeScale(), r = ts.getVisibleLogicalRange();
+  const r = viewRange();
   if (!r) return;
   const a = Math.max(0, Math.floor(r.from) - 1), b = Math.min(st.shownTo, Math.ceil(r.to) + 1);
   for (const fl of st.fills) {
@@ -2495,7 +2558,7 @@ function paintFills(g) {
     };
     for (let j = a; j <= b; j++) {
       const va = valueAt(fl.a, j), vb = valueAt(fl.b, j);
-      const x = ts.logicalToCoordinate(j), ya = fin(va) ? st.main.priceToCoordinate(va) : null, yb = fin(vb) ? st.main.priceToCoordinate(vb) : null;
+      const x = barToX(j), ya = fin(va) ? st.main.priceToCoordinate(va) : null, yb = fin(vb) ? st.main.priceToCoordinate(vb) : null;
       if (x == null || ya == null || yb == null) { flush(); col = null; continue; }
       const c = typeof fl.color === 'function' ? fl.color(va, vb) : fl.color;
       if (col !== null && c !== col) { const lastPt = run[run.length - 1]; flush(); if (lastPt) run.push(lastPt); }
@@ -2515,17 +2578,18 @@ function paintTrades(g, size) {
 /** One list of trades: a line from entry to exit (dashed for a backtest, solid for your own), the
     stop and target zones of the chosen or open trade, and its label. */
 function drawTrades(g, list, selI, mine, size) {
-  const ts = st.chart.timeScale(), r = ts.getVisibleLogicalRange();
+  const r = viewRange();
   if (!r) return;
-  const now = nowT(), main = st.main;
+  const now = nowT(), main = st.main, seenFrom = logicalToMs(r.from - 3), seenTo = logicalToMs(r.to + 3);
   g.save();
   for (const x of list) {
-    if (x.et > now) break;
-    const eb = indexOfTime(x.et);
+    if (x.et > now || x.et > seenTo) break;                  // the list is by entry time
     const isOpen = x.xt > now;
+    if (!isOpen && x.xt < seenFrom) continue;                // ended before the screen: this runs on every mouse move
+    const eb = indexOfTime(x.et);
     const xb = isOpen ? st.shownTo : indexOfTime(x.xt);
     if (xb < r.from - 2 || eb > r.to + 2) continue;
-    const x1 = ts.logicalToCoordinate(eb), x2 = ts.logicalToCoordinate(xb);
+    const x1 = barToX(eb), x2 = barToX(xb);
     const live = isOpen ? openResult(x) : null;
     const y1 = main.priceToCoordinate(x.ep), y2 = main.priceToCoordinate(isOpen ? live.p : x.xp);
     if (x1 == null || x2 == null || y1 == null || y2 == null) continue;
@@ -2734,8 +2798,8 @@ function pointAt(param) {
   let p = st.main.coordinateToPrice(param.point.y);
   if (p == null) return null;
   const j = Math.round(param.logical);
-  if (j >= 0 && j <= st.shownTo) {
-    const d = st.main.dataByIndex(j);
+  if (j >= st.w0 && j <= st.w1) {
+    const d = st.main.dataByIndex(j - st.w0);
     if (d && d.open != null) {
       let best = null;
       for (const v of [d.open, d.high, d.low, d.close]) {
@@ -2770,7 +2834,7 @@ function watchClicks(p) {
     e.preventDefault();
     e.stopPropagation();
     down = null;
-    G.drag = { p, ...h, x0: x, y0: y, L0: p.chart.timeScale().coordinateToLogical(x), moved: false, orig: JSON.parse(JSON.stringify(on(p, () => selPos()))) };
+    G.drag = { p, ...h, x0: x, y0: y, L0: on(p, () => xToBar(x)), moved: false, orig: JSON.parse(JSON.stringify(on(p, () => selPos()))) };
     try { el.setPointerCapture(e.pointerId); } catch { /* the drag still follows the pointer over the chart */ }
   }, true);
   el.addEventListener('pointermove', (e) => {
@@ -2805,7 +2869,7 @@ function watchClicks(p) {
       const ts = st.chart.timeScale();
       if (x > r.width - st.chart.priceScale('right').width() || y > r.height - ts.height()) return;   // on a scale
       const p0 = paneBox(0);
-      onChartClick({ point: { x, y }, logical: ts.coordinateToLogical(x), inMain: !p0 || y <= p0.top + p0.height });
+      onChartClick({ point: { x, y }, logical: xToBar(x), inMain: !p0 || y <= p0.top + p0.height });
     });
   }, true);
 }
@@ -2834,7 +2898,7 @@ function onChartClick(param) {
     const mineHit = me && me.trades.find(at);
     if (mineHit) { me.sel = mineHit.n - 1; paintMarkers(); if (st.layer) st.layer.redraw(); paintStrat(true); return; }
     const hit = s && G.sshow.trades && s.trades.find(at);
-    if (hit) { s.sel = hit.n - 1; paintMarkers(); if (st.layer) st.layer.redraw(); paintStrat(true); }
+    if (hit) { s.sel = hit.n - 1; paintMarkers(); if (st.layer) st.layer.redraw(); markTrade(); }
     return;
   }
   const pt = pointAt(param);
@@ -2879,8 +2943,8 @@ function shareCrosshair(param) {
       if (q === src || !q.chart) continue;
       on(q, () => {
         const j = ms == null || !st.K || ms < st.B.T[0] ? -1 : indexOfTime(ms);
-        if (j < 0 || j > st.shownTo) { st.chart.clearCrosshairPosition(); legend(null); return; }
-        const d = st.main.dataByIndex(j);
+        if (j < st.w0 || j > st.w1) { st.chart.clearCrosshairPosition(); legend(null); return; }
+        const d = st.main.dataByIndex(j - st.w0);
         st.chart.setCrosshairPosition(d ? (d.close ?? d.value) : st.B.C[j], sec(st.B.T[j]), st.main);
         legend(j);
       });
@@ -2890,6 +2954,7 @@ function shareCrosshair(param) {
 /** With Sync on: scrolling or zooming one chart shows the same times on the others. Only the user's
     scrolling counts (a chart that changes size or is set by MEDUSA moves alone). */
 function onRange(range) {
+  if (range && st.B) watchWindow(range);
   if (syncing || !G.sync || G.n < 2 || !range || !st.B || performance.now() - st.userAt > 1200) return;
   shareRange(range);
 }
@@ -2900,7 +2965,7 @@ function shareRange(range) {
     for (const q of loaded()) {
       if (q === src || !q.chart) continue;
       on(q, () => {
-        const want = { from: msToLogical(a), to: msToLogical(b) }, cur = st.chart.timeScale().getVisibleLogicalRange();
+        const want = { from: msToLogical(a), to: msToLogical(b) }, cur = viewRange();
         if (!cur || Math.abs(cur.from - want.from) > 0.01 || Math.abs(cur.to - want.to) > 0.01) setRange(want, false);   // no echo back and forth
       });
     }
@@ -2969,7 +3034,9 @@ function startReplay(cut, end = null) {
     st.tick = newTick();                                     // a new replay starts with no orders
     st.simE = null;
     if (st.strat) st.strat.sel = -1;
-    setAll(kAt(st, cut));
+    const k = kAt(st, cut);
+    if (k >= 1) st.w0 = Math.max(0, lastBar(k) - REPLAY_WINDOW + 1);
+    setAll(k);
     paintMarkers();
     focusReplay();
     legend(null);
@@ -2995,6 +3062,7 @@ function stopReplay() {
     each(() => {
       st.tick = newTick();
       st.simE = null;
+      endWindowAt(st.B.n - 1);
       setAll(st.ds.n);
       paintMarkers();
       legend(null);
@@ -3044,7 +3112,7 @@ function step(dir = 1) {
 }
 /** Keeps a replay's newest candle on screen (several steps in one frame can run past the right edge). */
 function follow() {
-  const r = st.chart && st.chart.timeScale().getVisibleLogicalRange();
+  const r = st.chart && viewRange();
   if (!r || st.shownTo < 0) return;
   const d = st.shownTo > r.to - 3 ? st.shownTo - (r.to - 12) : st.shownTo < r.from + 3 ? st.shownTo - (r.from + 30) : 0;
   if (d) setRange({ from: r.from + d, to: r.to + d }, false);
@@ -3191,7 +3259,7 @@ function click(el) {
       G.sync = !G.sync;
       saveLayout();
       paintBar();
-      const r = G.sync && st.chart && st.chart.timeScale().getVisibleLogicalRange();
+      const r = G.sync && st.chart && viewRange();
       if (r) shareRange(r);
       return;
     }
@@ -3239,11 +3307,14 @@ function click(el) {
     case 'indx': removeGroup(el.dataset.k); break;
     case 'indoff': removeIndicators(); break;
     case 'log': st.log = !st.log; savePanes(); st.chart.priceScale('right').applyOptions({ mode: st.log ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal }); paintBar(); break;
-    case 'fit': setRange({ from: -2, to: Math.max(st.shownTo, 0) + 12 }); break;
+    case 'fit':
+      setRange({ from: st.w0 ? st.w0 : -2, to: st.w1 < st.shownTo ? st.w1 : Math.max(st.shownTo, 0) + 12 });
+      if (st.B.n > WINDOW) toast(`Showing ${WINDOW.toLocaleString('en-US')} of ${st.B.n.toLocaleString('en-US')} candles. A bigger timeframe shows the whole history.`);
+      break;
     case 'buy': trade('long'); break;
     case 'sell': trade('short'); break;
     case 'flat': closePos(); break;
-    case 'strade': { const i = Number(el.dataset.n); if (st.strat && st.strat.sel === i) { st.strat.sel = -1; paintMarkers(); if (st.layer) st.layer.redraw(); paintStrat(true); } else focusTrade(i); break; }
+    case 'strade': { const i = Number(el.dataset.n); if (st.strat && st.strat.sel === i) { st.strat.sel = -1; paintMarkers(); if (st.layer) st.layer.redraw(); markTrade(); } else focusTrade(i); break; }
     case 'sprev': stepTrade(-1); break;
     case 'snext': stepTrade(1); break;
     case 'sreport': if (st.strat) ctx.openReport(st.strat.R, st.strat.id); break;
@@ -3266,7 +3337,12 @@ function change(t) {
   if (t.dataset.ch === 'sname') { G.sform.strategy = t.value; save('sform', G.sform); paintBar(); return; }
   if (t.dataset.ch === 'ssave') { G.sform.save = t.checked; save('sform', G.sform); return; }
   if (t.dataset.sp) { readSparam(t); return; }
-  if (t.dataset.sshow) { G.sshow[t.dataset.sshow] = t.checked; save('sshow', G.sshow); build(); return; }
+  if (t.dataset.sshow) {
+    G.sshow[t.dataset.sshow] = t.checked;
+    save('sshow', G.sshow);
+    if (t.dataset.sshow === 'trades') { paintMarkers(true); redrawAll(); } else build();   // trades are drawn over the candles: no new chart
+    return;
+  }
   if (t.dataset.splot && st.strat && st.strat.plots) { st.strat.plots[Number(t.dataset.splot)].on = t.checked; build(); return; }
   if (t.dataset.ch === 'tf') { setTf(Number(t.value)); return; }
   if (t.dataset.ch === 'goto' && t.value && st.B) {

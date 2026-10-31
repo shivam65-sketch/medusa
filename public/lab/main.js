@@ -61,13 +61,13 @@ const engine = {
     this.ready = (async () => {
       const names = ['engine.py', 'strategy.py', 'indicators.py', 'stats.py', 'backtest.py', 'labrun.py'];
       const files = Object.fromEntries(await Promise.all(names.map(async (n) => [n, await (await fetch(`/lab/py/${n}`)).text()])));
-      await this.call('init', { engine: files });
+      const started = await this.call('init', { engine: files });
       const list = await (await fetch('/lab/strategies/index.json')).json();
       const builtin = await Promise.all(list.map(async (f) => ({ origin: 'builtin', id: f.replace(/\.py$/, ''), name: f, source: await (await fetch(`/lab/strategies/${f}`)).text() })));
       await this.load(builtin, ['builtin']);
       await this.loadMine();
       this.status('ready');
-      log('lab', 'Python engine ready', null, 'debug');
+      log('lab', 'Python engine ready', { ms: started.ms, ...started.steps }, 'debug');
     })().catch((e) => { this.crash(e); throw e; });
     return this.ready;
   },

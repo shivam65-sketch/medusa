@@ -18,22 +18,27 @@ const datasets = new Map(); // dataset id -> its columns (the last two used are 
 const post = (msg) => self.postMessage(msg);
 
 async function init(engineFiles, packages = []) {
-  const t0 = performance.now();
+  const t0 = performance.now(), steps = {};
+  let last = t0;
+  const lap = (name) => { const now = performance.now(); steps[name] = Math.round(now - last); last = now; };
   py = await loadPyodide({
     indexURL: new URL('./pyodide/v314.0.7/', import.meta.url).href,
     stdout: (line) => { if (printed.length < 400) printed.push(String(line).slice(0, 500)); },
     stderr: (line) => { if (printed.length < 400) printed.push(String(line).slice(0, 500)); },
   });
+  lap('python');
   const libs = ['numpy', ...packages.filter((p) => LIBRARIES.has(p))];
   await py.loadPackage(libs, { messageCallback: () => {}, errorCallback: () => {} });
+  lap('libraries');
   py.FS.mkdirTree(HOME);
   for (const [name, src] of Object.entries(engineFiles)) {
     if (/^[a-z_]+\.py$/.test(name)) py.FS.writeFile(`${HOME}/${name}`, src);
   }
   py.runPython(`import sys\nsys.path.insert(0, ${JSON.stringify(HOME)})\nimport labrun`);
   lab = py.pyimport('labrun');
+  lap('engine');
   lockDown();
-  return Math.round(performance.now() - t0);
+  return { ms: Math.round(performance.now() - t0), steps };
 }
 
 /* No network from here on: strategy code gets a calculator, not a browser. */
@@ -69,7 +74,7 @@ self.onmessage = async (ev) => {
   printed = [];
   try {
     let reply;
-    if (m.type === 'init') reply = { ms: await init(m.engine || {}, m.packages || []) };
+    if (m.type === 'init') reply = await init(m.engine || {}, m.packages || []);
     else if (!lab) throw new Error('The Python engine is still starting.');
     else if (m.type === 'strategies') reply = { json: lab.load_strategies(JSON.stringify(m.files || []), JSON.stringify(m.origins || [])) };
     else if (m.type === 'check') reply = { json: lab.check(String(m.source || '')) };
