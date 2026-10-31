@@ -106,7 +106,7 @@ The Journal, the Lab and Dev tools never had the first problem: they aren't redr
 | The page, locally | One missing day, seven with one needing a manual load (the list stops at five, *and 2 more*), and `waiting` hidden. *7 days behind* on the local copy, whose data really is from 23 October |
 | Scrolling and selecting, with a real mouse | In the window from the owner's screenshot: the scrollbar dragged to the end and held at 202 of 202 for 5 seconds while prices updated. Text selected in a row stayed selected and the row did not open. Row clicks, Patterns and all seven Insights graphs still work |
 | Live, the first run | **Lakehouse transform** run 8, started by hand, 4 min 25 s: 17 models and snapshots built, `missing_days` among them, 144 tests passed and 1 warned, the expected `assert_no_missing_days`, which reached `ops.logs.etl_errors`. `gold.missing_days` holds one row, `2026-10-28 retrying`, and MEDUSA's `market_missing_days` the same, lakehouse day 2026-10-30 |
-| Not tested | A real Ctrl+C: the test browser's key press doesn't reach the clipboard on any page, the Journal included |
+| The owner, on the live site | The warning *Not in the lakehouse: 28 Oct* shows, a table scrolled sideways stays put, Ctrl+C copies selected text (the test browser's key press couldn't check that) and all seven Insights graphs draw |
 
 ## Problems we hit
 
@@ -116,6 +116,8 @@ The Journal, the Lab and Dev tools never had the first problem: they aren't redr
 - **A cached page in a test.** The check of the page without the D1 table ran on the browser's 5-minute
   copy of the answer, so only the server's side of that case was really tested. The page's side is one
   line, a table that isn't there reads as no rows.
+
+Each of these reports, with its cause and fix, is in the [issue log](../../../docs/issue-log.md).
 
 ## Next
 

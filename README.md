@@ -280,6 +280,7 @@ The Lab's folders use Workers KV: 1 GB in total, 100,000 reads and 1,000 writes 
 - `migrations/`: upgrading a single-password database to accounts (`001_accounts.sql`, then `claim.sql`); the Lab's tables (`002_lab.sql`, optional); the market copy for the live scanner (`003_market.sql`), its metric definitions (`004_metrics.sql`), each account's own versions of them (`005_user_metrics.sql`) and the days the lakehouse is missing (`006_missing_days.sql`)
 - `wrangler.example.toml`: the Cloudflare settings, without anyone's ids; copy it to `wrangler.toml` (step 4)
 - `CHANGELOG.md`: every release and what changed in it (the current version is in `public/version.json`)
+- `docs/issue-log.md`: every problem reported on MEDUSA: what was seen, why it happened, what changed and how it was checked
 - `docs/images/`: the screenshots in this README
 - `THIRD_PARTY_NOTICES.md`: the open-source software bundled with MEDUSA and its licences
 
