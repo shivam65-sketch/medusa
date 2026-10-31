@@ -163,9 +163,13 @@ function scatter(res, spec, ctx) {
   const X = (v) => m.l + ((v - tx.lo) / (tx.hi - tx.lo)) * pw;
   let Y, ytk;
   if (spec.ylog) {
-    const lo = Math.log10(Math.max(0.1, Math.min(...yv, 0.5))), hi = Math.log10(Math.max(...yv, 2));
-    Y = (v) => m.t + ph - ((Math.log10(v) - lo) / (hi - lo)) * ph;
-    ytk = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500].filter((v) => Math.log10(v) >= lo - 1e-9 && Math.log10(v) <= hi + 1e-9);
+    // The axis reaches down to the lowest point, as far as ×0.01: below that a point sits on the bottom
+    // of the graph, and its hover has the real value. A small margin keeps whole dots inside.
+    const FLOOR = 0.01;
+    const bottom = Math.log10(Math.max(FLOOR, Math.min(...yv, 0.5))), top = Math.log10(Math.max(...yv, 2));
+    const pad = (top - bottom) * 0.03, lo = bottom - pad, hi = top + pad;
+    Y = (v) => m.t + ph - ((Math.log10(Math.max(v, FLOOR)) - lo) / (hi - lo)) * ph;
+    ytk = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500].filter((v) => Math.log10(v) >= lo - 1e-9 && Math.log10(v) <= hi + 1e-9);
   } else {
     const ty = ticks(Math.min(...yv), Math.max(...yv));
     Y = (v) => m.t + ph - ((v - ty.lo) / (ty.hi - ty.lo)) * ph;

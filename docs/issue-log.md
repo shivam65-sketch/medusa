@@ -16,6 +16,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
+| [31](#issue-31) | 2026-11-01 | Markets | Dots drawn outside the graph on *Every market right now* | Bug | Built, waiting to go live |
 | [30](#issue-30) | 2026-11-01 | Markets | The market filter did nothing on Insights | Bug | Built, waiting to go live |
 | [29](#issue-29) | 2026-11-01 | Lakehouse | The transform failed: *dim_market_type was not found* | Bug | Fixed |
 | [28](#issue-28) | 2026-11-01 | Markets | Stocks and commodities showed verdicts tested on crypto | Bug | Fixed |
@@ -48,6 +49,18 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 | [1](#issue-1) | 2026-09-27 | Local copy | The app kept loading and never opened | Setup | Closed |
 
 ## Details
+
+<a id="issue-31"></a>
+### 31. Dots drawn outside the graph on *Every market right now*
+
+- **Seen:** some dots sat below the graph, on top of the axis labels.
+- **Why:** the graph's vertical axis is logarithmic and was set never to go below ×0.1, a tenth of a market's usual
+  volume, but nothing kept a dot above that line. A market trading less than that was drawn below the axis. Stock
+  perpetuals do that when their market is closed, such as at a weekend.
+- **Change:** the axis now reaches down to the lowest market, as far as ×0.01. Anything lower sits on the bottom of the
+  graph, and its hover still shows the real value. A small margin keeps whole dots inside.
+- **Checked:** locally on real data, for each market type: every dot's position against the bottom of the graph.
+- **State:** built, waiting to go live.
 
 <a id="issue-30"></a>
 ### 30. The market filter did nothing on Insights

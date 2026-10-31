@@ -25,7 +25,7 @@
 // the same code with its own data, engine and live prices, running only that window's queries.
 
 import { DEFINITIONS } from './markets-metrics.js?v=5';
-import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=1';
+import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=2';
 
 const RULE = { z: 3 };
 // The daily run is set for 13:23 UTC, but GitHub starts it hours late (ops.logs.etl_runs: finished 16:50 to 19:36).
