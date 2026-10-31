@@ -16,6 +16,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
+| [29](#issue-29) | 2026-11-01 | Lakehouse | The transform failed: *dim_market_type was not found* | Bug | Fixed, waiting for the push |
 | [28](#issue-28) | 2026-11-01 | Markets | Stocks and commodities showed verdicts tested on crypto | Bug | Built, waiting to go live |
 | [27](#issue-27) | 2026-10-31 | Lab | The Python engine takes a long time to start | Limit | Known, unchanged |
 | [26](#issue-26) | 2026-10-31 | Lab Chart | Pages slow and getting stuck | Bug | Fixed |
@@ -46,6 +47,23 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 | [1](#issue-1) | 2026-09-27 | Local copy | The app kept loading and never opened | Setup | Closed |
 
 ## Details
+
+<a id="issue-29"></a>
+### 29. The transform failed: *dim_market_type was not found*
+
+- **Seen:** **Lakehouse transform** stopped at *Check bronze is fresh* with a compilation error: `intraday_events`
+  depends on a node named `dim_market_type` which was not found, and a warning that the patch in `seeds/_seeds.yml`
+  had no matching node.
+- **Why:** `lakehouse/.gitignore` has `*.csv`, to keep downloaded market data out of the repository, and it also
+  caught the new reference list, `dbt/seeds/dim_market_type.csv`. `git add -A` left it out and said nothing, so the
+  commit had the file's description but not the file. `dbt parse` had passed because the file was on the computer
+  it ran on.
+- **Change:** `lakehouse/.gitignore` now makes an exception for `dbt/seeds/*.csv`.
+- **Checked:** `git add -A -n` now lists the file. `dbt parse` passes on a copy of only the files Git would send,
+  with the seed found and 153 tests. The failed run built and published nothing, so the live site was unaffected,
+  and the definitions' version 2 had already gone in correctly. Before a commit that adds files, the same two checks
+  now run.
+- **State:** fixed, waiting for the push.
 
 <a id="issue-28"></a>
 ### 28. Stocks and commodities showed verdicts tested on crypto
