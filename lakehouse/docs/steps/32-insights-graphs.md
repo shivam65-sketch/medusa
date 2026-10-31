@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Built** | 32.1: 2026-10-26 to 30 · 32.2 and 32.3: next |
-| **Commits** | 32.1: the graph engine, the Insights view and these docs |
+| **Commits** | 32.1: `26a06bb` (the graph engine, the Insights view and these docs) · the live results |
 | **Files** | [`dbt/models/gold/hour_drift.sql`](../../dbt/models/gold/hour_drift.sql) (the market by hour, every year) and its test · [`serving/publish_to_medusa.py`](../../serving/publish_to_medusa.py) (the Insights file) · [`sql/seed/003_metric_definitions_insights.sql`](../../sql/seed/003_metric_definitions_insights.sql) (version 1 of the 16 definitions) · `databricks.yml` (the seed task) · MEDUSA: [`public/markets-charts.js`](../../../public/markets-charts.js) (the graphs), `public/markets.js`, `public/markets-metrics.js`, `public/markets-sql.js`, `public/markets-window.js`, `src/market.js`, `src/metrics.js`, `src/worker.js` |
 | **Decisions** | [ADR-034](../decisions.md#adr-034-the-insights-history-goes-to-medusa-as-one-gzip-file-kept-as-it-is) · [ADR-035](../decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page) |
 
@@ -119,6 +119,9 @@ flowchart LR
 | The graphs | Every query run on the real file in the browser's SQLite (8 to 130 ms) and, copied, in Databricks: the same results (one move of 13,576 lands in the next 1% step, from the file's rounding) |
 | The page | All seven graphs drawn; the live map with 669 markets; drills by year, hour, size and liquidity, outcome step and market; the toggles redraw a window; an edited graph previewed next to the current one; no horizontal scrolling at phone width; no console errors |
 | Seed | Planned with `EXPLAIN` in Databricks; no `;` in any text (the statement splitter) |
+| Live, the definitions | 33 current definitions in `market.semantic.metric_definitions` (17 before, 16 added; 7 of them shared steps), versions without gaps, every display valid JSON |
+| Live, the first run | **Lakehouse transform** run 7, started by hand, 4 min 11 s: `hour_drift` built (672 rows, 2020-01-21 to 2026-10-27), 16 models and snapshots, 139 tests passed (131 before, 8 new), no warnings or errors; published `market_baseline` 753, `market_evidence` 60, `market_metrics` 33, `market_events` 21,306, `market_hours` 672, every row reconciled |
+| Live, the schedule | The next daily load (30 October, loading the 29th) republished everything on its own at 18:51 UTC, the Insights file with it (lakehouse day 2026-10-29) |
 
 ## Problems we hit
 
@@ -136,9 +139,33 @@ flowchart LR
 - **A test that never ended.** Importing the page's code in Node kept the process alive (its channel to
   other tabs); the local tests end with `process.exit`.
 
+- **Binance skipped a day while this was deployed.** Its archive has no candles for 28 October (see
+  below), which stopped the daily runs of 29 October. The Insights work didn't depend on it: a transform
+  by hand rebuilt everything from the data already loaded.
+
+## A hole in the history: 28 October
+
+Binance's daily archive has no 1-minute candles (nor 1-day, mark or index candles, nor aggregated trades)
+for 2026-10-28, for any coin; its metrics and raw trades for that day are there, and the days either side
+were published on time. The candles exist: Binance's live API returns all 1,440 for Bitcoin. Until it is
+filled:
+
+- The daily runs of 29 October stopped at the download check (*NOT READY klines_1m 2026-10-28*), as
+  designed (ADR-021), and the next day's run loaded the 29th.
+- Gold has no row for the 28th. The 29th has no daily return, because the day before is missing, so
+  `market_daily` shows no breadth for it, `data_health` counts all 887 coins as new, and
+  `intraday_events` has no moves on the 28th or 29th.
+- **Nothing on the page shows this.** The status line gives the newest day, and the 139 dbt tests check
+  the rows that exist, not the days that don't. The recheck only re-checks days already loaded, so
+  nothing fills the day by itself. This led to the plan for a missing-days check, a banner on Markets and a
+  catch-up in the daily load.
+
 ## Next: 32.2 and 32.3
 
-- **32.2, from data already here:** a playbook table per live unusual market (similar past moves, median
+- **Before them:** fill 28 October (October's monthly 1-minute file, expected around 2 November, if it
+  holds that day; otherwise the live API), and the missing-days check.
+- **32.2, from data already here:** the market's type on each move, so graphs can split crypto from the
+  stock and commodity perpetuals; a playbook table per live unusual market (similar past moves, median
   next 1/4/24 h, how often it kept going, the worst 5%), crowded or alone (a move on a day many markets
   moved against one on its own), positioning from `fct_metrics_5m` (open interest against price, the
   long/short ratio, aggressive-buy share), regime gauges and a risk table.
