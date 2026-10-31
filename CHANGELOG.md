@@ -5,6 +5,9 @@ app's menu and on the sign-in page); each release adds a section here with the s
 
 ## Unreleased
 
+- Markets: stocks and commodities now show **not tested** instead of a verdict. Binance only listed them from December 2025, so the verdicts, chosen on 2020 to 2024, were never tested on them, and on real data they behave differently from crypto.
+- Markets, **Insights**: the type filter at the top now applies to the live graph and to every graph of past moves, so crypto and stocks can be looked at apart.
+- Market data lakehouse (step 32.2): `silver.dim_market_type`, a list of what each market is, and `market_type` on every unusual move. The evidence covers crypto and other markets only. No verdict or side changed.
 - Documentation: **How the data works** (`docs/how-the-data-works.md`), the whole journey from a Binance file to a number on the Markets page: every table with its grain, keys and joins, a day in the pipeline, a page refresh, the one-second loop, Bitcoin's z and the *Year by year* graph followed through every layer with real values, and how to trace a problem back upstream. Seven new diagrams; the lineage diagram now includes `hour_drift` and `missing_days`.
 - `schema.sql` now lists `market_missing_days`, so a brand-new install has it without running migration 006.
 - Markets: fixed a table jumping back to the left, and selected text disappearing, every time a live number changed, on the page and in ‹› windows. A part of the page is now updated cell by cell instead of being rebuilt, so a table keeps its scroll, a scrollbar stays in the hand while it is dragged, and the numbers go on updating meanwhile. While text is selected, the part it is in holds still so it can be copied; clicking elsewhere lets it catch up.

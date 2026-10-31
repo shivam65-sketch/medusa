@@ -77,6 +77,7 @@ The data engineering terms used in this project, in plain words.
 | **Query parameter** | A named value a query takes when it runs (`:kind`), like a report parameter in SSRS | The Markets page's type filter, yesterday's date, one market |
 | **Rate limit** | A cap on how often something may be done in a period, so one user (or a bug) can't use up a shared resource | Saves to Databricks: 20 a day per account and 300 in all; history reads 60 and 600 (every one wakes the SQL warehouse) |
 | **Reconciliation test** | A check that two layers add up to the same totals | `assert_candle_1h_reconciles_with_1m` |
+| **Reference data** | A short list that describes other data and rarely changes | `dim_market_type` |
 | **Rescued data** | A column that catches values that didn't fit the expected file layout, instead of losing them | `_rescued_data` |
 | **Retention** | How long each kind of data is kept | [ADR-011](decisions.md#adr-011-keep-1-minute-candles-for-a-limited-time) |
 | **Reusable workflow** | A GitHub Actions workflow other workflows call, so shared steps live in one place | `lakehouse-load-day.yml` |
@@ -86,6 +87,7 @@ The data engineering terms used in this project, in plain words.
 | **Schema drift** | A source changing its columns or format over time | Caught by `_rescued_data` |
 | **Schema-on-read** | Applying column names and types when reading files, not when storing them | `read_files` in bronze |
 | **Seed** | Fixed starting data loaded by a script kept in the repository, so a new environment gets the same rows | [`sql/seed/`](../sql/seed/): version 1 of the metric definitions |
+| **Seed (dbt)** | A CSV file in the repository that `dbt build` loads as a table | `dim_market_type` |
 | **Serverless** | Compute that starts when needed and stops afterwards, with nothing to manage | Pipeline, SQL warehouse |
 | **Service principal** | A Databricks identity for a program rather than a person, with its own grants and secrets; it keeps working when people change, and can be given exactly the access its job needs | `medusa-markets-writer`: Can use on the warehouse, and `SELECT, MODIFY` on the two definitions tables only |
 | **Settling (contract)** | Binance's status for a futures contract it has delisted and is closing out. The archive keeps publishing flat, zero-volume candles for it | Why status comes from trades ([ADR-018](decisions.md#adr-018-a-coin-trades-only-if-it-has-trades)) |

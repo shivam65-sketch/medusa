@@ -1,0 +1,36 @@
+version: 2
+
+seeds:
+  - name: dim_market_type
+    description: >
+      What each USDT perpetual is: one row per symbol the lakehouse has seen, including delisted ones.
+      A reference list kept as a file, because Binance's daily archive doesn't say and its live contract
+      list can't be relied on from GitHub's servers. Refreshed by ingest/refresh_market_types.py on a
+      person's computer, then committed. dbt loads it on every build.
+    config:
+      column_types:
+        symbol: string
+        market_type: string
+        underlying_type: string
+        contract_type: string
+        onboard_date: date
+    columns:
+      - name: symbol
+        description: Binance symbol, e.g. BTCUSDT.
+        data_tests: [not_null, unique]
+      - name: market_type
+        description: crypto, stock, commodity or other (indices, a currency, pre-IPO markets), the same groups as the Markets page.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['crypto', 'stock', 'commodity', 'other']
+      - name: underlying_type
+        description: Binance's own label, e.g. COIN, EQUITY, HK_EQUITY, COMMODITY, INDEX, FX, PREMARKET.
+      - name: contract_type
+        description: PERPETUAL, or TRADIFI_PERPETUAL for markets on stocks, commodities and the like.
+        data_tests: [not_null]
+      - name: onboard_date
+        description: >
+          The day Binance listed the contract now on this symbol. Empty for a market Binance no longer
+          lists. A contract can reuse an old ticker, so a symbol's earlier history can be a different market.

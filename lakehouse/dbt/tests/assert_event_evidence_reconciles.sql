@@ -2,7 +2,8 @@
 --   - each kind of move and horizon appears once;
 --   - in-sample plus held-back events make up all events, and no row has more days than events;
 --   - for each direction and horizon, the kinds of move add up to the 'all' row, and the 'all' row
---     counts exactly the events in intraday_events that have a forward return at that horizon.
+--     counts exactly the crypto and other events in intraday_events that have a forward return at
+--     that horizon (stocks and commodities aren't in the evidence).
 -- Any row returned breaks one of those rules.
 with evidence as (
     select * from {{ ref('event_evidence') }}
@@ -15,6 +16,7 @@ source_counts as (
                                       else fwd_return_24h end) as events
     from {{ ref('intraday_events') }}
     cross join (values (1), (4), (24)) as h(horizon_hours)
+    where market_type in ('crypto', 'other')
     group by all
 ),
 

@@ -13,6 +13,7 @@ flowchart TB
     all["int_candle_1h_all<br>view, one series since 2020"]
     ics["int_coin_status<br>view"]
     dc["dim_coin<br>snapshot, SCD Type 2"]
+    mt["dim_market_type<br>seed, a file in the repository"]
   end
   subgraph GLD["Gold (dbt)"]
     cd["coin_daily<br>coin x day"]
@@ -45,4 +46,5 @@ flowchart TB
   c1h --> cb
   dc --> cb
   all --> ie --> ee
+  mt --> ie
   all --> hd

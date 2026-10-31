@@ -6,6 +6,11 @@ erDiagram
     timestamp dbt_valid_to
     string status
   }
+  dim_market_type {
+    string symbol PK
+    string market_type
+    date onboard_date
+  }
   fct_candle_1m {
     string symbol PK
     timestamp open_time PK
@@ -63,6 +68,7 @@ erDiagram
     string direction
     string z_band
     string liquidity
+    string market_type
   }
   event_evidence {
     string direction PK
@@ -87,3 +93,4 @@ erDiagram
   coin_daily }o--|| market_daily : "trade_date"
   coin_daily }o--|| data_health : "trade_date"
   intraday_events }o--o{ event_evidence : "direction, z_band, liquidity"
+  dim_market_type |o--o{ intraday_events : "symbol"

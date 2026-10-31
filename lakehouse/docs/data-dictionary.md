@@ -271,6 +271,24 @@ WHERE status = 'trading'
 `market.silver.int_coin_status` is the view the snapshot reads: each coin's state now, worked out
 from `fct_candle_1h` (first day with candles, last day with trades).
 
+## Silver: `market.silver.dim_market_type` (seed)
+
+What each USDT perpetual is: one row per symbol, delisted ones included. A CSV file in the repository
+([`dbt/seeds/dim_market_type.csv`](../dbt/seeds/dim_market_type.csv)) that `dbt build` loads on every run, refreshed
+by [`ingest/refresh_market_types.py`](../ingest/refresh_market_types.py) on a person's computer
+([ADR-037](decisions.md#adr-037-market-type-comes-from-a-reference-list-and-only-tested-markets-get-a-verdict)).
+
+| Column | Type | Meaning |
+|---|---|---|
+| `symbol` | STRING | Binance symbol, unique |
+| `market_type` | STRING | `crypto`, `stock`, `commodity` or `other` (indices, a currency, pre-IPO markets): the Markets page's groups |
+| `underlying_type` | STRING | Binance's own label: `COIN`, `EQUITY`, `HK_EQUITY`, `KR_EQUITY`, `CN_EQUITY`, `COMMODITY`, `INDEX`, `FX`, `PREMARKET` |
+| `contract_type` | STRING | `PERPETUAL`, or `TRADIFI_PERPETUAL` for markets on stocks, commodities and the like |
+| `onboard_date` | DATE | The day Binance listed the contract now on this symbol. Empty for a market no longer listed |
+
+**What the data looks like (2026-11-01):** 924 markets: 683 crypto, 221 stock, 12 other, 8 commodity; 893 listed and 31
+no longer listed. `MDTUSDT` is a stock here, onboard 2026-10-21, though the same ticker was a crypto token until 2024.
+
 ## Gold: `market.gold.coin_daily`
 
 One row per coin per UTC day ([model](../dbt/models/gold/coin_daily.sql)); clustered by `trade_date`,
@@ -443,6 +461,7 @@ an event at |z| ≥ `event_z` (3).
 | `history_days`, `avg_return_30d`, `sd_return_30d`, `avg_quote_volume_30d` | The coin's normal before the day |
 | `fwd_return_1h`, `fwd_return_4h`, `fwd_return_24h` | Close 1, 4 or 24 hours later / `entry_price` − 1; empty if that hour doesn't exist |
 | `period` | `in_sample` before `held_back_from` (2025-01-01), `held_back` from then on |
+| `market_type` | `crypto`, `stock`, `commodity` or `other` from `dim_market_type`; a stock or commodity contract's moves before its `onboard_date` are `crypto`; `unknown` for a market not in the list |
 
 **What the data looks like (2026-10-22):** 21,110 events (13,488 up, 7,622 down) on 866 coins,
 2020-02-07 to 2026-10-20; 9,618 in-sample, 11,492 held back. They crowd onto crash days: in 2021,
@@ -452,7 +471,9 @@ an event at |z| ≥ `event_z` (3).
 
 What moves like today's did next ([model](../dbt/models/gold/event_evidence.sql)). One row per
 `direction`, `z_band`, `liquidity` and `horizon_hours` (1, 4 or 24), plus a row per direction and
-horizon with `z_band` and `liquidity` set to `all`: 60 rows. Rebuilt on every run.
+horizon with `z_band` and `liquidity` set to `all`: 60 rows. Rebuilt on every run. It covers `crypto` and `other`
+moves only: stocks and commodities have no in-sample years, so they aren't tested
+([ADR-037](decisions.md#adr-037-market-type-comes-from-a-reference-list-and-only-tested-markets-get-a-verdict)).
 
 Continuation is the forward return in the direction of the move (negative: it turned back). Averages,
 spreads and t-statistics are over days, not events: each day's events are averaged first
@@ -735,7 +756,7 @@ anywhere: closing the tab deletes it.
 |---|---|---|---|
 | `live_prices` | `symbol` | Binance's live stream, upserted about once a second (and one price snapshot when the page opens) | `symbol`, `price` (last price), `quote_volume_24h` (USDT traded in the last 24 hours; empty until the market's first stream message) |
 | `binance_markets` | `symbol` | Binance's contract list (once a day) and Binance's daily candles | `symbol`, `market_type` (`crypto`, `stock`, `commodity` or `other`), `yesterday_close` (only while the lakehouse doesn't have yesterday) |
-| `market_events` | `symbol`, `event_date` | The Insights file, when Insights or a graph's window opens | `gold.intraday_events`' columns: `symbol`, `event_date`, `event_hour` (`YYYY-MM-DD HH:MM:SS`, UTC), `hour_of_day`, `direction`, `z` (3 decimals), `z_band`, `liquidity`, `move_so_far`, `fwd_return_1h`, `fwd_return_4h`, `fwd_return_24h` (6 decimals), `period` |
+| `market_events` | `symbol`, `event_date` | The Insights file, when Insights or a graph's window opens | `gold.intraday_events`' columns: `symbol`, `event_date`, `event_hour` (`YYYY-MM-DD HH:MM:SS`, UTC), `hour_of_day`, `direction`, `z` (3 decimals), `z_band`, `liquidity`, `move_so_far`, `fwd_return_1h`, `fwd_return_4h`, `fwd_return_24h` (6 decimals), `period`, `market_type` |
 | `market_hours` | `year`, `period`, `utc_hour`, `liquidity` | The same file | Every column of `gold.hour_drift`, dates as text |
 
 The shared steps (models) every Today number reads, defined in `market.semantic.metric_definitions`
@@ -747,9 +768,9 @@ window runs the edited SQL on that screen only:
 |---|---|---|
 | `market_now` | One trading market | `symbol`, `market_type`, `price`, `quote_volume_24h`, `prev_close` (the lakehouse's close, or Binance's while the lakehouse is behind), `avg_return_30d`, `sd_return_30d`, `history_days`, `avg_quote_volume_30d` |
 | `today` | One trading market | `symbol`, `market_type`, `price`, `move` (fraction), `z`, `sd_return_30d`, `volume_x` (24 hours ÷ a usual day), `liquidity` |
-| `flagged` | One unusual market (\|z\| ≥ 3) | Every column of `today`, plus `direction` and `z_band` |
+| `flagged` | One unusual market (\|z\| ≥ 3) | Every column of `today`, plus `direction`, `z_band` and `tested` (1 for crypto and other markets, 0 for the rest, which show *not tested*) |
 | `verdicts` | One kind of move (`direction`, `z_band`, `liquidity`) | `next_1h`, `next_4h`, `next_24h`: `fade 0.22%` (the side and its held-back result) when the pattern held up, otherwise the verdict |
-| `moves` | One past move in the direction chosen (`:direction`) with a result over the hours chosen (`:horizon`) | `symbol`, `event_date`, `event_hour`, `year` (text), `hour_of_day`, `z`, `z_band`, `liquidity`, `period`, `kept_going_pct` (+ kept going, − turned back, in %), `bucket` (its 1% step: −3 holds −3% to −2%; −11 and 10 hold everything beyond 10% either way) |
+| `moves` | One past move in the direction chosen (`:direction`), on the type chosen (`:kind`), with a result over the hours chosen (`:horizon`) | `symbol`, `market_type`, `event_date`, `event_hour`, `year` (text), `hour_of_day`, `z`, `z_band`, `liquidity`, `period`, `kept_going_pct` (+ kept going, − turned back, in %), `bucket` (its 1% step: −3 holds −3% to −2%; −11 and 10 hold everything beyond 10% either way) |
 | `moves_picked` | One move of `moves` that matches what a click picked | Every column of `moves`; filtered by `:year`, `:hour`, `:bucket`, `:z_band`, `:liquidity`, `:symbol`, each ignored when NULL |
 | `hour_stats` | One UTC hour, liquidity group and period | `utc_hour`, `liquidity`, `period`, `days`, `avg_return`, `sd_return` (pooled over the years from `market_hours`' sums), `up_days` |
 

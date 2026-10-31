@@ -112,6 +112,7 @@ page's answer is the same for every account, which is why it can be made once an
 | `silver.fct_candle_1h_archive` | 15,887,385 | | `gold.hour_drift` | 672 |
 | `silver.int_candle_1h_all` (view) | 16,494,486 | | `gold.coin_baseline` | 759 |
 | `silver.dim_coin` | 1,896 | | `gold.intraday_events` | 21,373 |
+| `silver.dim_market_type` | 924 | | | |
 | `semantic.metric_definitions` | 33 | | `gold.event_evidence` | 60 |
 | `semantic.user_metric_definitions` | 0 | | `ops.logs.etl_runs` | 27 |
 
@@ -135,6 +136,7 @@ Read it as a funnel: 52 million rows of candles become 36,000 coin-days, and tho
 | `silver.int_candle_1h_all` | Coin, hour, since 2020 | `symbol`, `hour_start` | View: the archive up to the first minute day, then `fct_candle_1h` |
 | `silver.int_coin_status` | Coin | `symbol` | View, the input to the snapshot |
 | `silver.dim_coin` | Version of a coin | `symbol`, `dbt_valid_from` | dbt snapshot (SCD Type 2) |
+| `silver.dim_market_type` | Symbol | `symbol` | dbt seed: a CSV file in the repository, refreshed from Binance's contract list |
 | `gold.coin_daily` | Coin, UTC day | `symbol`, `trade_date` | Incremental `MERGE` |
 | `gold.market_daily` | UTC day | `trade_date` | Rebuilt in full |
 | `gold.data_health` | UTC day | `trade_date` | Rebuilt in full |
@@ -159,7 +161,7 @@ Two lines of descent are worth knowing:
   the live page.
 - **The history line:** `int_candle_1h_all` → `intraday_events` → `event_evidence`, and → `hour_drift`. It
   starts in January 2020 and holds coins that have since been delisted, so the evidence isn't flattered by
-  only looking at survivors.
+  only looking at survivors. `dim_market_type` joins it here, to say what kind of market each move was on.
 
 ### 3.3 What joins to what
 
@@ -175,7 +177,7 @@ There are three kinds of key:
 | A time: `trade_date`, `candle_date`, `event_date`, `hour_start` | Days and hours across tables | All UTC. The names differ by table, the meaning doesn't |
 | A kind of move: `direction`, `z_band`, `liquidity` | `intraday_events` to `event_evidence`, and the live page's flagged markets to their verdict | `event_evidence` has one row per horizon, so pick `horizon_hours` or get three rows |
 
-Four things will catch you out:
+Five things will catch you out:
 
 **Nothing enforces these keys.** Unity Catalog records a primary key but doesn't check it. The checks are dbt
 tests, such as `assert_coin_daily_unique`, which run in every build, and a failed one stops the publish. One
@@ -209,6 +211,10 @@ WHERE d.symbol = 'AIUSDT' AND d.trade_date = '2026-10-30';
 delisted before September 2026 isn't in it: 31 of the 895 coins in `fct_candle_1h_archive`, and 29 of the 873
 in `intraday_events`. Use a `LEFT JOIN` there, or those coins vanish without a sound. Every coin in
 `coin_daily`, `coin_baseline`, `unusual_moves` and `hour_profile` is in `dim_coin`.
+
+**A ticker can change hands.** `MDTUSDT` was a crypto token until 2024 and has been Medtronic since 2026, so a
+symbol alone doesn't say what a past move was on. `intraday_events.market_type` already applies the rule: a stock or
+commodity contract's moves before its `onboard_date` are crypto. Use that column, not a join on `symbol`.
 
 **A missing day leaves a hole after itself too.** `coin_daily.return_1d` is only filled when the row before is
 the day before. With 28 October missing, every coin's 29 October return is empty. That is correct: a
@@ -283,7 +289,8 @@ type, and yesterday's close while the lakehouse is behind).
 ![From the browser's tables to the page](images/diagrams/browser-models.png)
 
 Read it left to right. `market_now` joins the three tables on `symbol`. `today` adds the move and z, and
-every card and table reads `today` or `flagged`. Before a query runs, the models it reads are put in front
+every card and table reads `today` or `flagged`. `flagged` also says whether a market is `tested`: stocks and
+commodities have no 2020 to 2024 years, so they show *not tested* in place of a verdict. Before a query runs, the models it reads are put in front
 of it as `WITH ... AS (...)`, so the SQL shown under a number is complete and can be run as it stands.
 
 ### 3.8 The rest of MEDUSA
@@ -442,7 +449,9 @@ trading: 751 of the 759 rows on 31 October. A contract listed today has no row u
 market with fewer than 20 days of history appears with no z, because its normal isn't known yet.
 
 The type comes from Binance's contract list, which is why the 751 include US stocks and commodities as well
-as crypto: they are all USDT perpetual futures to Binance.
+as crypto: they are all USDT perpetual futures to Binance. The live page reads that list itself. The lakehouse keeps
+its own copy for past moves, `dim_market_type`, refreshed by hand because the list can't be relied on from GitHub's
+servers.
 
 ### Between midnight and the publish
 
@@ -790,6 +799,8 @@ day. What it did about that is in the
 | A failed run | `ops.logs.etl_errors` | The step and the message; a dbt test failure is `dbt_test` |
 | The stream says reconnecting or refused | The browser's network tab | Binance can't be reached from this network. Not the lakehouse |
 | One market has no z | Its row in `market_baseline` | Fewer than 20 days of history |
+| A stock shows *not tested* | Nothing: this is expected | It has no 2020 to 2024 years to test a verdict on |
+| dbt warns `assert_market_types_known` | `dim_market_type` | Binance has listed a new market: refresh the list |
 | One market isn't listed at all | `gold.coin_baseline` | New today, or marked `not trading` |
 | A number differs from a chart elsewhere | The query under the number | MEDUSA uses UTC days and perpetuals, not spot |
 | One card shows **!** | The Logs tab, then `ops.logs.app_events` | Its query failed; the message says why |
@@ -815,6 +826,7 @@ day. What it did about that is in the
 | The history is one gzip file | 21,000 rows don't fit the free plan's CPU time row by row | [ADR-034](../lakehouse/docs/decisions.md#adr-034-the-insights-history-goes-to-medusa-as-one-gzip-file-kept-as-it-is) |
 | A graph is SQL plus a chart spec | A new graph needs no new code | [ADR-035](../lakehouse/docs/decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page) |
 | Missing days are checked against the calendar | Tests check the rows that exist, so a day that never came passes them all | [ADR-036](../lakehouse/docs/decisions.md#adr-036-a-missing-day-is-found-against-the-calendar-shown-on-the-page-and-tried-again-for-a-week) |
+| Only tested markets get a verdict | A verdict chosen on 2020 to 2024 says nothing about markets listed in December 2025 | [ADR-037](../lakehouse/docs/decisions.md#adr-037-market-type-comes-from-a-reference-list-and-only-tested-markets-get-a-verdict) |
 
 ---
 

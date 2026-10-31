@@ -24,7 +24,7 @@
 // Each ‹› button opens one number's or graph's calculation in its own window (markets-window.html):
 // the same code with its own data, engine and live prices, running only that window's queries.
 
-import { DEFINITIONS } from './markets-metrics.js?v=3';
+import { DEFINITIONS } from './markets-metrics.js?v=4';
 import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=1';
 
 const RULE = { z: 3 };
@@ -32,7 +32,7 @@ const RULE = { z: 3 };
 const PUBLISHED_BY = 'usually by 20:00 UTC';
 const STREAM ='wss://fstream.binance.com/market/ws/!miniTicker@arr';
 const REST = 'https://fapi.binance.com/fapi/v1';
-const ENGINE = '/markets-sql.js?v=3';
+const ENGINE = '/markets-sql.js?v=4';
 const DAY = 86_400_000;
 const HORIZONS = [1, 4, 24];
 const BANDS = ['3-4', '4-6', '6+'], LIQS = ['large', 'mid', 'small'];
@@ -308,7 +308,7 @@ const FMT = {
   int_up: (v) => `<span class="pos">${FMT.int(v)}</span>`,
   int_down: (v) => `<span class="neg">${FMT.int(v)}</span>`,
   verdict: (v, row, col) => {
-    const sub = col && col.sub && row && col.sub in row
+    const sub = col && col.sub && row && col.sub in row && row[col.sub] !== 'not tested'
       ? `<span class="mkt-ev-all">all ${row.z > 0 ? 'up' : row.z < 0 ? 'down' : ''}: ${verdictText(row[col.sub], false)}</span>` : '';
     return `<div class="mkt-evc"><span class="v">${verdictText(v)}</span>${sub}</div>`;
   },
@@ -1266,7 +1266,7 @@ function shell() {
         <li><b>Live prices</b> come straight from Binance to this browser, about once a second. MEDUSA's server never sees them.</li>
         <li><b>Every number here is calculated by SQL</b>, in a small SQLite database inside this browser that holds the lakehouse's tables and the live prices. The queries are kept in the lakehouse too, with every version, and published to MEDUSA with the data. They run about once a second; each <b>‹›</b> button opens one in its own window, live: the query exactly as it runs, which version it is, its result, and a copy that runs in MEDUSA's database or in Databricks.</li>
         <li><b>Today's move</b> is measured from yesterday's close (UTC). z is that move in the market's usual daily moves; ${RULE.z} or more (|z| ≥ ${RULE.z}) is flagged as unusual: the same rule the lakehouse applies to every hour since 2020.</li>
-        <li><b>The evidence</b> shows what similar moves (same direction, size and liquidity) did over the next 1, 4 and 24 hours since 2020. Each side (follow the move or fade it) was chosen on 2020–2024 and checked on 2025 onwards, which played no part in choosing it, after 0.10% trading costs. Most kinds of move show no pattern that held; the Patterns view lists them all. Almost all of that history is crypto.</li>
+        <li><b>The evidence</b> shows what similar moves (same direction, size and liquidity) did over the next 1, 4 and 24 hours since 2020. Each side (follow the move or fade it) was chosen on 2020–2024 and checked on 2025 onwards, which played no part in choosing it, after 0.10% trading costs. Most kinds of move show no pattern that held; the Patterns view lists them all. Stocks and commodities show <b>not tested</b>: Binance only listed them from December 2025, so they have no 2020–2024 years to test, and their moves aren't in the evidence.</li>
         <li><b>Live numbers are unchecked</b> until the next day's batch run. History is no promise: costs differ by market and funding isn't counted. This is research, not trading advice.</li>
       </ul>
     </details>
@@ -1355,7 +1355,7 @@ function draw() {
     b.setAttribute('aria-pressed', String(b.dataset.v === String(S[b.dataset.mkt])));
   });
   if (!S.win) {
-    document.getElementById('mkt-kinds').hidden = S.view !== 'today';
+    document.getElementById('mkt-kinds').hidden = S.view === 'patterns';   // the patterns aren't split by type
     document.getElementById('mkt-ins-pick').hidden = S.view !== 'insights';
     document.getElementById('mkt-today').hidden = S.view !== 'today';
     document.getElementById('mkt-patterns').hidden = S.view !== 'patterns';
@@ -1527,6 +1527,10 @@ function marketDetail(sym) {
   } else {
     html = `<p>${who} has moved ${pct(r.today_pct / 100)} since yesterday's close${r.z != null ? `: ${sig(r.z)}, ${Math.abs(r.z).toFixed(1)} times its usual daily move (${Number(r.usual_day_pct).toFixed(2)}%${b ? ` over its last ${b.history_days} days` : ''})` : ''}.${r.direction ? ` Its own group: ${kindPhrase(r.direction, r.z_band, r.liquidity)}${b ? ` (average ${Math.round((b.avg_quote_volume_30d || 0) / 1e6).toLocaleString('en-US')} million USDT a day)` : ''}.` : ''}</p>`;
     if (r.direction) {
+      if (t && !['crypto', 'other'].includes(t.group)) {
+        html += `<p class="warn">${name(sym)} is a ${esc(t.group)} perpetual, so this move is <b>not tested</b>. Binance only listed these from December 2025, which leaves no 2020–2024 years to choose a side on, and crypto's patterns can't be assumed to carry over. Insights shows how past moves on these markets went, with the type chosen at the top.</p>`;
+        return `<div class="mkt-more">${html}${calc}</div>`;
+      }
       if (t && t.group !== 'crypto') html += `<p class="warn">${name(sym)} is a ${esc(t.label.toLowerCase())} perpetual. Almost all the history behind the evidence is crypto: the side of each pattern was chosen on 2020–2024, when Binance had almost no stock, commodity or currency perpetuals. Treat the evidence with extra care here.</p>`;
       html += HORIZONS.map((h) => evWords(S.data.ev.get(evKey(r.direction, r.z_band, r.liquidity, h)) || null, h)).join('');
       html += `<p><b>For comparison, a wider group</b>, every ${r.direction} move together (any size, any market): ${HORIZONS.map((h) => `next ${h} h ${evShort(S.data.ev.get(evKey(r.direction, 'all', 'all', h)))}`).join(' · ')}. ${name(sym)}'s own group is the closer match; the wider group has many more examples but mixes very different moves.</p>`;
@@ -1675,7 +1679,7 @@ function insStatus() {
   const st = S.ins.state, n = (v) => Number(v || 0).toLocaleString('en-US');
   if (st === 'ok' && S.ins.info) {
     const r = S.ins.info.rows || {};
-    return `History: ${n(r.market_events)} unusual moves since 2020 and ${n(r.market_hours)} rows of the market by hour, lakehouse day ${shortDay(S.ins.info.as_of)}, in this browser's SQL engine. A graph is drawn again whenever its query's result changes; <b>Every market right now</b> is live.`;
+    return `History: ${n(r.market_events)} unusual moves since 2020 and ${n(r.market_hours)} rows of the market by hour, lakehouse day ${shortDay(S.ins.info.as_of)}, in this browser's SQL engine. A graph is drawn again whenever its query's result changes; <b>Every market right now</b> is live. The type chosen at the top applies to that graph and to the graphs of past moves. <b>Every kind of move at a glance</b> covers the tested markets only, and the graph of the market by hour every market.`;
   }
   if (st === 'error') return `<span class="warn">The history couldn't be loaded: ${esc(S.ins.err)}</span> <button class="btn btn-sm" type="button" data-mkt="ins-retry">Try again</button>`;
   if (st === 'none') return 'The lakehouse hasn\'t published the history for these graphs yet (it comes with the daily publish). The live graph works already.';

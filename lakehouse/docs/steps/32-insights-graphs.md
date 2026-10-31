@@ -4,10 +4,10 @@
 
 | | |
 |---|---|
-| **Built** | 32.1: 2026-10-26 to 30 · 32.2 and 32.3: next |
+| **Built** | 32.1: 2026-10-26 to 30 · 32.2.1: 2026-11-01 · the rest of 32.2 and 32.3: next |
 | **Commits** | 32.1: `26a06bb` (the graph engine, the Insights view and these docs) · the live results |
 | **Files** | [`dbt/models/gold/hour_drift.sql`](../../dbt/models/gold/hour_drift.sql) (the market by hour, every year) and its test · [`serving/publish_to_medusa.py`](../../serving/publish_to_medusa.py) (the Insights file) · [`sql/seed/003_metric_definitions_insights.sql`](../../sql/seed/003_metric_definitions_insights.sql) (version 1 of the 16 definitions) · `databricks.yml` (the seed task) · MEDUSA: [`public/markets-charts.js`](../../../public/markets-charts.js) (the graphs), `public/markets.js`, `public/markets-metrics.js`, `public/markets-sql.js`, `public/markets-window.js`, `src/market.js`, `src/metrics.js`, `src/worker.js` |
-| **Decisions** | [ADR-034](../decisions.md#adr-034-the-insights-history-goes-to-medusa-as-one-gzip-file-kept-as-it-is) · [ADR-035](../decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page) |
+| **Decisions** | [ADR-034](../decisions.md#adr-034-the-insights-history-goes-to-medusa-as-one-gzip-file-kept-as-it-is) · [ADR-035](../decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page) · [ADR-037](../decisions.md#adr-037-market-type-comes-from-a-reference-list-and-only-tested-markets-get-a-verdict) |
 
 ## Goal
 
@@ -160,13 +160,86 @@ filled:
   nothing fills the day by itself. [Step 32a](32a-missing-days.md) fixes all three: a missing-days check,
   a warning on Markets and a catch-up in the daily load.
 
+## 32.2.1: what kind of market each move is
+
+Binance's stock and commodity perpetuals began in December 2025. Until now they were mixed into every
+move, and the verdicts on the page, chosen on 2020 to 2024, were shown on them too. So the first part of
+32.2 puts the market's type on each move, splits the graphs by it, and stops showing a verdict that was
+never tested on that kind of market.
+
+**What the numbers said** (Databricks, 2026-10-31, using Binance's own labels):
+
+| Moves over the next 4 hours, from December 2025 | Moves | Median | Ended higher |
+|---|---:|---:|---:|
+| Crypto, up | 5,146 | −0.87% | 41% |
+| Crypto, down | 1,823 | +0.43% | 55% |
+| Stocks, up | 340 | +0.04% | 51% |
+| Stocks, down | 264 | +0.01% | 50% |
+
+Crypto's unusual moves tend to turn back. On stocks so far it is a coin toss, so a *fade* verdict on a
+stock was claiming something the data doesn't show.
+
+| Concept | Here | In SQL Server terms |
+|---|---|---|
+| **Reference data** | A short list that describes other data and rarely changes: `dim_market_type`, one row per symbol | A lookup table |
+| **dbt seed** | A CSV file in the repository that `dbt build` loads as a table. Changes are reviewed and versioned like code | A lookup table filled by a script kept in source control |
+| **A key can change meaning** | `MDTUSDT` was a crypto token until 2024 and has been Medtronic since 2026. The type therefore depends on the date of the move, not only the symbol | A business key reused for a new entity, handled with effective dates |
+| **Same population for the claim and the test** | A verdict can only describe the markets it was tested on. Stocks have no 2020 to 2024 years, so they can't be tested by this rule at all | A report that filters to the rows its definition covers |
+
+**What was built:**
+
+- **`silver.dim_market_type`,** a dbt seed of 924 markets: 683 crypto, 221 stock, 12 other (indices, a currency,
+  pre-IPO markets) and 8 commodity. Binance's archive doesn't say what a market is, only its live contract list
+  does, and that API can't be relied on from GitHub's servers. So
+  [`ingest/refresh_market_types.py`](../../ingest/refresh_market_types.py) is run on a person's computer and the
+  file is committed. A market Binance has delisted stays in the file, and the 31 that had already gone were added
+  by hand from the lakehouse's own history.
+- **`market_type` on `gold.intraday_events`.** A stock or commodity contract's moves before its listing day are
+  crypto, which is how the 19 moves of the old MDT token stay crypto. A market not in the list is `unknown`.
+- **A warning, `assert_market_types_known`,** when a trading market isn't in the list yet. Until the list is
+  refreshed, its moves stay out of the evidence and it shows as *not tested*: the safe side.
+- **`event_evidence` keeps crypto and other markets only.** Stocks and commodities have no moves in the in-sample
+  years, so leaving them out changes nothing that chose a side.
+- **The page.** `flagged` gains `tested`. A stock or commodity shows *not tested* in place of a verdict, and isn't
+  counted as being in a pattern. The type filter now also shows on Insights, where it filters the live graph and
+  every graph of past moves. Seven definitions moved to version 2, the first new versions made by a seed:
+  [`004_metric_definitions_market_type.sql`](../../sql/seed/004_metric_definitions_market_type.sql) closes
+  version 1 and adds version 2 in one `MERGE`, the way a save on the page does.
+
+**Result before the live run:**
+
+| Check | Result |
+|---|---:|
+| Verdicts changed, of 60 | 0 |
+| Sides changed | 0 |
+| In-sample numbers changed | 0 |
+| Moves in the evidence | 20,721 of 21,373 (606 stock and 46 commodity moves left out) |
+
+The 5 patterns that held up all still hold, and their results from 2025 improve slightly, for example down 4–6σ on
+mid-sized markets over 1 hour from +3.96% to +4.71%. The same comparison also confirmed why `other` stays in:
+removing the index markets too shifted 2020 to 2024 and flipped borderline verdicts, which is exactly what this
+change must not do.
+
+The page was tested locally with the real 21,373 moves: with *Stocks* chosen, *Year by year* draws 340 up moves,
+median +0.04%, average +0.37%, 51% kept going, the same as Databricks. There was no real unusual stock at the time
+of the test, so Apple and gold were made unusual on the local copy only: both show *not tested* with no verdict,
+while crypto rows keep theirs.
+
+**Limits:**
+
+- The list has to be refreshed by hand. New stock perpetuals only reach a z after 20 days of history, and the
+  warning says when one is missing.
+- Stocks can't be tested by this rule until enough years pass. A test of their own, on their own short history,
+  is a separate question for later.
+- `gold.hour_drift`, the market by hour, still includes every market. Stocks are a small part of each hour's
+  average, and the graph is about the whole market.
+
 ## Next: 32.2 and 32.3
 
 - **Before them:** [step 32a](32a-missing-days.md), the missing-days check, and filling 28 October
   (October's monthly 1-minute file, expected around 2 November, if it holds that day; otherwise the live
   API).
-- **32.2, from data already here:** the market's type on each move, so graphs can split crypto from the
-  stock and commodity perpetuals; a playbook table per live unusual market (similar past moves, median
+- **The rest of 32.2, from data already here:** a playbook table per live unusual market (similar past moves, median
   next 1/4/24 h, how often it kept going, the worst 5%), crowded or alone (a move on a day many markets
   moved against one on its own), positioning from `fct_metrics_5m` (open interest against price, the
   long/short ratio, aggressive-buy share), regime gauges and a risk table.

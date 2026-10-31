@@ -81,12 +81,12 @@ INSIGHTS = {
                date_format(event_hour, 'yyyy-MM-dd HH:mm:ss') as event_hour, hour_of_day, direction,
                round(z, 3) as z, z_band, liquidity, round(move_so_far, 6) as move_so_far,
                round(fwd_return_1h, 6) as fwd_return_1h, round(fwd_return_4h, 6) as fwd_return_4h,
-               round(fwd_return_24h, 6) as fwd_return_24h, period
+               round(fwd_return_24h, 6) as fwd_return_24h, period, market_type
         from market.gold.intraday_events
         order by event_hour, symbol""",
         {"symbol": str, "event_date": str, "event_hour": str, "hour_of_day": int, "direction": str,
          "z": float, "z_band": str, "liquidity": str, "move_so_far": float, "fwd_return_1h": float,
-         "fwd_return_4h": float, "fwd_return_24h": float, "period": str},
+         "fwd_return_4h": float, "fwd_return_24h": float, "period": str, "market_type": str},
         ["symbol", "event_date"],
     ),
     "market_hours": (

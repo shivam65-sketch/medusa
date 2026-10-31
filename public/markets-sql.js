@@ -34,7 +34,7 @@ CREATE TABLE binance_markets (symbol TEXT PRIMARY KEY, market_type TEXT, yesterd
 CREATE TABLE market_events (
   symbol TEXT NOT NULL, event_date TEXT NOT NULL, event_hour TEXT NOT NULL, hour_of_day INTEGER,
   direction TEXT NOT NULL, z REAL, z_band TEXT, liquidity TEXT, move_so_far REAL,
-  fwd_return_1h REAL, fwd_return_4h REAL, fwd_return_24h REAL, period TEXT,
+  fwd_return_1h REAL, fwd_return_4h REAL, fwd_return_24h REAL, period TEXT, market_type TEXT,
   PRIMARY KEY (symbol, event_date)
 );
 CREATE TABLE market_hours (

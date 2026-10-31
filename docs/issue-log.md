@@ -16,6 +16,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
+| [28](#issue-28) | 2026-11-01 | Markets | Stocks and commodities showed verdicts tested on crypto | Bug | Built, waiting to go live |
 | [27](#issue-27) | 2026-10-31 | Lab | The Python engine takes a long time to start | Limit | Known, unchanged |
 | [26](#issue-26) | 2026-10-31 | Lab Chart | Pages slow and getting stuck | Bug | Fixed |
 | [25](#issue-25) | 2026-10-31 | Lab Chart | Zigzag lines across the chart | Bug | Fixed |
@@ -45,6 +46,22 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 | [1](#issue-1) | 2026-09-27 | Local copy | The app kept loading and never opened | Setup | Closed |
 
 ## Details
+
+<a id="issue-28"></a>
+### 28. Stocks and commodities showed verdicts tested on crypto
+
+- **Seen:** found while building step 32.2. The Today table showed a verdict such as *fade* on a stock, though every
+  verdict is chosen on 2020 to 2024 and stock perpetuals only began in December 2025.
+- **Why:** the moves had no market type, so `unusual` joined the verdicts on direction, size and liquidity alone. The
+  evidence also mixed 652 stock and commodity moves into its held-back years. On real data they differ: from December
+  2025, up moves over the next 4 hours had a median of −0.87% on crypto and +0.04% on stocks.
+- **Change:** a list of what each market is, `silver.dim_market_type`, and `market_type` on every move. The evidence
+  covers crypto and other markets, and stocks and commodities show *not tested*
+  ([ADR-037](../lakehouse/docs/decisions.md#adr-037-market-type-comes-from-a-reference-list-and-only-tested-markets-get-a-verdict)).
+- **Checked:** on the real tables, 0 of 60 verdicts and 0 sides changed, and no in-sample number moved. Locally with the
+  real moves, the Stocks graphs match Databricks, and a stock and a commodity show *not tested* while crypto rows keep
+  their verdicts.
+- **State:** built, waiting to go live.
 
 <a id="issue-27"></a>
 ### 27. The Python engine takes a long time to start

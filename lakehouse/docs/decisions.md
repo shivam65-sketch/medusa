@@ -905,3 +905,38 @@ themselves. A day Binance never publishes stays on the page: it can only be fill
 warning depends on one more D1 table (migration 006), though the scanner's answer works without it. The
 catch-up can add a few minutes to a run for each day it tries, so the `recheck` job's limit went from 30
 to 45 minutes.
+
+## ADR-037: Market type comes from a reference list, and only tested markets get a verdict
+
+**Status:** Accepted, 2026-11-01
+
+**Context:** Binance listed its first stock and commodity perpetuals in December 2025. The Insights history had no
+market type, and the page showed verdicts chosen on 2020 to 2024 on these markets too. On real data they behave
+differently: from December 2025, crypto's up moves had a median of −0.87% over the next 4 hours, stocks' +0.04%. Binance's
+daily archive doesn't say what a market is. Only its live contract list does, and that API can't be relied on from
+GitHub's servers.
+
+**Decision:**
+- **A dbt seed, `dim_market_type`,** refreshed by a script on a person's computer and committed. A warning test says
+  when a trading market is missing, and a market that is missing counts as `unknown`, which keeps it out of the evidence.
+- **The type depends on the date.** A stock or commodity contract's moves before its listing day are crypto, because a
+  ticker can change hands: `MDTUSDT` was a token and is now Medtronic.
+- **`event_evidence` covers crypto and other markets only.** Stocks and commodities have no in-sample years, so
+  removing them cannot change a chosen side.
+- **The page shows *not tested*** for them instead of a verdict from other markets.
+
+**Alternatives:**
+- *Join the type in the browser only.* The page already has the contract list. But the lakehouse's evidence couldn't use
+  it, and `binance_markets` is a live table, so every graph would run again each second.
+- *Fetch the contract list in the daily run.* That API is not known to work from GitHub's servers, and a failure would
+  stop the run for a label that rarely changes. It can be added later if it proves reliable.
+- *Add market type to the key of `event_evidence`.* Every stock row would be *too few*, for years: the in-sample period
+  has no stocks and never will.
+- *Remove every market that isn't crypto.* Tested on real data: it shifted the in-sample numbers of index markets and
+  flipped a borderline verdict. `other` stays, so only the held-back years change.
+- *Leave the warning text and keep showing the verdicts.* The numbers above show the verdict is likely wrong on those
+  markets, and a warning under a verdict is easy to miss.
+
+**Consequences:** The verdicts now describe the markets they were tested on. On 2026-10-31 no verdict or side changed,
+and the five patterns that held up improved slightly. Stocks and commodities have no verdict at all, and can't get one
+from this rule. The list needs a person to refresh it, which the warning prompts.

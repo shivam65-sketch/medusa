@@ -403,6 +403,16 @@ models:
           - accepted_values:
               arguments:
                 values: ['in_sample', 'held_back']
+      - name: market_type
+        description: >
+          crypto, stock, commodity or other, from dim_market_type. A move before a stock or commodity
+          contract's listing day is crypto: the ticker belonged to an old token then. unknown is a
+          market not in dim_market_type yet; assert_market_types_known warns about those.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['crypto', 'stock', 'commodity', 'other', 'unknown']
 
   - name: event_evidence
     description: >

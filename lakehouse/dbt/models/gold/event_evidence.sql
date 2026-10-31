@@ -15,6 +15,10 @@
 --      only, then checked on the held-back years, which played no part in choosing it. 'held up'
 --      needs a clear pattern in-sample (|t| >= evidence_min_t), the same side working in the
 --      held-back years (t >= evidence_min_t), and a profit after round_trip_cost in both.
+--   3. Only markets the test can judge. Stock and commodity perpetuals began in December 2025, so
+--      they have no in-sample years to choose a side on. Their moves are left out, not averaged in
+--      with crypto's, and the page shows them as not tested. This leaves the in-sample years as
+--      they were: the side and the in-sample result of every kind of move are unchanged by it.
 --
 -- Rebuilt on every run from intraday_events (cheap).
 
@@ -32,6 +36,7 @@ with by_horizon as (
                                  else e.fwd_return_24h end        as continuation
     from {{ ref('intraday_events') }} e
     cross join (values (1), (4), (24)) as h(horizon_hours)
+    where e.market_type in ('crypto', 'other')
 ),
 
 -- Each event counts in its own kind of move and in the 'all' row of its direction, in its own

@@ -6,6 +6,7 @@ profile: medusa_lakehouse
 model-paths: ["models"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
+seed-paths: ["seeds"]
 test-paths: ["tests"]
 clean-targets: ["target", "dbt_packages"]
 
@@ -39,6 +40,15 @@ snapshots:
       domain: market
       layer: silver
       personal_data: "false"
+
+# Reference lists kept as files in the repository. dbt build loads them on every run. dbt doesn't tag
+# seeds, so the job lakehouse-tag-tables does (sql/governance/001_table_tags.sql).
+seeds:
+  medusa_lakehouse:
+    +schema: silver
+    +persist_docs:
+      relation: true
+      columns: true
 
 # Settings for the live scanner's evidence (intraday_events, event_evidence). Changing one needs
 # a rebuild of those two tables, which happens on every run anyway.
