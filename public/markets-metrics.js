@@ -22,7 +22,8 @@
 //   binance_markets   each market's type from Binance's contract list, and yesterday's close from
 //                     Binance's daily candle until the lakehouse has published yesterday
 //   market_events     every unusual move since 2020 and what followed (gold.intraday_events), and
-//   market_hours      the whole market's move in each UTC hour by year (gold.hour_drift): the
+//   market_hours      the whole market's move in each UTC hour by year (gold.hour_drift), and
+//   market_outcomes   how past moves turned out, with the worst 5% each way (gold.move_outcomes): the
 //                     Insights data, one gzip file loaded when Insights opens (lakehouse step 32)
 // Parameters, filled in by the page:
 //   :kind       the type chosen at the top of the page: all, crypto, stock, commodity or other. A query
@@ -38,7 +39,8 @@
 // How a result is shown: `columns` gives each column's label and format (a column a query returns
 // that isn't listed is shown as it comes); `card` is a summary card's text, where {column:format} is
 // filled in from the first row; `chart` draws the result as a graph (markets-charts.js), and `drill`
-// is what a click on a table's row opens.
+// is what a click on a table's row opens. A column's `under` adds a small second line to its cells, and
+// its own `drill` makes its cells open something else than the row.
 // The same rule as the lakehouse's intraday_events.sql: a move is unusual at 3 or more of the market's
 // usual daily moves (|z| >= 3), in size bands 3-4, 4-6 and 6+.
 
@@ -452,6 +454,48 @@ WHERE market_type = :kind                           -- the type chosen at the to
 GROUP BY utc_hour, liquidity, period`,
   },
   {
+    id: 'past_kinds',
+    kind: 'model',
+    name: 'Past moves by kind',
+    description: 'Each kind of move on each type of market: how many moves there were, on how many days, and what they did next, over every year and from 2025 only (period held_back). The lakehouse calculates the percentiles once a day. With fewer than 20 days behind a number it stays empty, as in the verdicts.',
+    sql: `SELECT market_type,
+       direction,
+       z_band,
+       liquidity,
+       period,                                      -- all, or held_back (from 2025)
+       MAX(CASE WHEN horizon_hours = hours THEN moves END) AS moves,
+       MAX(CASE WHEN horizon_hours = hours THEN days END) AS days,
+       ROUND(100 * MAX(CASE WHEN horizon_hours = 1 AND days >= 20 THEN median_continuation END), 2) AS next_1h,
+       ROUND(100 * MAX(CASE WHEN horizon_hours = 4 AND days >= 20 THEN median_continuation END), 2) AS next_4h,
+       ROUND(100 * MAX(CASE WHEN horizon_hours = 24 AND days >= 20 THEN median_continuation END), 2) AS next_24h,
+       ROUND(100 * MAX(CASE WHEN horizon_hours = hours AND days >= 20 THEN hit_rate END), 0) AS kept_going_share,
+       ROUND(100 * MAX(CASE WHEN horizon_hours = hours AND days >= 20 THEN p95_continuation END), 2) AS worst_kept_going,
+       ROUND(100 * MAX(CASE WHEN horizon_hours = hours AND days >= 20 THEN p05_continuation END), 2) AS worst_turned_back
+FROM (SELECT *,
+             CASE :horizon WHEN 1 THEN 1 WHEN 24 THEN 24 ELSE 4 END AS hours   -- the hours chosen
+      FROM market_outcomes) o
+GROUP BY market_type, direction, z_band, liquidity, period`,
+  },
+  {
+    id: 'past_own',
+    kind: 'model',
+    name: 'Each market\'s own past moves',
+    description: 'How many unusual moves each market that is unusual now has had, by direction and type, and what the middle one did over the hours chosen, from 5 moves on. The type is kept because a ticker can change hands.',
+    sql: `SELECT symbol,
+       market_type,
+       direction,
+       COUNT(*) AS moves,
+       CASE WHEN COUNT(*) >= 5 THEN ROUND(MEDIAN(over_hours), 2) END AS median_pct
+FROM (SELECT symbol, market_type, direction,
+             100 * CASE WHEN direction = 'up' THEN 1 ELSE -1 END
+                 * CASE :horizon WHEN 1 THEN fwd_return_1h WHEN 24 THEN fwd_return_24h ELSE fwd_return_4h END
+               AS over_hours
+      FROM market_events
+      WHERE symbol IN (SELECT symbol FROM flagged)) e   -- only the markets unusual now: this runs every second
+WHERE over_hours IS NOT NULL
+GROUP BY symbol, market_type, direction`,
+  },
+  {
     id: 'insight_live_map',
     kind: 'metric',
     name: 'Every market right now',
@@ -482,6 +526,61 @@ WHERE t.z IS NOT NULL
   AND t.volume_x > 0
   AND :kind IN ('all', t.market_type)
   AND :direction IN ('all', CASE WHEN t.z > 0 THEN 'up' ELSE 'down' END)`,
+  },
+  {
+    id: 'playbook',
+    kind: 'metric',
+    name: 'Playbook for the unusual markets',
+    description: 'Each market that is unusual right now, and what past moves of the same kind on the same type of market did next: the middle move over 1, 4 and 24 hours, how often they kept going, how far the worst 5% went either way, and the market\'s own past. Before costs. Live.',
+    show: 100,
+    columns: [COL.market, { ...COL.z, format: 'z_tag' },
+      { name: 'kind_of_move', label: 'Kind of move', title: 'Direction, size in usual daily moves, and liquidity: the same groups as the verdicts' },
+      { name: 'moves', label: 'Past moves', format: 'int', under: { col: 'days', text: 'on {} days', format: 'int' }, title: 'Past moves of this kind on this type of market, and the days they fell on' },
+      ...[1, 4, 24].map((h) => ({ name: `next_${h}h`, label: `Next ${h} h`, format: 'pct', under: { col: `recent_${h}h`, text: 'from 2025 {}', format: 'pct' }, title: `The middle past move ${h} ${h === 1 ? 'hour' : 'hours'} later: + kept going, − turned back` })),
+      { name: 'kept_going_share', label: 'Kept going', format: 'share', under: { col: 'recent_kept_going', text: 'from 2025 {}', format: 'share' }, title: 'The share of past moves that kept going over the hours chosen' },
+      { name: 'worst_kept_going', label: 'Worst 5%: kept going', format: 'pct', under: { col: 'recent_worst_kept_going', text: 'from 2025 {}', format: 'pct' }, title: '1 past move in 20 kept going at least this far by the end of the hours chosen: what a fade has to survive' },
+      { name: 'worst_turned_back', label: 'Worst 5%: turned back', format: 'pct', under: { col: 'recent_worst_turned_back', text: 'from 2025 {}', format: 'pct' }, title: '1 past move in 20 turned back at least this far by the end of the hours chosen: what following a move has to survive' },
+      { name: 'own_median', label: 'Its own past', format: 'pct', under: { col: 'own_moves', text: '{} moves', format: 'int' }, title: 'The middle of this market\'s own past moves in this direction, over the hours chosen, from 5 moves on. Click for them',
+        drill: { panel: 'moves', set: { kind: 'market_type', direction: 'direction', symbol: 'market' } } },
+      { name: 'verdict', label: 'Verdict', format: 'verdict', title: 'The tested verdict for this kind of move over the hours chosen' },
+      ...['days', 'recent_1h', 'recent_4h', 'recent_24h', 'recent_kept_going', 'recent_worst_kept_going', 'recent_worst_turned_back', 'own_moves', 'market_type', 'direction', 'z_band', 'liquidity'].map((name) => ({ name, format: 'hidden' }))],
+    drill: { panel: 'moves', set: { kind: 'market_type', direction: 'direction', z_band: 'z_band', liquidity: 'liquidity' } },
+    sql: `SELECT f.symbol AS market,
+       ROUND(f.z, 1) AS z,
+       CONCAT(CASE f.direction WHEN 'up' THEN 'Up ' ELSE 'Down ' END, f.z_band, 'σ, ', f.liquidity) AS kind_of_move,
+       CASE WHEN f.tested = 0 THEN 'not tested'
+            ELSE CASE :horizon WHEN 1 THEN v.next_1h WHEN 24 THEN v.next_24h ELSE v.next_4h END
+       END AS verdict,
+       COALESCE(a.moves, 0) AS moves,               -- past moves of the same kind on the same type of market
+       COALESCE(a.days, 0) AS days,
+       a.next_1h,                                   -- the middle move, all years
+       a.next_4h,
+       a.next_24h,
+       r.next_1h AS recent_1h,                      -- the same, from 2025 only
+       r.next_4h AS recent_4h,
+       r.next_24h AS recent_24h,
+       a.kept_going_share,                          -- over the hours chosen, like the next four
+       r.kept_going_share AS recent_kept_going,
+       a.worst_kept_going,
+       r.worst_kept_going AS recent_worst_kept_going,
+       a.worst_turned_back,
+       r.worst_turned_back AS recent_worst_turned_back,
+       o.median_pct AS own_median,                  -- this market's own past moves in this direction
+       COALESCE(o.moves, 0) AS own_moves,
+       f.market_type,                               -- for the click
+       f.direction,
+       f.z_band,
+       f.liquidity
+FROM flagged f
+LEFT JOIN past_kinds a ON a.period = 'all' AND a.market_type = f.market_type AND a.direction = f.direction
+                      AND a.z_band = f.z_band AND a.liquidity = f.liquidity
+LEFT JOIN past_kinds r ON r.period = 'held_back' AND r.market_type = f.market_type AND r.direction = f.direction
+                      AND r.z_band = f.z_band AND r.liquidity = f.liquidity
+LEFT JOIN past_own o ON o.symbol = f.symbol AND o.market_type = f.market_type AND o.direction = f.direction
+LEFT JOIN verdicts v ON v.direction = f.direction AND v.z_band = f.z_band AND v.liquidity = f.liquidity
+WHERE :kind IN ('all', f.market_type)
+  AND :direction IN ('all', f.direction)
+ORDER BY ABS(f.z) DESC`,
   },
   {
     id: 'insight_patterns_map',

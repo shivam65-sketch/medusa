@@ -5,6 +5,8 @@ app's menu and on the sign-in page); each release adds a section here with the s
 
 ## Unreleased
 
+- Markets, **Insights**: the **playbook**, one row for each market unusual right now: how many past moves of the same kind on the same type of market there were and on how many days, the middle move over the next 1, 4 and 24 hours, how often they kept going, how far the worst 5% went either way, the market's own past and the tested verdict, with the same numbers from 2025 underneath. A click on a row opens the moves behind it.
+- Market data lakehouse (step 32.2): `gold.move_outcomes`, how past moves turned out by type of market, kind of move, hours and period, with the 5th and 95th percentiles. It goes to the browser in the Insights file. 15 more tests, 170 in all.
 - Markets: a second click on a choice removes it: Markets and Moves go back to All, and Over to no hours chosen, where *Every kind of move at a glance* shows all three. The graphs of past moves then use the next 4 hours, and the page says so.
 - Markets: fixed the ‹› window showing an earlier filter. Each graph had one window, which kept the query it opened with, so changing a filter and pressing ‹› showed the old code. Each choice now gets its own window, so two can be compared.
 - Markets: the SQL in a ‹› window now shows the choices in plain words: `direction = 'down'` and `fwd_return_4h`, not a number inside a `CASE`.

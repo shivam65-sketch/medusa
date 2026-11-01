@@ -101,6 +101,18 @@ INSIGHTS = {
          "up_days": int, "avg_return": float, "sd_return": float, "t_stat": float},
         ["year", "period", "utc_hour", "liquidity", "market_type"],
     ),
+    "market_outcomes": (
+        """
+        select market_type, direction, z_band, liquidity, horizon_hours, period, moves, days,
+               round(median_continuation, 6) as median_continuation, round(hit_rate, 4) as hit_rate,
+               round(p05_continuation, 6) as p05_continuation, round(p95_continuation, 6) as p95_continuation
+        from market.gold.move_outcomes
+        order by market_type, direction, z_band, liquidity, horizon_hours, period""",
+        {"market_type": str, "direction": str, "z_band": str, "liquidity": str, "horizon_hours": int, "period": str,
+         "moves": int, "days": int, "median_continuation": float, "hit_rate": float, "p05_continuation": float,
+         "p95_continuation": float},
+        ["market_type", "direction", "z_band", "liquidity", "horizon_hours", "period"],
+    ),
 }
 INSIGHTS_MAX_BYTES = 10 * 1024 * 1024
 

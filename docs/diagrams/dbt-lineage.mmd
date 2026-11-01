@@ -26,6 +26,7 @@ flowchart TB
     ie["intraday_events<br>coin x day, unusual moves since 2020"]
     ee["event_evidence<br>kind of move x horizon"]
     hd["hour_drift<br>year x UTC hour x liquidity"]
+    mo["move_outcomes<br>type x kind of move x horizon x period"]
   end
   bk --> c1
   bm --> m5
@@ -46,5 +47,6 @@ flowchart TB
   c1h --> cb
   dc --> cb
   all --> ie --> ee
+  ie --> mo
   mt --> ie
   all --> hd

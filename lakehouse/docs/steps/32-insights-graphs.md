@@ -4,10 +4,10 @@
 
 | | |
 |---|---|
-| **Built** | 32.1: 2026-10-26 to 30 · 32.2.1: 2026-11-01 · the rest of 32.2 and 32.3: next |
+| **Built** | 32.1: 2026-10-26 to 30 · 32.2.1 and 32.2.2: 2026-11-01 · the rest of 32.2 and 32.3: next |
 | **Commits** | 32.1: `26a06bb` (the graph engine, the Insights view and these docs) · the live results · 32.2.1: `5ba4cbe`, `82339e1`, `cedf351`, `0f8faeb`, `849876a`, `d35f7f8` |
-| **Files** | [`dbt/models/gold/hour_drift.sql`](../../dbt/models/gold/hour_drift.sql) (the market by hour, every year) and its test · [`serving/publish_to_medusa.py`](../../serving/publish_to_medusa.py) (the Insights file) · [`sql/seed/003_metric_definitions_insights.sql`](../../sql/seed/003_metric_definitions_insights.sql) (version 1 of the 16 definitions) · `databricks.yml` (the seed task) · MEDUSA: [`public/markets-charts.js`](../../../public/markets-charts.js) (the graphs), `public/markets.js`, `public/markets-metrics.js`, `public/markets-sql.js`, `public/markets-window.js`, `src/market.js`, `src/metrics.js`, `src/worker.js` |
-| **Decisions** | [ADR-034](../decisions.md#adr-034-the-insights-history-goes-to-medusa-as-one-gzip-file-kept-as-it-is) · [ADR-035](../decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page) · [ADR-037](../decisions.md#adr-037-market-type-comes-from-a-reference-list-and-only-tested-markets-get-a-verdict) |
+| **Files** | [`dbt/models/gold/hour_drift.sql`](../../dbt/models/gold/hour_drift.sql) (the market by hour, every year) and its test · [`serving/publish_to_medusa.py`](../../serving/publish_to_medusa.py) (the Insights file) · [`sql/seed/003_metric_definitions_insights.sql`](../../sql/seed/003_metric_definitions_insights.sql) (version 1 of the 16 definitions) · `databricks.yml` (the seed task) · MEDUSA: [`public/markets-charts.js`](../../../public/markets-charts.js) (the graphs), `public/markets.js`, `public/markets-metrics.js`, `public/markets-sql.js`, `public/markets-window.js`, `src/market.js`, `src/metrics.js`, `src/worker.js` · [`dbt/models/gold/move_outcomes.sql`](../../dbt/models/gold/move_outcomes.sql) (how moves turned out) and its test |
+| **Decisions** | [ADR-034](../decisions.md#adr-034-the-insights-history-goes-to-medusa-as-one-gzip-file-kept-as-it-is) · [ADR-035](../decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page) · [ADR-037](../decisions.md#adr-037-market-type-comes-from-a-reference-list-and-only-tested-markets-get-a-verdict) · [ADR-038](../decisions.md#adr-038-how-far-moves-went-is-a-gold-table-not-a-query-on-the-page) |
 
 ## Goal
 
@@ -329,13 +329,116 @@ already open was brought to the front with the query it opened with. Reproduced 
 | `dim_market_type` | Tagged `domain`, `layer` and `personal_data` |
 | The owner, on the live site | Confirmed the page works after run 11 |
 
+## 32.2.2: the playbook
+
+**Patterns** says whether a kind of move has an edge. It doesn't say what to expect from the market in front
+of you, or how badly it can go. The playbook is one row per market that is unusual right now, on Insights:
+
+| Column | What it says |
+|---|---|
+| **Kind of move** | Direction, size in usual daily moves, and liquidity: the same groups as the verdicts |
+| **Verdict** | The tested verdict over the hours chosen, or *not tested* for stocks and commodities |
+| **Past moves** | How many moves of this kind on this type of market, and on how many days |
+| **Next 1, 4 and 24 h** | The middle move: + kept going, − turned back |
+| **Kept going** | The share that kept going over the hours chosen |
+| **Worst 5%: kept going** | 1 move in 20 kept going at least this far: what a fade has to survive |
+| **Worst 5%: turned back** | 1 move in 20 turned back at least this far: what following has to survive |
+| **Its own past** | The middle of this market's own past moves in this direction, and how many |
+
+From **Next 1 h** to the worst 5%, each number has the same from 2025 underneath. A click on a row opens the moves
+behind it, and a click on **Its own past** opens that market's own.
+
+### What the real data changed
+
+The first design was one number per cell. Looking at the moves first changed it:
+
+| Finding | What it changed |
+|---|---|
+| **The years disagree.** Crypto, down 4–6σ, large, next 4 h: −4.92% over all years with 17% kept going, but −0.03% and 48% from 2025 (23 moves on 7 days) | Each number shows from 2025 underneath, so an old market can't pass for today's |
+| **Moves bunch.** The 22 moves of down 6σ or more on large markets fell on 7 days. Of the 10 worst from 2025 for down 3–4σ on large markets, 6 were on 10 October 2025 | The count of moves sits above the count of days, and a number with fewer than 20 days behind it stays empty, the verdicts' rule |
+| **Stocks aren't crypto.** Over 4 hours the worst 5% of small stocks' up moves is about 3% either way, against 9% to 11% for mid crypto | A move is compared with moves on its own type of market |
+| **The extremes are real.** The biggest moves are 19 May 2021, LUNA and ANC in May 2022, and short squeezes, not bad data. Checked one by one | They stay in: they are what the column is for |
+
+**Which way is "worst"?** It depends on the side you take, so both are shown, in the page's usual signs.
+
+### Why the heavy part is a gold table
+
+The first version calculated everything on the page, with `NTILE(20)` and `MEDIAN`. It took **1.6 seconds**
+on the real moves, and the page runs its queries every second. So `gold.move_outcomes` calculates the
+percentiles once a day, in 3.6 seconds, and the page only joins 387 finished rows to the live markets
+([ADR-038](../decisions.md#adr-038-how-far-moves-went-is-a-gold-table-not-a-query-on-the-page)). The table goes to the browser inside the Insights file, as a third table, so D1 and the
+scanner's answer don't change.
+
+| Query, on a busy day of 40 unusual markets | Time |
+|---|---:|
+| The first version's percentiles on the page | 1,566 ms |
+| `playbook`, as built | 16 to 35 ms |
+
+The model is grouped by type of market, direction, `z_band`, `liquidity`, horizon and period (`in_sample`,
+`held_back`, `all`), and `percentile()` does the work. In SQL Server terms: `PERCENTILE_CONT(0.05) WITHIN
+GROUP (ORDER BY continuation)`, run overnight into a summary table a report joins to.
+
+### What was built
+
+- **`gold.move_outcomes`:** moves, days, median, hit rate and the 5th and 95th percentiles of continuation,
+  387 rows. `assert_move_outcomes_valid` checks it adds up to `intraday_events`, and 14 generic tests check
+  its keys and values: 170 tests in all.
+- **The publish job:** a third table, `market_outcomes`, in the Insights file. MEDUSA takes a file with or
+  without it, so a daily run between two deploy steps can't fail.
+- **Three definitions** (`sql/seed/008`, task `seed_playbook`): the models `past_kinds` and `past_own` and the
+  table `playbook`. They follow **Markets**, **Moves** and **Over**. The table's percentiles for each hours
+  chosen are already in the file, so no choice recalculates them.
+- **The page:** a table can now sit on Insights beside the graphs, a column can have a small second line
+  (`under`) and its own click (`drill`), and a click can choose the type of market as well as the direction.
+  Its window follows the same rule as a graph's.
+
+### Limits
+
+- **End of the hours, not the worst point.** `intraday_events` has the price 1, 4 and 24 hours later, not
+  what happened between, so a stop can be hit sooner than the worst 5% suggests. Worth adding for the risk table.
+- **The clock starts when a move first became unusual.** A market flagged hours ago has used part of it.
+- **Before costs,** and funding isn't counted.
+- **It describes, it doesn't test.** Only the **Verdict** column has passed a test. A number here that looks
+  good is an idea to test, like a graph.
+- **Its own past is a handful of moves:** a median from 5 on, shown with its count.
+
+### Problems we hit
+
+| Problem | What happened | Fix |
+|---|---|---|
+| **The two engines disagreed on two numbers** | My test put the rows in a table with no column types. The browser's `MEDIAN` (sql.js's extension) looks at the first value of a group, and when that is a whole number it treats every value as one: 0, −0.5, −0.27, −0.1 gives 0. The page's columns are `REAL`, so it isn't affected | Tested with the engine's real schema: every number agrees. Any new `MEDIAN` must read a `REAL` value |
+| **The timing looked fine, then didn't** | The same bug made the first test look like 0.5 seconds, because whole numbers sort quickly. With real values it was 1.6 | Moved to gold. A speed test only counts on the real schema |
+| **`past_own` took 89 of the playbook's 100 ms** | Written as a join, SQLite read all 21,000 moves and looked up the live markets for each one | `WHERE symbol IN (SELECT symbol FROM flagged)`: it now reads only those markets' moves, through the key |
+| **The ‹› window showed `CASE 24 WHEN 1 THEN v.next_1h`** | The right answer, but the page writes the hours chosen into a query, and its pattern didn't allow a dot in a column name | The pattern takes `v.next_24h`, so the window shows the one column that runs |
+
+### Checked
+
+| Check | Result |
+|---|---:|
+| `move_outcomes` as a read-only query on the real tables | 387 rows in 3.6 s |
+| `assert_move_outcomes_valid` on those rows | 0 bad rows: periods add up, and each horizon matches `intraday_events` |
+| The full `playbook` query in SQLite and in Databricks, 1, 4 and 24 hours, 40 markets | 2,880 cells, 0 different |
+| The page's numbers against the gold rows, POWR, each hours choice | The same |
+| A row's click against the table: 929 moves on 490 days, −2.88%, 37% | The window shows the same |
+| **Its own past**'s click: 18 moves, −0.52% | The window shows the same |
+| **Markets**, **Moves**, **Over**, and a second click on each | Each changes the rows or numbers, and removes itself |
+| A file with no `market_outcomes` (the gap between deploy steps) | Accepted; the graphs draw and the table says the numbers come with the next publish. A bad `x-rows` is refused |
+| A phone | The table scrolls in its box; the page doesn't |
+
+The test browser's pane was hidden, which slows its timers, so a real click's speed couldn't be measured there.
+Changing **Over** recalculates all seven graphs, which took about 0.5 seconds outside the browser; the
+playbook is about 20 ms of that.
+
+### Live result
+
+To be added after the first publish.
+
 ## Next: 32.2 and 32.3
 
 - **Before them:** [step 32a](32a-missing-days.md), the missing-days check, and filling 28 October
   (October's monthly 1-minute file, expected around 2 November, if it holds that day; otherwise the live
   API).
-- **The rest of 32.2, from data already here:** a playbook table per live unusual market (similar past moves, median
-  next 1/4/24 h, how often it kept going, the worst 5%), crowded or alone (a move on a day many markets
+- **The rest of 32.2, from data already here:** crowded or alone (a move on a day many markets
   moved against one on its own), positioning from `fct_metrics_5m` (open interest against price, the
   long/short ratio, aggressive-buy share), regime gauges and a risk table.
 - **32.3, on-chain from the free sources:** DefiLlama (stablecoins, chain TVL, DEX volume, fees),

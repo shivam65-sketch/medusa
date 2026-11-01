@@ -86,6 +86,8 @@ const SHARED = ['market_baseline', 'market_evidence', 'market_missing_days', 'ma
 const LATER = ['market_metrics', 'market_missing_days'];
 // The Insights data (lakehouse step 32), one file in KV; only its publish records are in the answer.
 const INSIGHTS = ['market_events', 'market_hours'];
+// Added later: a file from a publish job that doesn't send it yet is still taken.
+const INSIGHTS_LATER = ['market_outcomes'];
 
 const fits = {
   [TEXT]: (v) => typeof v === 'string' && v.length <= 40,
@@ -192,7 +194,7 @@ const INSIGHTS_MAX = 10 * 1024 * 1024;
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 
 /** PUT /api/market/insights: the Insights file. Headers: x-as-of (the lakehouse day) and x-rows
- * ({"market_events": n, "market_hours": n}), which the publish records keep. */
+ * ({"market_events": n, "market_hours": n, "market_outcomes": n}), which the publish records keep. */
 export async function insightsPut(req, env) {
   if (!env.MARKET_INGEST_TOKEN) return fail(503, 'Market data is not set up: the MARKET_INGEST_TOKEN secret is missing.');
   if (!(await hasBearer(req, env.MARKET_INGEST_TOKEN))) return fail(401, 'Wrong or missing token.');
@@ -200,8 +202,9 @@ export async function insightsPut(req, env) {
   if (!fits[DATE](asOf)) return fail(400, 'x-as-of must be a date, YYYY-MM-DD.');
   let rows = null;
   try { rows = JSON.parse(req.headers.get('x-rows') || 'null'); } catch { /* checked below */ }
-  if (!rows || typeof rows !== 'object' || Object.keys(rows).length !== INSIGHTS.length
-      || INSIGHTS.some((t) => !Number.isInteger(rows[t]) || rows[t] < 1)) {
+  const tables = rows && typeof rows === 'object' ? Object.keys(rows) : [];
+  if (INSIGHTS.some((t) => !tables.includes(t)) || tables.some((t) => ![...INSIGHTS, ...INSIGHTS_LATER].includes(t))
+      || tables.some((t) => !Number.isInteger(rows[t]) || rows[t] < 1)) {
     return fail(400, `x-rows must give the rows of ${INSIGHTS.join(' and ')}, as JSON.`);
   }
   if (Number(req.headers.get('content-length') || 0) > INSIGHTS_MAX) return fail(413, 'That file is too big.');
@@ -213,7 +216,7 @@ export async function insightsPut(req, env) {
   const publishedAt = Date.now();
   await env.LAB.put(INSIGHTS_KEY, body, { metadata: { as_of: asOf, rows, sha256, bytes: body.byteLength, published_at: publishedAt } });
   const db = env.DB;
-  await db.batch(INSIGHTS.map((t) => db.prepare(
+  await db.batch(tables.map((t) => db.prepare(
     `INSERT INTO market_publish (tbl, as_of, rows, published_at) VALUES (?1, ?2, ?3, ?4)
      ON CONFLICT(tbl) DO UPDATE SET as_of = ?2, rows = ?3, published_at = ?4`).bind(t, asOf, rows[t], publishedAt)));
   // The scanner's answer carries the publish records, so pages learn there is a new file.

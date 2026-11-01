@@ -257,6 +257,22 @@ have no 2020–2024 years, and a tendency found on crypto says nothing about App
 their past moves, but no verdict, and the evidence covers crypto and other markets only
 ([ADR-037](decisions.md#adr-037-market-type-comes-from-a-reference-list-and-only-tested-markets-get-a-verdict)).
 
+## How do I read the playbook?
+
+Insights has one row for each market that is unusual right now. Read it left to right: the kind of move, its tested
+verdict, how many past moves of that kind there were on that type of market and on how many days, what the middle one
+did over the next 1, 4 and 24 hours, how often they kept going, and how far the worst 5% went either way. Under those
+numbers is the same from 2025: where the two disagree, the older years are pulling the first one. **Worst 5%: kept going**
+is what a fade has to survive and **turned back** what following has to survive, both at the end of the hours, so a stop
+can be hit sooner. Only the verdict has passed a test; the rest describes what happened, before costs
+([step 32.2.2](steps/32-insights-graphs.md#3222-the-playbook)).
+
+## Why is the playbook's history in gold, when the other graphs are calculated on the page?
+
+Each percentile sorts every move, which took 1.6 seconds in the browser, and the page runs its live queries every second.
+`gold.move_outcomes` does it once a day, and the page's query only joins finished numbers to the live markets
+([ADR-038](decisions.md#adr-038-how-far-moves-went-is-a-gold-table-not-a-query-on-the-page)).
+
 ## Why does the Insights history come as a file, not from MEDUSA's database?
 
 It is about 21,000 rows, and only the browsers read it. Checking and writing that many rows into D1 every

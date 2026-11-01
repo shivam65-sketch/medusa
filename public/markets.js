@@ -24,7 +24,7 @@
 // Each ‹› button opens one number's or graph's calculation in its own window (markets-window.html):
 // the same code with its own data, engine and live prices, running only that window's queries.
 
-import { DEFINITIONS } from './markets-metrics.js?v=7';
+import { DEFINITIONS } from './markets-metrics.js?v=8';
 import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=3';
 
 const RULE = { z: 3 };
@@ -32,7 +32,7 @@ const RULE = { z: 3 };
 const PUBLISHED_BY = 'usually by 20:00 UTC';
 const STREAM ='wss://fstream.binance.com/market/ws/!miniTicker@arr';
 const REST = 'https://fapi.binance.com/fapi/v1';
-const ENGINE = '/markets-sql.js?v=5';
+const ENGINE = '/markets-sql.js?v=6';
 const DAY = 86_400_000;
 const CHECK_EVERY = 5 * 60_000;   // how often an open page asks whether the lakehouse has published
 const HORIZONS = [1, 4, 24];
@@ -128,11 +128,11 @@ const tidy = (s) => s.replace(/ {3,}--/g, '  --');   // each comment right after
 // MEDUSA's copies are named after what they copy; in Databricks a query reads the lakehouse's own tables.
 const DBX_TABLES = {
   market_baseline: 'market.gold.coin_baseline', market_evidence: 'market.gold.event_evidence',
-  market_events: 'market.gold.intraday_events', market_hours: 'market.gold.hour_drift',
+  market_events: 'market.gold.intraday_events', market_hours: 'market.gold.hour_drift', market_outcomes: 'market.gold.move_outcomes',
 };
-const toDbx = (sql) => sql.replace(/\b(market_baseline|market_evidence|market_events|market_hours)\b/g, (t) => DBX_TABLES[t]);
+const toDbx = (sql) => sql.replace(/\b(market_baseline|market_evidence|market_events|market_hours|market_outcomes)\b/g, (t) => DBX_TABLES[t]);
 // The Insights tables: in the browser only after the Insights file has loaded, and not in D1.
-const SNAPSHOT = ['market_events', 'market_hours'];
+const SNAPSHOT = ['market_events', 'market_hours', 'market_outcomes'];
 const LIVE = ['live_prices', 'binance_markets'];
 
 /** A query with the page's parameters written in as their values, so the SQL on screen (and the SQL
@@ -146,7 +146,7 @@ export function fill(sql, params) {
     .replace(/:kind\s+IN\s*\(\s*'all'\s*,\s*([A-Za-z_][\w.]*)\s*\)/gi, choice('kind', 'all'))
     .replace(/:direction\s+IN\s*\(\s*'all'\s*,\s*([A-Za-z_][\w.]*)\s*\)/gi, choice('direction', 'all'))
     .replace(/:horizon\s+IN\s*\(\s*0\s*,\s*([A-Za-z_][\w.]*)\s*\)/gi, choice('horizon', 0))
-    .replace(/CASE\s+:horizon\s+WHEN\s+1\s+THEN\s+(\w+)\s+WHEN\s+24\s+THEN\s+(\w+)\s+ELSE\s+(\w+)\s+END/gi,
+    .replace(/CASE\s+:horizon\s+WHEN\s+1\s+THEN\s+([\w.]+)\s+WHEN\s+24\s+THEN\s+([\w.]+)\s+ELSE\s+([\w.]+)\s+END/gi,
       (m, one, day, four) => (!('horizon' in params) ? m : ({ 1: one, 24: day }[params.horizon] || four)))
     .replace(/:([a-z_]+)\b/g, (m, k) => (k in params ? literal(params[k]) : m));
 }
@@ -217,6 +217,8 @@ function readsSnapshot(def, defs = DEFS) {
 const INSIGHTS = [
   { id: 'insight_live_map', panel: 'ins_live', wide: true,
     how: 'Right of the middle is up today, left is down; higher means more volume than on a usual day. A big move on heavy volume is usually news; a big move on thin volume turns back more easily. <b>Blue</b> dots are unusual and their kind of move held up over the hours chosen (see Patterns); <b>orange</b> ones are unusual with no tested edge over those hours. <b>All, Up or Down moves</b> show markets moving either way, up or down today. Click a dot for that market\'s numbers.' },
+  { id: 'playbook', panel: 'ins_playbook', wide: true, table: true,
+    how: () => `<b>Past moves</b> counts moves of the same direction, size and liquidity on the same type of market, and the days they fell on: moves bunch on crash days, so the days say how much evidence there really is. <b>Next 1, 4 and 24 h</b> are the middle move (+ kept going, − turned back), with the same from 2025 underneath: where the two disagree, the older years are pulling the first number. <b>Kept going</b>, the <b>worst 5%</b> and <b>its own past</b> are over the next ${S.hz === 1 ? 'hour' : `${S.hz || 4} hours`}. The worst 5% that kept going is what a fade has to survive; the worst 5% that turned back is what following has to survive. They are measured at the end of the hours, not the worst point along the way, so a stop can be hit sooner, and they often come from a few crash days. Everything is before costs and stays empty with fewer than 20 days behind it. The clock starts when a move first became unusual, so for a market flagged hours ago part of it has already passed. Click a row for the moves behind it, or the number under <b>Its own past</b> for this market's own.` },
   { id: 'insight_patterns_map', panel: 'ins_patterns', wide: true,
     how: '<b>Blue</b>: moves of that kind kept going on average; <b>red</b>: they turned back. The words are each verdict; only <b>fade</b> or <b>follow</b> with a result passed the test on 2025 onwards after costs. Click a cell for the moves behind it.' },
   { id: 'insight_by_year', panel: 'ins_year',
@@ -335,6 +337,12 @@ function fillCard(tpl, res) {
   return tpl.replace(/\{(\w+)(?::(\w+))?\}/g, (m, col, f) => (row && col in row ? (FMT[f] || FMT.auto)(row[col], row) : '–'));
 }
 
+/** A column's small second line: `under` names the column, its format and the words around it. */
+function underLine(u, row) {
+  const [before, after] = u.text.split('{}');
+  return `<span class="mkt-under">${esc(before)}${(FMT[u.format] || FMT.auto)(row[u.col], row, u)}${esc(after || '')}</span>`;
+}
+
 /** A query's result as a table, each column shown by its format (columns the definition doesn't list
  * are shown as they come). `row` adds attributes to each row; `extra` adds columns kept by the page. */
 function resultTable(res, def, { row = null, extra = [] } = {}) {
@@ -347,7 +355,9 @@ function resultTable(res, def, { row = null, extra = [] } = {}) {
   const body = objs.map((o) => `<tr${row ? ` ${row(o)}` : ''}>${cols.map((c) => {
     const v = o[c.name];
     const cls = c.format === 'market' ? ' class="sym"' : left(c, v) ? ' class="l"' : '';
-    return `<td${cls}>${(FMT[c.format] || FMT.auto)(v, o, c)}</td>`;
+    const text = (FMT[c.format] || FMT.auto)(v, o, c);
+    const cell = c.drill ? `<span class="mkt-link"${drillAttrs(c, o)} tabindex="0">${text}</span>` : text;
+    return `<td${cls}>${cell}${c.under ? underLine(c.under, o) : ''}</td>`;
   }).join('')}${extra.map((x) => `<td>${x.cell(o)}</td>`).join('')}</tr>`).join('');
   return `<div class="scroll-x"><table class="mkt-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
@@ -544,6 +554,7 @@ const SOURCES = {
   market_evidence: () => `What similar moves did next: MEDUSA's copy of the lakehouse's <code>gold.event_evidence</code>, built by ${ghLink('event_evidence.sql')}. Lakehouse day ${shortDay((S.data.published.market_evidence || {}).as_of)}.`,
   market_events: () => `Every unusual move since 2020 and the price 1, 4 and 24 hours later: MEDUSA's copy of the lakehouse's <code>gold.intraday_events</code>, built by ${ghLink('intraday_events.sql')}${insDay()}. It reaches this browser in one file when a graph needs it, and isn't in D1.`,
   market_hours: () => `The whole market's move in each UTC hour, by year and liquidity: MEDUSA's copy of the lakehouse's <code>gold.hour_drift</code>, built by ${ghLink('hour_drift.sql')}${insDay()}. In the same file.`,
+  market_outcomes: () => `How past moves turned out, by type of market, kind of move, hours and period, with the worst 5% each way: MEDUSA's copy of the lakehouse's <code>gold.move_outcomes</code>, built by ${ghLink('move_outcomes.sql')}${insDay()}. In the same file.`,
 };
 const insDay = () => { const pub = S.data.published.market_events; return pub ? `. Lakehouse day ${shortDay(pub.as_of)}` : ''; };
 
@@ -611,7 +622,7 @@ const WINDOWS = {
   // Insights (lakehouse step 32): each graph's calculation, and the windows a click on a graph opens.
   ins_live: ['insight_live_map'], ins_patterns: ['insight_patterns_map'], ins_year: ['insight_by_year'],
   ins_spread: ['insight_spread'], ins_hour: ['insight_by_hour'], ins_group: ['insight_by_group'],
-  ins_drift: ['insight_hour_drift'],
+  ins_drift: ['insight_hour_drift'], ins_playbook: ['playbook'],
   moves: ['moves_summary', 'moves_spread', 'moves_by_year', 'moves_list'],
   drift: ['drift_by_year', 'drift_by_liquidity'],
 };
@@ -620,15 +631,15 @@ const WINDOWS = {
  * front as it is (it isn't reloaded). */
 function openWindow(panel, symbol, picks = null, choice = null) {
   const set = Object.entries(picks || {}).filter(([, v]) => v != null);
-  const c = choice || { dir: S.dir, hz: S.hz };
+  const c = { kind: S.kind, dir: S.dir, hz: S.hz, ...choice };
   // A window per thing picked and per choice at the top that its queries use: the same click brings the
   // same window back to the front, and another choice gets a window of its own. An open window is never
   // reloaded to follow the page: it may hold edits that aren't saved.
   const uses = new Set((WINDOWS[panel] || []).flatMap((id) => choicesIn(DEFS.get(id)).map(([p]) => p)));
-  const shown = [uses.has('kind') ? S.kind : null, uses.has('direction') ? c.dir : null, uses.has('horizon') ? c.hz : null].filter((v) => v != null);
+  const shown = [uses.has('kind') ? c.kind : null, uses.has('direction') ? c.dir : null, uses.has('horizon') ? c.hz : null].filter((v) => v != null);
   const which = [...shown, ...set.flat()].map((v) => `-${v}`).join('');
   const name = `medusa-calc-${panel}${symbol ? `-${symbol}` : ''}${which}`;
-  const url = `/markets-window?${new URLSearchParams({ panel, kind: S.kind, dir: c.dir, hz: String(c.hz), ...(symbol ? { symbol } : {}), ...Object.fromEntries(set.map(([k, v]) => [k, String(v)])) })}`;
+  const url = `/markets-window?${new URLSearchParams({ panel, kind: c.kind, dir: c.dir, hz: String(c.hz), ...(symbol ? { symbol } : {}), ...Object.fromEntries(set.map(([k, v]) => [k, String(v)])) })}`;
   const size = `width=${Math.min(1600, screen.availWidth - 40)},height=${Math.min(1000, screen.availHeight - 40)}`;
   const w = window.open('', name, `popup,${size}`);
   if (!w) { api.toast('The window was blocked: allow pop-ups for MEDUSA in the browser, then press ‹› again.', 'error'); return; }
@@ -647,9 +658,10 @@ function drill(el) {
   const panel = el.dataset.panel;
   if (panel === 'market') { const sym = PICKS.symbol(String(set.symbol ?? '')); if (sym) openWindow('market', sym); return; }
   if (!WINDOWS[panel]) return;
-  const picks = { ...(S.win ? S.win.picks : {}) }, choice = { dir: S.dir, hz: S.hz };
+  const picks = { ...(S.win ? S.win.picks : {}) }, choice = {};
   for (const [k, v] of Object.entries(set)) {
-    if (k === 'direction') { if (v === 'up' || v === 'down') choice.dir = v; }
+    if (k === 'kind') { if (validKind(v) === v) choice.kind = v; }
+    else if (k === 'direction') { if (v === 'up' || v === 'down') choice.dir = v; }
     else if (k === 'horizon') { if (HZS.some(([h]) => h === Number(v))) choice.hz = Number(v); }
     else if (k in PICKS) picks[k] = v == null ? null : PICKS[k](String(v));
   }
@@ -1078,6 +1090,8 @@ table.mkt-table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 .mkt-evc .v { color: var(--text-2); }
 .mkt-ev { font-weight: 700; color: var(--green); }
 .mkt-ev-all { font-size: 12px; color: var(--text-3); }
+.mkt-under { display: block; font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.mkt-link { text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
 .mkt-ev-all b { color: var(--green); font-weight: 600; }
 .mkt-tag { display: inline-block; padding: 1px 7px; border-radius: 5px; font-size: 12px; font-weight: 700; background: #2f2f2f; color: var(--text-2); }
 .mkt-tag.up { background: rgba(34, 197, 94, 0.15); color: var(--green); }
@@ -1251,7 +1265,7 @@ function shell() {
   <div id="mkt-today" class="view">
     <section class="kpis mkt-kpis" id="mkt-kpis" aria-label="The markets today"></section>
     <section class="card">
-      <div class="card-head"><div><h2>Unusual right now</h2><p>Markets that have moved at least ${RULE.z} of their usual daily moves today, and what similar moves did next. Tap a row for the details and how its numbers are calculated.</p></div>${srcBtn('unusual')}</div>
+      <div class="card-head"><div><h2>Unusual right now</h2><p>Markets that have moved at least ${RULE.z} of their usual daily moves today, and what similar moves did next. Tap a row for the details and how its numbers are calculated. The <b>playbook</b> on Insights shows how far moves like these went.</p></div>${srcBtn('unusual')}</div>
       <div id="mkt-unusual"></div>
     </section>
     <section class="card">
@@ -1724,6 +1738,16 @@ function chartBlock(id, key, box) {
     <details class="mkt-tbl" data-key="${esc(key)}" data-def="${esc(id)}"${open ? ' open' : ''}><summary>The result as a table (${res.rows.length} row${res.rows.length === 1 ? '' : 's'})</summary><div class="mkt-tbl-body">${open ? resultTable(res, d) : ''}</div></details>`;
 }
 
+/** A table on the Insights view: its query's result, each row opening what its drill names. */
+function tableBlock(id, key) {
+  const d = DEFS.get(id), res = S.res.get(key);
+  if (!res) return readsSnapshot(d) && !S.ins.gz ? insPending() : pending();
+  if (res.error) return failed(res);
+  if (!res.rows.length) return `<div class="mkt-empty">${S.live.size ? 'No market of this choice is unusual right now.' : 'Waiting for prices…'}</div>`;
+  if (S.ins.info && S.ins.info.rows && S.ins.info.rows.market_outcomes === 0) return '<div class="mkt-empty">The numbers behind this table come with the lakehouse\'s next publish.</div>';
+  return resultTable(res, d, { row: d.drill ? (o) => `${drillAttrs(d, o)} tabindex="0"` : null });
+}
+
 /** Which of the choices at the top a definition uses, read from its query, so it says what really
  * happens, whichever version is in use. */
 const CHOICES = [['kind', 'Markets'], ['direction', 'Moves'], ['horizon', 'Over']];
@@ -1744,7 +1768,7 @@ function paintInsights() {
     return `<section class="card mkt-ins${g.wide ? ' wide' : ''}">
         <div class="card-head"><div><h2>${esc(d.name)}</h2><p>${esc(d.description)}</p>${followsNote(d)}</div>${srcBtn(g.panel)}</div>
         <div id="mkt-ins-${g.id}" class="mkt-hold"></div>
-        <p class="mkt-key">${g.how}</p>
+        <p class="mkt-key">${typeof g.how === 'function' ? g.how() : g.how}</p>
       </section>`;
   }).join('')}</div>
     <p class="mkt-key">Every graph is a query, kept in the lakehouse with every version like the numbers on Today: press its ‹› to see it run, change it and preview your version. The history is almost all crypto, and it is research, not trading advice.</p>`;
@@ -1752,7 +1776,7 @@ function paintInsights() {
   put('mkt-insights', layout);
   if (fresh) for (const k of [...S.html.keys()]) if (k.startsWith('mkt-ins-')) S.html.delete(k);
   put('mkt-ins-status', `<div>${insStatus()}</div>`);
-  for (const g of INSIGHTS) put(`mkt-ins-${g.id}`, chartBlock(g.id, g.id, `mkt-ins-${g.id}`));
+  for (const g of INSIGHTS) put(`mkt-ins-${g.id}`, g.table ? tableBlock(g.id, g.id) : chartBlock(g.id, g.id, `mkt-ins-${g.id}`));
 }
 
 /* ---------- a ‹› window: one number's calculation on its own (markets-window.html) ---------- */

@@ -271,7 +271,7 @@ CREATE TABLE IF NOT EXISTS market_missing_days (
 
 -- One row per market table: when it was last published, for which day, and how many rows it holds.
 CREATE TABLE IF NOT EXISTS market_publish (
-  tbl TEXT PRIMARY KEY,              -- market_baseline | market_evidence | market_missing_days | market_metrics | market_user_metrics | market_events | market_hours
+  tbl TEXT PRIMARY KEY,              -- market_baseline | market_evidence | market_missing_days | market_metrics | market_user_metrics | the Insights file's tables | market_events | market_hours
   as_of TEXT,                        -- the lakehouse day the copy reflects
   rows INTEGER NOT NULL,
   published_at INTEGER NOT NULL      -- ms since 1970

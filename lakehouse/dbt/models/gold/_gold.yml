@@ -236,6 +236,72 @@ models:
       - name: avg_taker_buy_share
         description: Average share of aggressive buying in this hour.
 
+  - name: move_outcomes
+    description: >
+      Gold: how past unusual moves turned out, for the playbook on the Markets page. One row per type of
+      market, direction, z_band, liquidity, horizon (1, 4 or 24 hours) and period. Unlike event_evidence
+      it covers every type of market, each on its own, counts moves rather than days, and keeps the
+      tails. It describes what happened; the verdict stays in event_evidence. Rebuilt every run from
+      intraday_events.
+    columns:
+      - name: market_type
+        description: crypto, stock, commodity, other or unknown, as in intraday_events on the day of the move.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['crypto', 'stock', 'commodity', 'other', 'unknown']
+      - name: direction
+        description: up or down.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['up', 'down']
+      - name: z_band
+        description: 3-4, 4-6 or 6+.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['3-4', '4-6', '6+']
+      - name: liquidity
+        description: large, mid or small.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['large', 'mid', 'small']
+      - name: horizon_hours
+        description: 1, 4 or 24.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 4, 24]
+                quote: false
+      - name: period
+        description: in_sample (before held_back_from), held_back (from it on) or all (every year together).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['in_sample', 'held_back', 'all']
+      - name: moves
+        description: Moves with a forward return at this horizon.
+        data_tests: [not_null]
+      - name: days
+        description: Distinct days those moves fell on. Moves bunch on crash days, so this is how much evidence there really is.
+        data_tests: [not_null]
+      - name: median_continuation
+        description: The middle move's forward return in the direction of the move (a fraction, 0.01 = 1%). Negative means it turned back.
+      - name: hit_rate
+        description: Share of moves that kept going (continuation > 0).
+      - name: p05_continuation
+        description: 1 move in 20 turned back at least this far by the end of the horizon. What following a move has to survive.
+      - name: p95_continuation
+        description: 1 move in 20 kept going at least this far by the end of the horizon. What a fade has to survive.
+
   - name: hour_drift
     description: >
       Gold: the whole market's move in each UTC hour, judged by days, one row per year, period, UTC

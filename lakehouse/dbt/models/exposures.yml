@@ -26,6 +26,9 @@ exposures:
       - ref('coin_baseline')
       - ref('event_evidence')
       - ref('missing_days')
+      - ref('intraday_events')
+      - ref('hour_drift')
+      - ref('move_outcomes')
       - source('semantic', 'metric_definitions')
       - source('semantic', 'user_metric_definitions')
     owner:
@@ -33,5 +36,5 @@ exposures:
     config:
       tags: [serving]
       meta:
-        served_as: [market_baseline, market_evidence, market_missing_days, market_metrics, market_user_metrics]
+        served_as: [market_baseline, market_evidence, market_missing_days, market_metrics, market_user_metrics, market_events, market_hours, market_outcomes]
         refreshed: daily, by the publish step after the transform (usually by 20:00 UTC)

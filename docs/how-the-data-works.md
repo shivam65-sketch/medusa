@@ -112,7 +112,7 @@ page's answer is the same for every account, which is why it can be made once an
 | `silver.fct_candle_1h_archive` | 15,887,385 | | `gold.hour_drift` | 2,088 |
 | `silver.int_candle_1h_all` (view) | 16,494,486 | | `gold.coin_baseline` | 759 |
 | `silver.dim_coin` | 1,896 | | `gold.intraday_events` | 21,373 |
-| `silver.dim_market_type` | 924 | | | |
+| `silver.dim_market_type` | 924 | | `gold.move_outcomes` | 387 |
 | `semantic.metric_definitions` | 33 | | `gold.event_evidence` | 60 |
 | `semantic.user_metric_definitions` | 0 | | `ops.logs.etl_runs` | 27 |
 
@@ -144,6 +144,7 @@ Read it as a funnel: 52 million rows of candles become 36,000 coin-days, and tho
 | `gold.unusual_moves` | Flagged coin, day | `symbol`, `trade_date` | Rebuilt in full |
 | `gold.hour_profile` | Coin, UTC hour of the day | `symbol`, `utc_hour` | Rebuilt in full |
 | `gold.hour_drift` | Year, period, UTC hour, liquidity, market type | All five | Rebuilt in full |
+| `gold.move_outcomes` | Type of market, kind of move, horizon, period | All six | Rebuilt in full |
 | `gold.coin_baseline` | Coin | `symbol` | Rebuilt in full |
 | `gold.intraday_events` | Coin, day, at most one | `symbol`, `event_date` | Rebuilt in full |
 | `gold.event_evidence` | Direction, size band, liquidity, horizon | All four | Rebuilt in full |
@@ -159,7 +160,8 @@ Two lines of descent are worth knowing:
 
 - **The recent line:** minute candles → hours → days → `coin_baseline`. It starts at 2026-09-18 and feeds
   the live page.
-- **The history line:** `int_candle_1h_all` → `intraday_events` → `event_evidence`, and → `hour_drift`. It
+- **The history line:** `int_candle_1h_all` → `intraday_events` → `event_evidence` and `move_outcomes`, and →
+  `hour_drift`. It
   starts in January 2020 and holds coins that have since been delisted, so the evidence isn't flattered by
   only looking at survivors. `dim_market_type` joins it here, to say what kind of market each move was on.
 
@@ -273,6 +275,7 @@ so a reader sees the old copy or the new one and never half of each. The set of 
 | `semantic.user_metric_definitions`, current versions | `market_user_metrics` | Never: only its own account reads a row | Your versions, in place of the shared ones |
 | `gold.intraday_events` | Not in D1 | Inside `market/insights.json.gz` | SQLite `market_events` |
 | `gold.hour_drift` | Not in D1 | Inside `market/insights.json.gz` | SQLite `market_hours` |
+| `gold.move_outcomes` | Not in D1 | Inside `market/insights.json.gz` | SQLite `market_outcomes` |
 
 `market_publish` in D1 has one row per table: which lakehouse day it reflects, how many rows it holds and
 when it was published. Those records travel inside the scanner's answer, which is how a page knows there is

@@ -83,6 +83,14 @@ erDiagram
     string liquidity PK
     string market_type PK
   }
+  move_outcomes {
+    string market_type PK
+    string direction PK
+    string z_band PK
+    string liquidity PK
+    int horizon_hours PK
+    string period PK
+  }
   dim_coin ||--o{ fct_candle_1m : "symbol"
   dim_coin ||--o{ fct_metrics_5m : "symbol"
   dim_coin ||--o{ fct_candle_1h : "symbol"
@@ -95,3 +103,4 @@ erDiagram
   coin_daily }o--|| data_health : "trade_date"
   intraday_events }o--o{ event_evidence : "direction, z_band, liquidity"
   dim_market_type |o--o{ intraday_events : "symbol"
+  intraday_events }o--o{ move_outcomes : "market_type, direction, z_band, liquidity"

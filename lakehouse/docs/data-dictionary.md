@@ -417,6 +417,31 @@ whole market.
 Tested: `period`, `liquidity` and `market_type` take only their values, and `assert_hour_drift_valid` (one row per key,
 hours 0 to 23, no up days beyond days, no group with more days than `all`).
 
+## Gold: `market.gold.move_outcomes`
+
+How past unusual moves turned out, for the playbook on the Markets page, rebuilt from `intraday_events` on every run
+([model](../dbt/models/gold/move_outcomes.sql), [step 32.2.2](steps/32-insights-graphs.md#3222-the-playbook),
+[ADR-038](decisions.md#adr-038-how-far-moves-went-is-a-gold-table-not-a-query-on-the-page)). Key (`market_type`, `direction`, `z_band`, `liquidity`, `horizon_hours`, `period`); 387 rows on
+2026-10-31. Unlike `event_evidence` it covers every type of market, each on its own, counts moves rather than days, and
+keeps the tails. It describes what happened: the verdict stays in `event_evidence`.
+
+| Column | Meaning |
+|---|---|
+| `market_type` | `crypto`, `stock`, `commodity`, `other` or `unknown`, as in `intraday_events` on the day of the move |
+| `direction`, `z_band`, `liquidity` | The kind of move: `up` or `down`; `3-4`, `4-6` or `6+`; `large`, `mid` or `small` |
+| `horizon_hours` | 1, 4 or 24 |
+| `period` | `in_sample` (before `held_back_from`, 2025-01-01), `held_back` (from it on) or `all` (every year together) |
+| `moves` | Moves with a forward return at this horizon |
+| `days` | Distinct days those moves fell on. Moves bunch on crash days, so this is how much evidence there really is |
+| `median_continuation` | The middle move's forward return in the direction of the move (a fraction, 0.01 = 1%). Negative turned back |
+| `hit_rate` | Share of moves that kept going (continuation > 0) |
+| `p05_continuation` | 1 move in 20 turned back at least this far by the end of the horizon: what following has to survive |
+| `p95_continuation` | 1 move in 20 kept going at least this far by the end of the horizon: what a fade has to survive |
+
+Measured at the end of the horizon: the worst point along the way isn't known. Tested: `not_null` and `accepted_values` on
+the key, and `assert_move_outcomes_valid` (one row per key, the two periods add up to `all`, each horizon's `all` rows
+match `intraday_events`, no more days than moves, a hit rate from 0 to 1, and p05 ≤ median ≤ p95).
+
 ## Gold: `market.gold.coin_baseline`
 
 Each coin's "normal" as of its latest day, for MEDUSA's live scanner; one row per coin, rebuilt on
@@ -760,6 +785,7 @@ anywhere: closing the tab deletes it.
 | `binance_markets` | `symbol` | Binance's contract list (once a day) and Binance's daily candles | `symbol`, `market_type` (`crypto`, `stock`, `commodity` or `other`), `yesterday_close` (only while the lakehouse doesn't have yesterday) |
 | `market_events` | `symbol`, `event_date` | The Insights file, when Insights or a graph's window opens | `gold.intraday_events`' columns: `symbol`, `event_date`, `event_hour` (`YYYY-MM-DD HH:MM:SS`, UTC), `hour_of_day`, `direction`, `z` (3 decimals), `z_band`, `liquidity`, `move_so_far`, `fwd_return_1h`, `fwd_return_4h`, `fwd_return_24h` (6 decimals), `period`, `market_type` |
 | `market_hours` | `year`, `period`, `utc_hour`, `liquidity`, `market_type` | The same file | Every column of `gold.hour_drift`, dates as text. `market_type` is `all` if the file is older than that column |
+| `market_outcomes` | `market_type`, `direction`, `z_band`, `liquidity`, `horizon_hours`, `period` | The same file | Every column of `gold.move_outcomes`. Empty if the file is older than this table, and the playbook then says so |
 
 The shared steps (models) every Today number reads, defined in `market.semantic.metric_definitions`
 (above; the page's built-in copy is `public/markets-metrics.js`). Where an account has its own version
@@ -780,4 +806,4 @@ Insights' graphs and their windows' numbers are metrics like Today's, with a `ch
 (the columns each axis, colour, hover and click use; [ADR-035](decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page)):
 `insight_live_map`, `insight_patterns_map`, `insight_by_year`, `insight_spread`, `insight_by_hour`,
 `insight_by_group`, `insight_hour_drift`; and in the windows `moves_summary`, `moves_spread`,
-`moves_by_year`, `moves_list`, `drift_by_year`, `drift_by_liquidity`.
+`moves_by_year`, `moves_list`, `drift_by_year`, `drift_by_liquidity`. The playbook, `playbook`, is a table on the same view.

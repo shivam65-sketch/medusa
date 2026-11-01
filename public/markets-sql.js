@@ -42,9 +42,18 @@ CREATE TABLE market_hours (
   market_type TEXT NOT NULL DEFAULT 'all', days INTEGER, first_date TEXT, last_date TEXT, coin_hours INTEGER, sum_return REAL, sum_sq_return REAL,
   up_days INTEGER, avg_return REAL, sd_return REAL, t_stat REAL,
   PRIMARY KEY (year, period, utc_hour, liquidity, market_type)
+);
+-- How past moves turned out, by type of market and kind of move (gold.move_outcomes): the playbook's
+-- percentiles, calculated in the lakehouse because each one sorts every move.
+CREATE TABLE market_outcomes (
+  market_type TEXT NOT NULL, direction TEXT NOT NULL, z_band TEXT NOT NULL, liquidity TEXT NOT NULL,
+  horizon_hours INTEGER NOT NULL, period TEXT NOT NULL, moves INTEGER, days INTEGER,
+  median_continuation REAL, hit_rate REAL, p05_continuation REAL, p95_continuation REAL,
+  PRIMARY KEY (market_type, direction, z_band, liquidity, horizon_hours, period)
 );`;
 
 const INSIGHTS = ['market_events', 'market_hours'];
+const INSIGHTS_LATER = ['market_outcomes'];   // a file published before it was added has none
 
 let db = null;
 const prepared = new Map();   // query text -> prepared statement, reused every second
@@ -119,8 +128,9 @@ async function loadInsights(gz) {
   const text = await new Response(new Blob([gz]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
   const snap = JSON.parse(text);
   const rows = {};
-  for (const t of INSIGHTS) {
+  for (const t of [...INSIGHTS, ...INSIGHTS_LATER]) {
     const part = snap.tables && snap.tables[t];
+    if (!part && INSIGHTS_LATER.includes(t)) { rows[t] = 0; continue; }
     if (!part || !Array.isArray(part.columns) || !Array.isArray(part.rows)) throw new Error(`The Insights file has no ${t}.`);
     replace(t, part);
     rows[t] = db.exec(`SELECT COUNT(*) FROM ${t}`)[0].values[0][0];

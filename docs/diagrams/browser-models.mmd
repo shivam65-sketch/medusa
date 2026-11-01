@@ -7,6 +7,7 @@ flowchart LR
     me[("market_evidence<br>daily")]
     ev[("market_events<br>Insights file")]
     hr[("market_hours<br>Insights file")]
+    ou[("market_outcomes<br>Insights file")]
   end
   subgraph MOD["Shared steps (models)"]
     now["market_now<br>one row per trading market"]
@@ -16,6 +17,8 @@ flowchart LR
     mv["moves<br>past moves, chosen direction and hours"]
     pk["moves_picked<br>what a click picked"]
     hs["hour_stats<br>the years pooled"]
+    pk2["past_kinds<br>how each kind of move turned out"]
+    own["past_own<br>an unusual market's own past"]
   end
   subgraph OUT["What you see"]
     c1["Cards: Bitcoin, breadth, median move"]
@@ -25,6 +28,7 @@ flowchart LR
     c5["Patterns view"]
     c6["Insights: five history graphs"]
     c7["A graph's window"]
+    c8["Insights: the playbook"]
   end
   mb --> now
   lp --> now
@@ -44,3 +48,8 @@ flowchart LR
   mv --> c6
   hs --> c6
   pk --> c7
+  ou --> pk2 --> c8
+  ev --> own --> c8
+  fl --> own
+  fl --> c8
+  vd --> c8

@@ -947,3 +947,37 @@ verdicts from the evidence. The Bitcoin card stays unfiltered on purpose. A filt
 than no filter, so an open page now asks for a new publish every 5 minutes, and a browser keeps the answer for 1 minute
 instead of 5 (it was 30 and 5). That is 12 small requests an hour per open page, and a page reloads its tables only when
 the publish records changed.
+
+## ADR-038: How far moves went is a gold table, not a query on the page
+
+**Status:** Accepted, 2026-11-01
+
+**Context:** The playbook shows, for each unusual market, what past moves of the same kind did and how far the worst 5%
+went. Every Insights graph so far is a query on `market_events` in the browser, and that was the first version here too.
+On the real moves it took 1.6 seconds, because each percentile sorts every move for every horizon and period. The page
+runs its live queries every second, and this one reads the live prices, so it can't be kept like a graph's result.
+
+**Decision:**
+- **`gold.move_outcomes` calculates the percentiles once a day,** in about 3.6 seconds. One row per type of market, kind
+  of move, horizon and period.
+- **It reaches the browser in the Insights file,** as a third table, `market_outcomes`, so D1, the ingest rules and the
+  scanner's answer don't change.
+- **The page's query only joins finished numbers to the live markets** and stays a definition: versioned, editable and
+  runnable in Databricks. What the playbook shows is decided on the page. What a percentile is, is decided in gold.
+- **The rule for how much evidence is enough stays in the query** (20 days, as in the verdicts). Gold keeps the facts.
+- **Moves, not days, are the unit here,** unlike `event_evidence`. How far one trade can go is a question about moves. So
+  the table carries `days` beside `moves`, and the page shows both.
+- **A market is compared with its own type.** `event_evidence` pools crypto and other. This table describes rather than
+  judges, so each type stays apart, and the verdict still comes from `event_evidence`.
+
+**Alternatives:**
+- *Keep it on the page and run it every 30 seconds.* It works, but it costs about 5% of a core on a query whose answer
+  changes once a day, and a change of **Over** would wait 1.6 seconds more. The percentile would also be editable on the
+  page, which is the one thing this gives up.
+- *Add the percentiles to `event_evidence`.* The fewest new objects, but it has no stocks or commodities, and it counts
+  days. Mixing a table that decides with one that describes would blur what its `days` and its averages mean.
+- *A new D1 table.* The playbook could then be on Today without the Insights file. That needs a migration, ingest rules and
+  a larger scanner answer on every page load, and Today already shows the verdicts. It can move later.
+
+**Consequences:** The playbook costs the page about 20 ms a second. To change the 5% you edit a dbt model, not a query in a
+window. A publish before this table exists still works: MEDUSA accepts the file and the page says the numbers are coming.
