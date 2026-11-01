@@ -24,8 +24,8 @@
 // Each ‹› button opens one number's or graph's calculation in its own window (markets-window.html):
 // the same code with its own data, engine and live prices, running only that window's queries.
 
-import { DEFINITIONS } from './markets-metrics.js?v=5';
-import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=2';
+import { DEFINITIONS } from './markets-metrics.js?v=6';
+import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=3';
 
 const RULE = { z: 3 };
 // The daily run is set for 13:23 UTC, but GitHub starts it hours late (ops.logs.etl_runs: finished 16:50 to 19:36).
@@ -176,7 +176,7 @@ const PARAM_WORDS = {
   kind: 'the type chosen at the top',
   yesterday: 'yesterday (UTC), the day today\'s move is measured from',
   symbol: 'the market (NULL: every market)',
-  direction: 'up or down moves, chosen at the top',
+  direction: 'all, up or down moves, chosen at the top',
   horizon: 'the hours after the move, chosen at the top',
   year: 'the year clicked (NULL: every year)',
   hour: 'the UTC hour clicked (NULL: every hour)',
@@ -195,7 +195,8 @@ const PICKS = {
   symbol: (v) => (/^[A-Z0-9_]{2,40}$/.test(v) ? v : null),
 };
 const NO_PICKS = Object.fromEntries(Object.keys(PICKS).map((k) => [k, null]));
-const DIRS = [['up', 'Up moves'], ['down', 'Down moves']];
+const DIRS = [['all', 'All moves'], ['up', 'Up moves'], ['down', 'Down moves']];
+const validDir = (d) => (DIRS.some(([v]) => v === d) ? d : 'all');
 const HZS = [[1, 'Next 1 h'], [4, 'Next 4 h'], [24, 'Next 24 h']];
 
 /** Whether a definition reads the Insights tables, directly or through its shared steps. */
@@ -207,7 +208,7 @@ function readsSnapshot(def, defs = DEFS) {
 // how to use it.
 const INSIGHTS = [
   { id: 'insight_live_map', panel: 'ins_live', wide: true,
-    how: 'Right of the middle is up today, left is down; higher means more volume than on a usual day. A big move on heavy volume is usually news; a big move on thin volume turns back more easily. <b>Blue</b> dots are unusual and their kind of move has a pattern that held up (see Patterns); <b>orange</b> ones are unusual with no tested edge. Click a dot for that market\'s numbers.' },
+    how: 'Right of the middle is up today, left is down; higher means more volume than on a usual day. A big move on heavy volume is usually news; a big move on thin volume turns back more easily. <b>Blue</b> dots are unusual and their kind of move held up over the hours chosen (see Patterns); <b>orange</b> ones are unusual with no tested edge over those hours. <b>All, Up or Down moves</b> show markets moving either way, up or down today. Click a dot for that market\'s numbers.' },
   { id: 'insight_patterns_map', panel: 'ins_patterns', wide: true,
     how: '<b>Blue</b>: moves of that kind kept going on average; <b>red</b>: they turned back. The words are each verdict; only <b>fade</b> or <b>follow</b> with a result passed the test on 2025 onwards after costs. Click a cell for the moves behind it.' },
   { id: 'insight_by_year', panel: 'ins_year',
@@ -243,7 +244,7 @@ const S = {
   frozen: null,                                     // the engine's browser-only tables as of the last run, for Copy
   seen: new Map(),                                   // symbol -> when this page first saw it unusual
   view: 'today', kind: 'all', sort: 'z', q: '', limit: 50, open: null, openAll: null, pat: null,
-  dir: 'up', hz: 4,                                  // Insights: up or down moves, and the hours after them
+  dir: 'all', hz: 4,                                 // Insights: all, up or down moves, and the hours after them
   // The Insights file: the version the lakehouse published (ver), the one fetched (gz, gzVer), and what
   // the engine found in it (info: {as_of, rows}).
   ins: { state: 'off', ver: null, gz: null, gzVer: null, err: null, info: null },
@@ -1071,6 +1072,8 @@ table.mkt-table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 .mkt-tag.down { background: rgba(240, 75, 75, 0.15); color: var(--red); }
 .mkt-key { margin: 10px 2px 0; color: var(--text-3); font-size: 13px; line-height: 1.5; }
 .mkt-key b { color: var(--text-2); }
+.mkt-follows { margin: 4px 0 0; color: var(--text-3); font-size: 12.5px; }
+.mkt-follows b { color: var(--text-2); font-weight: 600; }
 .mkt-more { margin-top: 12px; padding: 12px 14px 8px; border-radius: 9px; background: #202020; color: var(--text-2); font-size: 13.5px; line-height: 1.55; }
 .mkt-more p { margin: 0 0 6px; }
 .mkt-more b { color: var(--text); }
@@ -1709,6 +1712,16 @@ function chartBlock(id, key, box) {
     <details class="mkt-tbl" data-key="${esc(key)}" data-def="${esc(id)}"${open ? ' open' : ''}><summary>The result as a table (${res.rows.length} row${res.rows.length === 1 ? '' : 's'})</summary><div class="mkt-tbl-body">${open ? resultTable(res, d) : ''}</div></details>`;
 }
 
+/** Which of the choices at the top a graph follows, in words. It is read from the query itself, so it
+ * says what really happens, whichever version of a definition is in use. */
+function followsNote(d) {
+  const sql = noComments(assemble(d));
+  const has = ([p]) => new RegExp(`:${p}\\b`).test(sql);
+  const all = [['kind', 'Markets'], ['direction', 'Moves'], ['horizon', 'Over']];
+  const on = all.filter(has).map(([, l]) => l), off = all.filter((c) => !has(c)).map(([, l]) => l);
+  return `<p class="mkt-follows">Follows: <b>${on.join(', ') || 'none of the choices'}</b>${off.length ? `. ${off.join(' and ')} ${off.length > 1 ? 'don\'t' : 'doesn\'t'} apply to this graph.` : ''}</p>`;
+}
+
 /** The Insights view: its cards are drawn once, each graph in its own box, so the live graph can be
  * redrawn every second without touching the others. */
 function paintInsights() {
@@ -1716,7 +1729,7 @@ function paintInsights() {
     <div class="mkt-ins-grid">${INSIGHTS.map((g) => {
     const d = DEFS.get(g.id);
     return `<section class="card mkt-ins${g.wide ? ' wide' : ''}">
-        <div class="card-head"><div><h2>${esc(d.name)}</h2><p>${esc(d.description)}</p></div>${srcBtn(g.panel)}</div>
+        <div class="card-head"><div><h2>${esc(d.name)}</h2><p>${esc(d.description)}</p>${followsNote(d)}</div>${srcBtn(g.panel)}</div>
         <div id="mkt-ins-${g.id}" class="mkt-hold"></div>
         <p class="mkt-key">${g.how}</p>
       </section>`;
@@ -1833,7 +1846,7 @@ function pickTitle() {
   if (p.year) parts.push(`in ${p.year}`);
   if (p.hour != null) parts.push(`starting ${String(p.hour).padStart(2, '0')}:00 UTC`);
   if (p.bucket != null) parts.push(p.bucket === -11 ? 'that turned back more than 10%' : p.bucket === 10 ? 'that kept going 10% or more' : `that ended ${p.bucket}% to ${p.bucket + 1}%`);
-  return `${S.dir === 'up' ? 'Up' : 'Down'} moves${parts.length ? ` ${parts.join(', ')}` : ''}: the next ${S.hz === 1 ? 'hour' : `${S.hz} hours`}`;
+  return `${{ all: 'All', up: 'Up', down: 'Down' }[S.dir]} moves${parts.length ? ` ${parts.join(', ')}` : ''}: the next ${S.hz === 1 ? 'hour' : `${S.hz} hours`}`;
 }
 
 /** The parameters a window's queries use, so it offers only the choices that change something. */
@@ -2118,7 +2131,7 @@ function onClick(e) {
   if (act === 'ins-retry') { loadInsights(true); return; }
   if (act.startsWith('edit-') || act.startsWith('preview') || act.startsWith('save-') || act === 'defs-reload') { onEdit(act, el.dataset.def, el); return; }
   if (act === 'view') { S.view = el.dataset.v; api.store.set('mktView', S.view); }
-  else if (act === 'dir') { S.dir = el.dataset.v === 'down' ? 'down' : 'up'; if (!S.win) api.store.set('mktDir', S.dir); }
+  else if (act === 'dir') { S.dir = validDir(el.dataset.v); if (!S.win) api.store.set('mktDir', S.dir); }
   else if (act === 'hz') { S.hz = Number(el.dataset.v) || 4; if (!S.win) api.store.set('mktHz', S.hz); }
   else if (act === 'kind') { S.kind = el.dataset.v; S.limit = 50; if (!S.win) api.store.set('mktKind', S.kind); }   // a window's choice is its own
   else if (act === 'sort') { S.sort = el.dataset.v; S.limit = 50; draw(); return; }
@@ -2246,7 +2259,7 @@ export function render(el, appApi) {
     const view = api.store.get('mktView', 'today');
     S.view = ['patterns', 'insights'].includes(view) ? view : 'today';
     S.kind = validKind(api.store.get('mktKind', 'all'));
-    S.dir = api.store.get('mktDir', 'up') === 'down' ? 'down' : 'up';
+    S.dir = validDir(api.store.get('mktDir', 'all'));
     S.hz = HZS.some(([h]) => h === api.store.get('mktHz', 4)) ? api.store.get('mktHz', 4) : 4;
   }
   if (!document.getElementById('mkt-status')) shell();
@@ -2274,7 +2287,7 @@ export function renderWindow(el, appApi, { panel, symbol = null, kind = 'all', p
   // One year picked: its year-by-year graph would be a single bar, so it is left out.
   S.win = { panel, ids: picks.year ? ids.filter((id) => id !== 'moves_by_year') : ids, symbol: panel === 'market' ? symbol : null, picks };
   S.kind = validKind(kind);
-  S.dir = params.dir === 'down' ? 'down' : 'up';
+  S.dir = validDir(params.dir);
   S.hz = HZS.some(([h]) => h === Number(params.hz)) ? Number(params.hz) : 4;
   S.edit.open = [...ids];   // the number's own query is ready to edit
   attach(el);

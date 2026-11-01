@@ -57,6 +57,12 @@ function ticks(lo, hi, n = 5) {
   return { list: out, lo: Math.min(lo, out[0]), hi: Math.max(hi, out[out.length - 1]) };
 }
 
+/** The decimals a list of evenly spaced ticks needs, so that 0.5 and 1 don't both read 1. */
+const places = (list) => {
+  const step = list.length > 1 ? Math.abs(list[1] - list[0]) : 1;
+  return step >= 1 ? 0 : Math.ceil(-Math.log10(step) - 1e-9);
+};
+
 /** A bar with a rounded end where its value is and a square end on the baseline. */
 function barPath(x, w, base, end) {
   const r = Math.min(4, w / 2, Math.abs(end - base));
@@ -110,7 +116,7 @@ function bars(res, spec, ctx) {
     return by < 0 ? NEG : POS;
   };
   let out = t.list.map((v) => `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${v === 0 ? INK.base : INK.grid}" stroke-width="1"/>
-    <text x="${m.l - 6}" y="${Y(v) + 4}" text-anchor="end" class="tk">${esc(fmtUnit(v, unit, Math.abs(t.list[1] - t.list[0]) < 1 && unit !== 'bp' ? 1 : 0))}</text>`).join('');
+    <text x="${m.l - 6}" y="${Y(v) + 4}" text-anchor="end" class="tk">${esc(fmtUnit(v, unit, places(t.list)))}</text>`).join('');
   rows.forEach((r, i) => {
     const x0 = m.l + i * band + (band - group) / 2;
     ys.forEach((y, j) => {
@@ -139,7 +145,7 @@ function lines(res, spec, ctx) {
   const Y = (v) => m.t + ph - ((v - t.lo) / (t.hi - t.lo)) * ph;
   const X = (i) => m.l + (rows.length < 2 ? pw / 2 : (i / (rows.length - 1)) * pw);
   let out = t.list.map((v) => `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${v === 0 ? INK.base : INK.grid}" stroke-width="1"/>
-    <text x="${m.l - 6}" y="${Y(v) + 4}" text-anchor="end" class="tk">${esc(fmtUnit(v, unit, 0))}</text>`).join('');
+    <text x="${m.l - 6}" y="${Y(v) + 4}" text-anchor="end" class="tk">${esc(fmtUnit(v, unit, places(t.list)))}</text>`).join('');
   ys.forEach((y, j) => {
     const pts = rows.map((r, i) => (num(r[y]) == null ? null : `${X(i).toFixed(1)},${Y(num(r[y])).toFixed(1)}`)).filter(Boolean);
     out += `<polyline points="${pts.join(' ')}" fill="none" stroke="${SERIES[j % SERIES.length]}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
@@ -177,9 +183,9 @@ function scatter(res, spec, ctx) {
   }
   const slot = (r) => { const s = (spec.colors || {})[r[spec.color]]; return s === 'muted' || s == null ? MUTED : SERIES[s % SERIES.length]; };
   let out = ytk.map((v) => `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${spec.ylog && v === 1 ? INK.base : INK.grid}" stroke-width="1"/>
-    <text x="${m.l - 6}" y="${Y(v) + 4}" text-anchor="end" class="tk">${esc(spec.ylog ? `×${v}` : fmtUnit(v, spec.unit ?? '', 0))}</text>`).join('');
+    <text x="${m.l - 6}" y="${Y(v) + 4}" text-anchor="end" class="tk">${esc(spec.ylog ? `×${v}` : fmtUnit(v, spec.unit ?? '', places(ytk)))}</text>`).join('');
   out += tx.list.map((v) => `<line x1="${X(v)}" x2="${X(v)}" y1="${m.t}" y2="${m.t + ph}" stroke="${v === 0 ? INK.base : INK.grid}" stroke-width="1"/>
-    <text x="${X(v)}" y="${H - 16}" text-anchor="middle" class="tk">${esc(fmtUnit(v, spec.xunit ?? '', 0))}</text>`).join('');
+    <text x="${X(v)}" y="${H - 16}" text-anchor="middle" class="tk">${esc(fmtUnit(v, spec.xunit ?? '', places(tx.list)))}</text>`).join('');
   out += `<text x="${m.l + pw / 2}" y="${H - 2}" text-anchor="middle" class="ax">${esc(ctx.label(spec.x))}</text>`;
   // The muted points first, so the coloured ones are drawn over them.
   const order = [...rows].sort((a, b) => (slot(a) === MUTED ? 0 : 1) - (slot(b) === MUTED ? 0 : 1));

@@ -1844,7 +1844,7 @@
     const host = $('#markets');
     if (!mktLoad) {
       host.innerHTML = '<div class="loading">Opening Markets…</div>';
-      mktLoad = import('/markets.js?v=16').catch((e) => {
+      mktLoad = import('/markets.js?v=17').catch((e) => {
         mktLoad = null;
         log('markets', `Markets couldn't be opened: ${e.message}`, null, 'error');
         host.innerHTML = `<div class="banner"><div><b>Markets couldn’t be opened.</b> ${esc(e.message)} Reload the page to try again.</div></div>`;

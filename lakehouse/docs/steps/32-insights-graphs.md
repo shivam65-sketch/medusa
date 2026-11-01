@@ -263,6 +263,36 @@ point whatever type is chosen.
 | Insights file | 0.67 MB, from 0.60 |
 | A filter click to the screen on Today, 8 tries | 0.1 to 0.3 seconds for 6, 0.75 for one, and one of 5.9 that wasn't explained or seen again, in a test browser running unfocused |
 
+### Moves and hours on every graph
+
+The owner then chose *Down moves* and *Next 24 h*, and *Every market right now* didn't change. It wasn't a delay this
+time: only the four graphs of past moves used those two choices, and nothing on the page said so.
+
+| Graph | Moves | Over |
+|---|---|---|
+| Every market right now | Shows markets moving that way today. A new choice, **All moves**, shows both, and is the default | A blue dot means its kind of move held up over the hours chosen |
+| Every kind of move at a glance | Shows that direction only | Shows that horizon only |
+| Year by year, Spread of outcomes, By the hour of the move, By size and liquidity | All moves counts both directions, each measured as kept going or turned back | As before |
+| The market by hour of the day | Doesn't apply | Doesn't apply: it is the whole market hour by hour, not a set of moves |
+
+Under each graph's description, **a line now says which choices it follows**. It is worked out from the graph's own
+query every time, so it can't drift away from what really happens: a graph running an older definition says so.
+
+Testing this also found two faults of mine. The axis of *Every market right now* read 0, 1, 1, 2, 2, because ticks 0.5
+apart were written with no decimals; ticks now get the decimals their spacing needs, on every graph. And the version of
+*Every kind of move* built earlier in this step took about 3.5 seconds on every click, because it worked out all three
+horizons in both directions and then used one. It now works out only what was chosen.
+
+| Check, locally with real data | Result |
+|---|---:|
+| Crypto, down, 24 hours, 2026, against Databricks | 1,747 moves, −1.16%, −1.95%, the same |
+| Stocks, up, 24 hours, 2026, against Databricks | 328 moves, −0.16%, +0.29%, the same |
+| All, all moves, 4 hours, 2020, against Databricks | 432 moves, −1.50%, −1.61%, the same |
+| Every market right now with Down chosen | 0 rising markets shown; with Up chosen, 0 falling |
+| Every kind of move, one direction and one horizon | 10 cells; all moves, 20 |
+| Every kind of move, each click | 0.13 to 0.35 seconds, from 3 to 3.7 |
+| A click to the screen on Insights | 1 to 2 seconds, in a test browser running unfocused |
+
 ## Next: 32.2 and 32.3
 
 - **Before them:** [step 32a](32a-missing-days.md), the missing-days check, and filling 28 October

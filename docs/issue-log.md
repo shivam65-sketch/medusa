@@ -16,6 +16,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
+| [32](#issue-32) | 2026-11-01 | Markets | *Down moves* and *Next 24 h* didn't change *Every market right now* | Bug | Built, waiting to go live |
 | [31](#issue-31) | 2026-11-01 | Markets | Dots drawn outside the graph on *Every market right now* | Bug | Built, waiting to go live |
 | [30](#issue-30) | 2026-11-01 | Markets | The market filter did nothing on Insights | Bug | Built, waiting to go live |
 | [29](#issue-29) | 2026-11-01 | Lakehouse | The transform failed: *dim_market_type was not found* | Bug | Fixed |
@@ -49,6 +50,22 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 | [1](#issue-1) | 2026-09-27 | Local copy | The app kept loading and never opened | Setup | Closed |
 
 ## Details
+
+<a id="issue-32"></a>
+### 32. *Down moves* and *Next 24 h* didn't change *Every market right now*
+
+- **Seen:** with *Down moves* and *Next 24 h* chosen, the graph still showed markets going both ways. Its axis also read
+  0, 1, 1, 2, 2.
+- **Why:** only the four graphs of past moves used those two choices, and nothing on the page said so. A separate cause
+  affected other graphs: **Lakehouse transform** hadn't been run since the filter work, so the market by hour and *Every
+  kind of move* were still on their old definitions. The axis wrote ticks 0.5 apart with no decimals.
+- **Change:** *Every market right now* and *Every kind of move at a glance* follow both choices, and **All moves** is a new
+  choice and the default. The market by hour doesn't apply, and a line under every graph says what it follows, read from
+  its own query. Ticks get the decimals their spacing needs. *Every kind of move* was also rewritten, because the first
+  version took about 3.5 seconds on every click.
+- **Checked:** locally with real data, three combinations match Databricks exactly. With *Down* chosen, 0 rising markets
+  are shown. *Every kind of move* takes 0.13 to 0.35 seconds.
+- **State:** built, waiting to go live.
 
 <a id="issue-31"></a>
 ### 31. Dots drawn outside the graph on *Every market right now*

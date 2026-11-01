@@ -5,6 +5,9 @@ app's menu and on the sign-in page); each release adds a section here with the s
 
 ## Unreleased
 
+- Markets, **Insights**: **Moves** and **Over** now reach every graph they can. *Every market right now* shows the markets moving the way chosen, and its blue dots mean a kind of move held up over the hours chosen. *Every kind of move at a glance* shows that direction and those hours. A new **All moves** choice, the default, shows both directions.
+- Markets, **Insights**: a line under each graph says which choices it follows, read from its own query. The market by hour says Moves and Over don't apply.
+- Markets, graphs: an axis with ticks closer than 1 now shows its decimals. *Every market right now* read 0, 1, 1, 2, 2.
 - Markets, **Every market right now**: markets trading far below their usual volume stay on the graph. The axis stopped at ×0.1, so their dots were drawn below it, over the labels.
 - Markets: stocks and commodities now show **not tested** instead of a verdict. Binance only listed them from December 2025, so the verdicts, chosen on 2020 to 2024, were never tested on them, and on real data they behave differently from crypto.
 - Markets: the type filter at the top now shows on all three views and reaches every graph and table: Today, every Insights graph and its windows, and the live counts on Patterns. Only the Bitcoin card ignores it, on purpose. On stocks and commodities, *Every kind of move at a glance* and the market by hour show *not tested* where there are no 2020 to 2024 years.
