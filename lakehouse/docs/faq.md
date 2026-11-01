@@ -266,7 +266,7 @@ move continued, and the worst 5%: 1 time in 20 it went at least this far, **kept
 the move and **turned back** if you joined it. **Its own past** is the only number about this market alone. Under the
 numbers is the same from 2025: where the two disagree, the older years are pulling the first one. The worst 5% is at the
 end of the hours, so a stop can be hit sooner. Only the **Verdict** has passed a test; the rest describes what happened,
-before costs. Click any number for what is behind it
+before costs. A click on an aggregate opens that number and the moves behind it
 ([step 32.2.2](steps/32-insights-graphs.md#3222-the-playbook)).
 
 ## Where do Past moves and its days come from? Is it a backtest?
