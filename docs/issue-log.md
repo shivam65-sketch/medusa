@@ -16,6 +16,8 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
+| [35](#issue-35) | 2026-11-01 | Markets | A click on POWR's row in the playbook showed other coins | Bug | Built, waiting to go live |
+| [34](#issue-34) | 2026-11-01 | Markets | The playbook's column names couldn't be understood | Request | Built, waiting to go live |
 | [33](#issue-33) | 2026-11-01 | Markets | The ‹› window's code was the same for Next 1 h and Next 4 h | Bug | Fixed |
 | [32](#issue-32) | 2026-11-01 | Markets | *Down moves* and *Next 24 h* didn't change *Every market right now* | Bug | Fixed |
 | [31](#issue-31) | 2026-11-01 | Markets | Dots drawn outside the graph on *Every market right now* | Bug | Fixed |
@@ -51,6 +53,36 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 | [1](#issue-1) | 2026-09-27 | Local copy | The app kept loading and never opened | Setup | Closed |
 
 ## Details
+
+<a id="issue-35"></a>
+### 35. A click on POWR's row in the playbook showed other coins
+
+- **Seen:** a click on POWR opened HOT, ALPINE, SANTOS, SOPH and EVAA, with the question of whether the 929 moves were
+  POWR's, and why POWR and G showed the same numbers.
+- **Why:** the numbers were right, and the design was at fault. Most of a row describes the group the market belongs to, and
+  a click on the row opened that group. Nothing on the page said so, and the window's title didn't name the market.
+- **Change:** a click on a row opens that market's own moves. The number under **Times before** opens the group, so each
+  number opens what it counts. Each window's title says whose moves they are (*POWR's own up moves*, *Up crypto moves of
+  4–6σ, on small markets*), and the note under the table says most of a row describes the group.
+- **Checked:** on a local MEDUSA with the real rows, a row opens POWR's 18 moves and the number opens the 929, and each
+  matches its row: −0.52% and −2.88%.
+- **State:** built, waiting to go live.
+
+<a id="issue-34"></a>
+### 34. The playbook's column names couldn't be understood
+
+- **Seen:** the table was explained three times and still wasn't clear: *why those column names?*
+- **Why:** the names described the data, not the trade. *Worst 5%: kept going* needed knowing that one table holds up and
+  down moves, and which side it is the worst for. The words also came from the rest of Insights, so the problem was wider
+  than one table.
+- **Change:** one set of plain words across the whole screener, listed in
+  [step 32](../lakehouse/docs/steps/32-insights-graphs.md#plain-words-and-a-row-that-opens-its-own-market): *continued* and
+  *reversed*, *Size of move*, *Tested edge?*, and the playbook's own columns. The raw `held_back` in the moves list now
+  reads *From 2025*. Internal column names stayed.
+- **Checked:** Today, Patterns, Insights and the windows read on a local MEDUSA: none of the old labels left, and every
+  number the same. All 36 live definitions matched the last commit first, so nothing edited was overwritten, and no
+  query's working changed.
+- **State:** built, waiting to go live.
 
 <a id="issue-33"></a>
 ### 33. The ‹› window's code was the same for Next 1 h and Next 4 h

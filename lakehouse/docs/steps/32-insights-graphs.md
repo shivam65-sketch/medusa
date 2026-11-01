@@ -336,17 +336,18 @@ of you, or how badly it can go. The playbook is one row per market that is unusu
 
 | Column | What it says |
 |---|---|
-| **Kind of move** | Direction, size in usual daily moves, and liquidity: the same groups as the verdicts |
-| **Verdict** | The tested verdict over the hours chosen, or *not tested* for stocks and commodities |
-| **Past moves** | How many moves of this kind on this type of market, and on how many days |
-| **Next 1, 4 and 24 h** | The middle move: + kept going, − turned back |
-| **Kept going** | The share that kept going over the hours chosen |
-| **Worst 5%: kept going** | 1 move in 20 kept going at least this far: what a fade has to survive |
-| **Worst 5%: turned back** | 1 move in 20 turned back at least this far: what following has to survive |
-| **Its own past** | The middle of this market's own past moves in this direction, and how many |
+| **Size of move** | How many times bigger today's move is than this market's usual daily move |
+| **Compared with** | The group of past moves: direction, size, and how much the market trades |
+| **Tested edge?** | The verdict over the hours chosen, or *not tested* for stocks and commodities |
+| **Times before** | How many times any market of this type made a move in this group, and on how many days |
+| **Typical after 1, 4 and 24 h** | The middle result: + the move continued, − it reversed |
+| **Continued** | How often the move continued over the hours chosen |
+| **Bad case against the move** | If you bet it would reverse: 1 time in 20 it continued at least this far |
+| **Bad case with the move** | If you joined it: 1 time in 20 it reversed at least this far |
+| **This market before** | The middle result of this market's own past moves in this direction, and how many |
 
-From **Next 1 h** to the worst 5%, each number has the same from 2025 underneath. A click on a row opens the moves
-behind it, and a click on **Its own past** opens that market's own.
+From **Typical after 1 h** to the bad cases, each number has the same from 2025 underneath. A click on a row opens
+that market's own moves, and a click on the number under **Times before** opens the group.
 
 ### What the real data changed
 
@@ -392,15 +393,45 @@ GROUP (ORDER BY continuation)`, run overnight into a summary table a report join
   (`under`) and its own click (`drill`), and a click can choose the type of market as well as the direction.
   Its window follows the same rule as a graph's.
 
+### Plain words, and a row that opens its own market
+
+The owner read the first version on the live page and couldn't follow it. The names had been written to describe the
+data, not the trade, and three questions showed where it failed: what does *Worst 5%: kept going* mean, why did a click
+on POWR show other coins, and why do POWR and G show the same numbers?
+
+- **Most of a row describes the group, not the market.** The table now says so, and two markets in one group showing the
+  same numbers is expected.
+- **Each number opens what it counts.** A click on a row opens that market's own moves, as anyone would expect from a row
+  named POWR. The number under **Times before** opens the group behind it. Each window's title says whose moves they are.
+- **One set of words on the whole screener,** not only here:
+
+| Was | Now | Where |
+|---|---|---|
+| *kept going*, *turned back* | *continued*, *reversed* | Everywhere a person reads them, in labels, graphs, windows and the SQL's comments |
+| *z (σ)* | *Size of move* | Every table |
+| *Verdict* | *Tested edge?* | Every column with that name |
+| *Then* | *Result* | The moves themselves |
+| *Period*, showing `held_back` | *Years*, showing *From 2025* | The moves themselves, where the raw value showed |
+| *Kind of move*, *Past moves*, *Next N h*, *Worst 5%: kept going*, *Worst 5%: turned back*, *Its own past* | *Compared with*, *Times before*, *Typical after N h*, *Bad case against the move*, *Bad case with the move*, *This market before* | The playbook |
+
+**Why the sign words stayed relative to the move:** one table holds up and down moves, so it can't say rose or fell. On a
+down move, *continued* means the price fell further.
+
+Internal names (`kept_going_pct`, the column `z`, `p95_continuation`) didn't change: only what a person reads did. 21
+definitions got a new version (`sql/seed/009`, task `seed_plain_words`). Before writing it, all 36 live definitions were
+compared with the last commit and were the same, so the seed overwrites nobody's edit, and no query's working changed. A
+definition's labels live in its display, so a new label only reaches the page through a publish. Locally, a page opened
+before the new definitions kept the old labels for up to a minute: the scanner's answer is cached for 60 seconds.
+
 ### Limits
 
 - **End of the hours, not the worst point.** `intraday_events` has the price 1, 4 and 24 hours later, not
   what happened between, so a stop can be hit sooner than the worst 5% suggests. Worth adding for the risk table.
 - **The clock starts when a move first became unusual.** A market flagged hours ago has used part of it.
 - **Before costs,** and funding isn't counted.
-- **It describes, it doesn't test.** Only the **Verdict** column has passed a test. A number here that looks
+- **It describes, it doesn't test.** Only the **Tested edge?** column has passed a test. A number here that looks
   good is an idea to test, like a graph.
-- **Its own past is a handful of moves:** a median from 5 on, shown with its count.
+- **This market before is a handful of moves:** a median from 5 on, shown with its count.
 
 ### Problems we hit
 
@@ -419,8 +450,8 @@ GROUP (ORDER BY continuation)`, run overnight into a summary table a report join
 | `assert_move_outcomes_valid` on those rows | 0 bad rows: periods add up, and each horizon matches `intraday_events` |
 | The full `playbook` query in SQLite and in Databricks, 1, 4 and 24 hours, 40 markets | 2,880 cells, 0 different |
 | The page's numbers against the gold rows, POWR, each hours choice | The same |
-| A row's click against the table: 929 moves on 490 days, −2.88%, 37% | The window shows the same |
-| **Its own past**'s click: 18 moves, −0.52% | The window shows the same |
+| The click on **Times before**: 929 moves on 490 days, −2.88%, 37% | The window shows the same |
+| A click on the row: POWR's 18 moves, −0.52% | The window shows the same |
 | **Markets**, **Moves**, **Over**, and a second click on each | Each changes the rows or numbers, and removes itself |
 | A file with no `market_outcomes` (the gap between deploy steps) | Accepted; the graphs draw and the table says the numbers come with the next publish. A bad `x-rows` is refused |
 | A phone | The table scrolls in its box; the page doesn't |
@@ -431,7 +462,13 @@ playbook is about 20 ms of that.
 
 ### Live result
 
-To be added after the first publish.
+| Check | Result |
+|---|---:|
+| **Lakehouse transform** run 12, started by hand on commit `2c205aa` | Success in 4 min 09 s: 19 built, 169 tests passed, 1 warned (the expected `assert_no_missing_days`), 0 failed |
+| `gold.move_outcomes` | 387 rows, the largest group 4,758 moves |
+| Publish to MEDUSA | 17 seconds, with `market_outcomes` in the Insights file |
+| Definitions | 36 current, `playbook`, `past_kinds` and `past_own` at version 1 |
+| The owner, on the live site | The table shows real numbers: POWR, 929 on 490 days, −2.88%, 37%, +22.78%, −15.43%, the same as local |
 
 ## Next: 32.2 and 32.3
 

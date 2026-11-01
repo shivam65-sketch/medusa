@@ -24,7 +24,7 @@
 // Each ‹› button opens one number's or graph's calculation in its own window (markets-window.html):
 // the same code with its own data, engine and live prices, running only that window's queries.
 
-import { DEFINITIONS } from './markets-metrics.js?v=8';
+import { DEFINITIONS } from './markets-metrics.js?v=9';
 import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=3';
 
 const RULE = { z: 3 };
@@ -218,15 +218,15 @@ const INSIGHTS = [
   { id: 'insight_live_map', panel: 'ins_live', wide: true,
     how: 'Right of the middle is up today, left is down; higher means more volume than on a usual day. A big move on heavy volume is usually news; a big move on thin volume turns back more easily. <b>Blue</b> dots are unusual and their kind of move held up over the hours chosen (see Patterns); <b>orange</b> ones are unusual with no tested edge over those hours. <b>All, Up or Down moves</b> show markets moving either way, up or down today. Click a dot for that market\'s numbers.' },
   { id: 'playbook', panel: 'ins_playbook', wide: true, table: true,
-    how: () => `<b>Past moves</b> counts moves of the same direction, size and liquidity on the same type of market, and the days they fell on: moves bunch on crash days, so the days say how much evidence there really is. <b>Next 1, 4 and 24 h</b> are the middle move (+ kept going, − turned back), with the same from 2025 underneath: where the two disagree, the older years are pulling the first number. <b>Kept going</b>, the <b>worst 5%</b> and <b>its own past</b> are over the next ${S.hz === 1 ? 'hour' : `${S.hz || 4} hours`}. The worst 5% that kept going is what a fade has to survive; the worst 5% that turned back is what following has to survive. They are measured at the end of the hours, not the worst point along the way, so a stop can be hit sooner, and they often come from a few crash days. Everything is before costs and stays empty with fewer than 20 days behind it. The clock starts when a move first became unusual, so for a market flagged hours ago part of it has already passed. Click a row for the moves behind it, or the number under <b>Its own past</b> for this market's own.` },
+    how: () => `<b>Most of a row describes the group, not the market:</b> two markets in the same group show the same numbers. <b>Compared with</b> is that group: direction, size, and how much the market trades. <b>Times before</b> counts every move in it, on any market of this type, and the days they fell on: more days is stronger evidence, and a click shows those moves. <b>This market before</b> is the only number about this market alone, and a click anywhere else on the row opens its own moves. <b>Typical after</b> is the middle result: + the move continued, − it reversed. <b>Continued</b> is how often it did, over the next ${S.hz === 1 ? 'hour' : `${S.hz || 4} hours`}, and so are the bad cases: 1 time in 20 it went at least this far against you, <b>against the move</b> if you bet it would reverse, <b>with the move</b> if you joined it. That is the price at the end of the hours, not the worst point along the way, so a stop can be hit sooner. Small type is the same number from 2025 only: where the two disagree, older years are pulling the first one. Everything is before costs and stays empty with fewer than 20 days behind it. The clock starts when a move first became unusual, so for a market flagged hours ago part of it has already passed.` },
   { id: 'insight_patterns_map', panel: 'ins_patterns', wide: true,
-    how: '<b>Blue</b>: moves of that kind kept going on average; <b>red</b>: they turned back. The words are each verdict; only <b>fade</b> or <b>follow</b> with a result passed the test on 2025 onwards after costs. Click a cell for the moves behind it.' },
+    how: '<b>Blue</b>: moves of that kind continued on average; <b>red</b>: they reversed. The words are each verdict; only <b>fade</b> or <b>follow</b> with a result passed the test on 2025 onwards after costs. Click a cell for the moves behind it.' },
   { id: 'insight_by_year', panel: 'ins_year',
     how: 'Trust a pattern only when it shows up year after year. When the median and the average are far apart, a few moves ran very far, so a stop matters. Click a year for its moves.' },
   { id: 'insight_spread', panel: 'ins_spread',
-    how: 'Bars left of zero turned back, right of zero kept going. The end bars are the tails: the share that kept going 10% or more is what a fade has to survive, so size for it. Click a bar for its moves.' },
+    how: 'Bars left of zero reversed, right of zero continued. The end bars are the tails: the share that continued 10% or more is what a fade has to survive, so size for it. Click a bar for its moves.' },
   { id: 'insight_by_hour', panel: 'ins_hour',
-    how: 'Hours whose moves turned back more look better for a fade, but with 24 hours a few differ by luck: it is an idea to test, not a pattern yet. Click an hour for its moves.' },
+    how: 'Hours whose moves reversed more look better for a fade, but with 24 hours a few differ by luck: it is an idea to test, not a pattern yet. Click an hour for its moves.' },
   { id: 'insight_by_group', panel: 'ins_group',
     how: 'Small markets cost more to trade than the 0.10% the verdicts pay, so an edge there has to be bigger to be real. Click a cell for its moves.' },
   { id: 'insight_hour_drift', panel: 'ins_drift', wide: true,
@@ -314,6 +314,7 @@ const FMT = {
   share: (v) => (v == null ? '–' : `${Math.round(v)}%`),
   z: (v, row) => (row && Number(row.unusual) === 1 ? FMT.z_tag(v) : sig(v)),
   z_tag: (v) => (v == null ? '–' : `<span class="mkt-tag ${v > 0 ? 'up' : 'down'}">${sig(v)}</span>`),
+  period: (v) => (v == null ? '–' : { in_sample: '2020–2024', held_back: 'From 2025' }[v] || esc(v)),
   liquidity: (v) => (v == null ? '–' : LIQ[v] || esc(v)),
   times: (v) => (v == null ? '–' : `×${v >= 10 ? Math.round(v) : Number(v).toFixed(1)}`),
   int: (v) => (v == null ? '–' : Number(v).toLocaleString('en-US')),
@@ -326,7 +327,7 @@ const FMT = {
   },
   auto: (v) => (v == null ? '–' : typeof v === 'number' ? v.toLocaleString('en-US', { maximumFractionDigits: 6 }) : esc(v)),
 };
-const LEFT = new Set(['market', 'liquidity', 'auto-text']);
+const LEFT = new Set(['market', 'liquidity', 'period', 'auto-text']);
 
 /** A query's rows as objects, by column name. */
 const objects = (res) => (res && res.rows ? res.rows.map((r) => Object.fromEntries(res.columns.map((c, i) => [c, r[i]]))) : []);
@@ -554,7 +555,7 @@ const SOURCES = {
   market_evidence: () => `What similar moves did next: MEDUSA's copy of the lakehouse's <code>gold.event_evidence</code>, built by ${ghLink('event_evidence.sql')}. Lakehouse day ${shortDay((S.data.published.market_evidence || {}).as_of)}.`,
   market_events: () => `Every unusual move since 2020 and the price 1, 4 and 24 hours later: MEDUSA's copy of the lakehouse's <code>gold.intraday_events</code>, built by ${ghLink('intraday_events.sql')}${insDay()}. It reaches this browser in one file when a graph needs it, and isn't in D1.`,
   market_hours: () => `The whole market's move in each UTC hour, by year and liquidity: MEDUSA's copy of the lakehouse's <code>gold.hour_drift</code>, built by ${ghLink('hour_drift.sql')}${insDay()}. In the same file.`,
-  market_outcomes: () => `How past moves turned out, by type of market, kind of move, hours and period, with the worst 5% each way: MEDUSA's copy of the lakehouse's <code>gold.move_outcomes</code>, built by ${ghLink('move_outcomes.sql')}${insDay()}. In the same file.`,
+  market_outcomes: () => `How past moves turned out, by type of market, kind of move, hours and period, with the bad case each way: MEDUSA's copy of the lakehouse's <code>gold.move_outcomes</code>, built by ${ghLink('move_outcomes.sql')}${insDay()}. In the same file.`,
 };
 const insDay = () => { const pub = S.data.published.market_events; return pub ? `. Lakehouse day ${shortDay(pub.as_of)}` : ''; };
 
@@ -1295,7 +1296,7 @@ function shell() {
         <li><b>Each market's normal</b> comes from MEDUSA's market data lakehouse: the average and spread (σ) of its daily moves over its last 30 days with trades, built from Binance's checked daily files and published once a day (${PUBLISHED_BY}). If a day didn't arrive, the top of this page says so and the daily load tries it again for a week.</li>
         <li><b>Live prices</b> come straight from Binance to this browser, about once a second. MEDUSA's server never sees them.</li>
         <li><b>Every number here is calculated by SQL</b>, in a small SQLite database inside this browser that holds the lakehouse's tables and the live prices. The queries are kept in the lakehouse too, with every version, and published to MEDUSA with the data. They run about once a second; each <b>‹›</b> button opens one in its own window, live: the query exactly as it runs, which version it is, its result, and a copy that runs in MEDUSA's database or in Databricks.</li>
-        <li><b>Today's move</b> is measured from yesterday's close (UTC). z is that move in the market's usual daily moves; ${RULE.z} or more (|z| ≥ ${RULE.z}) is flagged as unusual: the same rule the lakehouse applies to every hour since 2020.</li>
+        <li><b>Today's move</b> is measured from yesterday's close (UTC). Its size (z) is that move in the market's usual daily moves; ${RULE.z} or more either way is flagged as unusual: the same rule the lakehouse applies to every hour since 2020.</li>
         <li><b>The evidence</b> shows what similar moves (same direction, size and liquidity) did over the next 1, 4 and 24 hours since 2020. Each side (follow the move or fade it) was chosen on 2020–2024 and checked on 2025 onwards, which played no part in choosing it, after 0.10% trading costs. Most kinds of move show no pattern that held; the Patterns view lists them all. Stocks and commodities show <b>not tested</b>: Binance only listed them from December 2025, so they have no 2020–2024 years to test, and their moves aren't in the evidence.</li>
         <li><b>Live numbers are unchecked</b> until the next day's batch run. History is no promise: costs differ by market and funding isn't counted. This is research, not trading advice.</li>
       </ul>
@@ -1462,7 +1463,7 @@ function paintKpis() {
   put('mkt-kpis', ['breadth', 'median_move', 'unusual_count', 'bitcoin'].map((id) => kpi(id, S.res.get(id), srcBtn(id))).join(''));
 }
 
-const KEY = `<p class="mkt-key"><b>z</b> = today's move ÷ the market's usual daily move (<b>σ</b>, the spread of its daily moves over its last 30 days); ${RULE.z}σ or more is unusual. <b>Next 1 h / 4 h / 24 h</b>: what moves of the same kind (direction, size, liquidity) did next since 2020. <b>Fade</b> or <b>Follow</b> with a result means the pattern held up on years held back from the choice, after costs; otherwise the verdict. The small line is every up (or down) move together, a wider group.</p>`;
+const KEY = `<p class="mkt-key"><b>Size of move</b> = how many times bigger today's move is than the market's usual daily move (<b>σ</b>, the spread of its daily moves over its last 30 days); ${RULE.z}σ or more is unusual. <b>Next 1 h / 4 h / 24 h</b>: what moves of the same kind (direction, size, liquidity) did next since 2020. <b>Fade</b> or <b>Follow</b> with a result means the pattern held up on years held back from the choice, after costs; otherwise the verdict. The small line is every up (or down) move together, a wider group.</p>`;
 
 function paintUnusual() {
   const res = S.res.get('unusual');
@@ -1507,7 +1508,7 @@ function paintAll() {
     vol: (r) => (iVol < 0 ? 0 : num(r[iVol], -1)),
   }[S.sort];
   rows = [...rows].sort((a, b) => key(b) - key(a) || (iSym < 0 ? 0 : String(a[iSym]).localeCompare(String(b[iSym]))));
-  put('mkt-all-sub', `${rows.length} ${KIND_WORD[S.kind]}markets${S.q ? ` matching “${esc(S.q)}”` : ''}; z is today's move in the market's usual daily moves (σ); volume is the last 24 hours against its usual day`);
+  put('mkt-all-sub', `${rows.length} ${KIND_WORD[S.kind]}markets${S.q ? ` matching “${esc(S.q)}”` : ''}; size of move is today's move in the market's usual daily moves (σ); volume is the last 24 hours against its usual day`);
   if (!rows.length) { put('mkt-all', '<div class="mkt-empty">No market matches.</div>'); return; }
   const shown = { columns: res.columns, rows: rows.slice(0, S.limit) };
   const table = resultTable(shown, DEFS.get('markets'), {
@@ -1522,9 +1523,9 @@ function paintAll() {
 function evWords(e, h) {
   const span = h === 1 ? 'the next hour' : `the next ${h} hours`;
   if (!e) return `<p><b>${span[0].toUpperCase() + span.slice(1)}:</b> no evidence for this kind of move.</p>`;
-  const went = e.avg_continuation == null ? '' : e.avg_continuation >= 0 ? `Over all those years it kept going on average (${pct(e.avg_continuation)})` : `Over all those years it turned back on average (${pct(e.avg_continuation)})`;
-  const head = `<b>Over ${span}:</b> ${e.events ?? 0} similar moves on ${e.days ?? 0} days since 2020. ${went}${e.hit_rate != null ? `, and kept going ${Math.round(e.hit_rate * 100)}% of the time` : ''}.`;
-  const side = e.side === 'fade' ? 'fade the move, betting it turns back' : 'follow the move';
+  const went = e.avg_continuation == null ? '' : e.avg_continuation >= 0 ? `Over all those years it continued on average (${pct(e.avg_continuation)})` : `Over all those years it reversed on average (${pct(e.avg_continuation)})`;
+  const head = `<b>Over ${span}:</b> ${e.events ?? 0} similar moves on ${e.days ?? 0} days since 2020. ${went}${e.hit_rate != null ? `, and continued ${Math.round(e.hit_rate * 100)}% of the time` : ''}.`;
+  const side = e.side === 'fade' ? 'fade the move, betting it reverses' : 'follow the move';
   const verdict = {
     'held up': `2020–2024 chose to ${side} (t ${tval(e.in_sample_t)}). From 2025 it still worked: ${pct(e.held_back_net_after_cost)} a trade after ${size(e.round_trip_cost)} costs (t ${tval(e.held_back_t)} over ${e.held_back_days} days). <b>Held up.</b>`,
     'did not hold': `2020–2024 pointed to ${side} (t ${tval(e.in_sample_t)}), but from 2025 it didn't pay after ${size(e.round_trip_cost)} costs (${pct(e.held_back_net_after_cost)}, t ${tval(e.held_back_t)}). <b>Did not hold.</b>`,
@@ -1667,8 +1668,8 @@ function paintPatterns() {
       <div class="card-head"><div><h2>How a verdict is decided</h2></div></div>
       <ul class="mkt-rules">
         <li><b>Days, not moves.</b> Markets move together: one crash day can give hundreds of moves, and they aren't hundreds of separate proofs. Each day's moves are averaged first, and the statistics are over days.</li>
-        <li><b>t</b> measures how clearly the moves kept going (positive) or turned back (negative), given how much they vary from day to day; beyond ±2 is unlikely to be chance.</li>
-        <li><b>The side is chosen on 2020–2024 only.</b> If moves kept going there with t ≥ 2, the side is <b>follow</b>; if they turned back with t ≤ −2, it is <b>fade</b>; otherwise there is <b>no pattern</b>.</li>
+        <li><b>t</b> measures how clearly the moves continued (positive) or reversed (negative), given how much they vary from day to day; beyond ±2 is unlikely to be chance.</li>
+        <li><b>The side is chosen on 2020–2024 only.</b> If moves continued there with t ≥ 2, the side is <b>follow</b>; if they reversed with t ≤ −2, it is <b>fade</b>; otherwise there is <b>no pattern</b>.</li>
         <li><b>It is then checked on 2025 onwards</b>, which played no part in the choice. <b>Held up</b> needs the moves to behave the same way there (t ≥ 2 for follow, t ≤ −2 for fade) and a profit after ${cost} round-trip costs in both periods; otherwise it <b>did not hold</b>.</li>
         <li><b>Too few</b>: fewer than 20 days in either period.</li>
         <li>With ${n(sum.kinds)} groups tested, a few can pass by luck, which is why the held-back check matters and why the rules aren't tuned after looking at it (ADR-022). Costs are optimistic for small markets, funding isn't counted, and almost all the history is crypto. This is research, not trading advice.</li>
@@ -1877,14 +1878,15 @@ function patternSources() {
 /** A graph's window: what was clicked, in words. */
 function pickTitle() {
   const p = S.win.picks, parts = [];
-  if (p.symbol) parts.push(String(p.symbol).replace(/USDT$/, ''));
   if (p.z_band) parts.push(`of ${p.z_band === '6+' ? '6σ or more' : `${p.z_band.replace('-', '–')}σ`}`);
   if (p.liquidity) parts.push(`on ${LIQ_WORDS[p.liquidity]} markets`);
   if (p.year) parts.push(`in ${p.year}`);
   if (p.hour != null) parts.push(`starting ${String(p.hour).padStart(2, '0')}:00 UTC`);
-  if (p.bucket != null) parts.push(p.bucket === -11 ? 'that turned back more than 10%' : p.bucket === 10 ? 'that kept going 10% or more' : `that ended ${p.bucket}% to ${p.bucket + 1}%`);
+  if (p.bucket != null) parts.push(p.bucket === -11 ? 'that reversed more than 10%' : p.bucket === 10 ? 'that continued 10% or more' : `that ended ${p.bucket}% to ${p.bucket + 1}%`);
   const hz = S.hz || 4;
-  return `${{ all: 'All', up: 'Up', down: 'Down' }[S.dir]} moves${parts.length ? ` ${parts.join(', ')}` : ''}: the next ${hz === 1 ? 'hour' : `${hz} hours`}`;
+  const way = { all: '', up: 'up ', down: 'down ' }[S.dir];
+  const whose = p.symbol ? `${String(p.symbol).replace(/USDT$/, '')}'s own ${way}moves` : `${way ? `${way[0].toUpperCase()}${way.slice(1)}` : 'All '}${KIND_WORD[S.kind]}moves`;
+  return `${whose}${parts.length ? ` ${parts.join(', ')}` : ''}: the next ${hz === 1 ? 'hour' : `${hz} hours`}`;
 }
 
 /** The parameters a window's queries use, so it offers only the choices that change something. */

@@ -44,14 +44,14 @@
 // The same rule as the lakehouse's intraday_events.sql: a move is unusual at 3 or more of the market's
 // usual daily moves (|z| >= 3), in size bands 3-4, 4-6 and 6+.
 
-const Z_TIP = "Today's move ÷ the market's usual daily move (σ). 3σ or more is unusual.";
+const Z_TIP = "How many times bigger today's move is than this market's usual daily move (σ). 3σ or more is unusual.";
 const LIQ_TIP = 'Average daily volume over 30 days: large ≥ 100 million USDT, mid ≥ 10 million, small below';
 
 const COL = {
   market: { name: 'market', label: 'Market', format: 'market' },
   price: { name: 'price', label: 'Price', format: 'price' },
   today: { name: 'today_pct', label: 'Today', format: 'pct' },
-  z: { name: 'z', label: 'z (σ)', format: 'z', title: Z_TIP },
+  z: { name: 'z', label: 'Size of move', format: 'z', title: Z_TIP },
   liquidity: { name: 'liquidity', label: 'Liquidity', format: 'liquidity', title: LIQ_TIP },
 };
 const verdictCols = [1, 4, 24].flatMap((h) => [
@@ -345,7 +345,7 @@ FROM market_evidence`,
        e.z_band,
        e.liquidity,
        e.horizon_hours,
-       e.side,                                              -- fade (bet it turns back) or follow
+       e.side,                                              -- fade (bet it reverses) or follow
        ROUND(100 * e.held_back_net_after_cost, 2) AS held_back_pct,   -- a trade from 2025, after costs
        ROUND(e.held_back_t, 1) AS held_back_t,
        e.held_back_days,
@@ -397,7 +397,7 @@ ORDER BY CASE v.direction WHEN 'up' THEN 1 ELSE 2 END,
     id: 'moves',
     kind: 'model',
     name: 'Past moves',
-    description: 'Every unusual move since 2020 in the direction chosen, with what the price did over the hours chosen: + kept going, − turned back.',
+    description: 'Every unusual move since 2020 in the direction chosen, with what the price did over the hours chosen: + continued, − reversed.',
     sql: `SELECT symbol,
        market_type,                                 -- crypto, stock, commodity or other
        event_date,
@@ -414,7 +414,7 @@ ORDER BY CASE v.direction WHEN 'up' THEN 1 ELSE 2 END,
             ELSE CAST(FLOOR(kept_going_pct) AS INTEGER)
        END AS bucket
 FROM (SELECT *,
-             100 * CASE WHEN direction = 'up' THEN 1 ELSE -1 END     -- + kept going, - turned back
+             100 * CASE WHEN direction = 'up' THEN 1 ELSE -1 END     -- + continued, - reversed
                  * CASE :horizon WHEN 1 THEN fwd_return_1h WHEN 24 THEN fwd_return_24h ELSE fwd_return_4h END
                AS kept_going_pct                    -- the price change over the hours chosen, in %
       FROM market_events
@@ -500,8 +500,8 @@ GROUP BY symbol, market_type, direction`,
     kind: 'metric',
     name: 'Every market right now',
     description: 'Each market\'s move today in its usual daily moves (z, across) against the volume of its last 24 hours compared with a usual day (up), coloured by whether it is unusual and whether its kind of move has a tested pattern. Live.',
-    columns: [COL.market, { name: 'z_axis', label: 'z (σ), at most ±12 on the graph', format: 'z' }, { name: 'volume_x', label: 'Volume against a usual day', format: 'times' },
-      COL.today, { ...COL.z, label: 'z (σ)' }, COL.liquidity, { name: 'state', label: 'State' }],
+    columns: [COL.market, { name: 'z_axis', label: 'Size of move, at most ±12σ on the graph', format: 'z' }, { name: 'volume_x', label: 'Volume against a usual day', format: 'times' },
+      COL.today, COL.z, COL.liquidity, { name: 'state', label: 'State' }],
     chart: { type: 'scatter', x: 'z_axis', y: 'volume_x', ylog: true, label: 'market', color: 'state', xunit: '',
       colors: { 'Unusual, a pattern held up': 0, 'Unusual, no tested edge': 1, Normal: 'muted' },
       tip: ['today_pct', 'z', 'liquidity', 'state'], drill: { panel: 'market', set: { symbol: 'market' } } },
@@ -531,20 +531,20 @@ WHERE t.z IS NOT NULL
     id: 'playbook',
     kind: 'metric',
     name: 'Playbook for the unusual markets',
-    description: 'Each market that is unusual right now, and what past moves of the same kind on the same type of market did next: the middle move over 1, 4 and 24 hours, how often they kept going, how far the worst 5% went either way, and the market\'s own past. Before costs. Live.',
+    description: 'Each market that is unusual right now, and what happened after similar moves on the same type of market: the typical result after 1, 4 and 24 hours, how often the move continued, the bad case either way, and this market\'s own past. Most numbers describe the group, so markets in the same group show the same ones. Before costs. Live.',
     show: 100,
     columns: [COL.market, { ...COL.z, format: 'z_tag' },
-      { name: 'kind_of_move', label: 'Kind of move', title: 'Direction, size in usual daily moves, and liquidity: the same groups as the verdicts' },
-      { name: 'moves', label: 'Past moves', format: 'int', under: { col: 'days', text: 'on {} days', format: 'int' }, title: 'Past moves of this kind on this type of market, and the days they fell on' },
-      ...[1, 4, 24].map((h) => ({ name: `next_${h}h`, label: `Next ${h} h`, format: 'pct', under: { col: `recent_${h}h`, text: 'from 2025 {}', format: 'pct' }, title: `The middle past move ${h} ${h === 1 ? 'hour' : 'hours'} later: + kept going, − turned back` })),
-      { name: 'kept_going_share', label: 'Kept going', format: 'share', under: { col: 'recent_kept_going', text: 'from 2025 {}', format: 'share' }, title: 'The share of past moves that kept going over the hours chosen' },
-      { name: 'worst_kept_going', label: 'Worst 5%: kept going', format: 'pct', under: { col: 'recent_worst_kept_going', text: 'from 2025 {}', format: 'pct' }, title: '1 past move in 20 kept going at least this far by the end of the hours chosen: what a fade has to survive' },
-      { name: 'worst_turned_back', label: 'Worst 5%: turned back', format: 'pct', under: { col: 'recent_worst_turned_back', text: 'from 2025 {}', format: 'pct' }, title: '1 past move in 20 turned back at least this far by the end of the hours chosen: what following a move has to survive' },
-      { name: 'own_median', label: 'Its own past', format: 'pct', under: { col: 'own_moves', text: '{} moves', format: 'int' }, title: 'The middle of this market\'s own past moves in this direction, over the hours chosen, from 5 moves on. Click for them',
-        drill: { panel: 'moves', set: { kind: 'market_type', direction: 'direction', symbol: 'market' } } },
-      { name: 'verdict', label: 'Verdict', format: 'verdict', title: 'The tested verdict for this kind of move over the hours chosen' },
+      { name: 'kind_of_move', label: 'Compared with', title: 'The group of past moves this one is compared with: direction, size, and how much the market trades' },
+      { name: 'verdict', label: 'Tested edge?', format: 'verdict', title: 'Whether this group passed the test, over the hours chosen. The only column that has' },
+      { name: 'moves', label: 'Times before', format: 'int', under: { col: 'days', text: 'on {} days', format: 'int' }, title: 'How many times any market of this type made a move in this group, and on how many days. Click to see them',
+        drill: { panel: 'moves', set: { kind: 'market_type', direction: 'direction', z_band: 'z_band', liquidity: 'liquidity' } } },
+      ...[1, 4, 24].map((h) => ({ name: `next_${h}h`, label: `Typical after ${h} h`, format: 'pct', under: { col: `recent_${h}h`, text: 'from 2025 {}', format: 'pct' }, title: `The middle result ${h} ${h === 1 ? 'hour' : 'hours'} later: + continued, − reversed` })),
+      { name: 'kept_going_share', label: 'Continued', format: 'share', under: { col: 'recent_kept_going', text: 'from 2025 {}', format: 'share' }, title: 'How often the move continued over the hours chosen' },
+      { name: 'worst_kept_going', label: 'Bad case against the move', format: 'pct', under: { col: 'recent_worst_kept_going', text: 'from 2025 {}', format: 'pct' }, title: 'If you bet the move would reverse: 1 time in 20 it continued at least this far by the end of the hours chosen' },
+      { name: 'worst_turned_back', label: 'Bad case with the move', format: 'pct', under: { col: 'recent_worst_turned_back', text: 'from 2025 {}', format: 'pct' }, title: 'If you joined the move: 1 time in 20 it reversed at least this far by the end of the hours chosen' },
+      { name: 'own_median', label: 'This market before', format: 'pct', under: { col: 'own_moves', text: '{} moves', format: 'int' }, title: 'The middle result of this market\'s own past moves in this direction, over the hours chosen, from 5 moves on' },
       ...['days', 'recent_1h', 'recent_4h', 'recent_24h', 'recent_kept_going', 'recent_worst_kept_going', 'recent_worst_turned_back', 'own_moves', 'market_type', 'direction', 'z_band', 'liquidity'].map((name) => ({ name, format: 'hidden' }))],
-    drill: { panel: 'moves', set: { kind: 'market_type', direction: 'direction', z_band: 'z_band', liquidity: 'liquidity' } },
+    drill: { panel: 'moves', set: { kind: 'market_type', direction: 'direction', symbol: 'market' } },
     sql: `SELECT f.symbol AS market,
        ROUND(f.z, 1) AS z,
        CONCAT(CASE f.direction WHEN 'up' THEN 'Up ' ELSE 'Down ' END, f.z_band, 'σ, ', f.liquidity) AS kind_of_move,
@@ -586,9 +586,9 @@ ORDER BY ABS(f.z) DESC`,
     id: 'insight_patterns_map',
     kind: 'metric',
     name: 'Every kind of move at a glance',
-    description: 'What each kind of move did next on the markets chosen, on average over days since 2020 (blue kept going, red turned back, grey where there are too few days to judge), and its verdict: the side and its result from 2025 when the pattern held up. Stocks and commodities are not tested.',
+    description: 'What each kind of move did next on the markets chosen, on average over days since 2020 (blue continued, red reversed, grey where there are too few days to judge), and its verdict: the side and its result from 2025 when the pattern held up. Stocks and commodities are not tested.',
     columns: [{ name: 'kind_of_move', label: 'Kind of move' }, { name: 'horizon', label: 'Over' },
-      { name: 'avg_pct', label: 'Average next move, all years', format: 'pct' }, { name: 'verdict_text', label: 'Verdict' },
+      { name: 'avg_pct', label: 'Average next move, all years', format: 'pct' }, { name: 'verdict_text', label: 'Tested edge?' },
       { name: 'events', label: 'Moves', format: 'int' }, { name: 'days', label: 'Days', format: 'int' },
       { name: 'in_sample_t', label: 't 2020–2024' }, { name: 'held_back_t', label: 't from 2025' },
       { name: 'too_few', format: 'hidden' }, { name: 'direction', format: 'hidden' }, { name: 'horizon_hours', format: 'hidden' },
@@ -596,7 +596,7 @@ ORDER BY ABS(f.z) DESC`,
     chart: { type: 'heatmap', x: 'horizon', y: 'kind_of_move', value: 'avg_pct', text: 'verdict_text', unit: '%', scale: 'x', faint: 'too_few',
       tip: ['verdict_text', 'events', 'days', 'in_sample_t', 'held_back_t'],
       drill: { panel: 'moves', set: { direction: 'direction', horizon: 'horizon_hours', z_band: 'pick_band', liquidity: 'pick_liquidity' } } },
-    sql: `WITH moved AS (                                     -- the moves chosen: + kept going, - turned back
+    sql: `WITH moved AS (                                     -- the moves chosen: + continued, - reversed
   SELECT direction, z_band, liquidity, event_date,
          CASE WHEN direction = 'up' THEN 1 ELSE -1 END
            * CASE :horizon WHEN 1 THEN fwd_return_1h WHEN 24 THEN fwd_return_24h ELSE fwd_return_4h END AS c
@@ -625,7 +625,7 @@ SELECT CASE WHEN e.z_band = 'all' THEN CONCAT('Every ', e.direction, ' move')
             ELSE CONCAT(CASE e.direction WHEN 'up' THEN 'Up ' ELSE 'Down ' END, e.z_band, 'σ, ', e.liquidity)
        END AS kind_of_move,
        CONCAT('Next ', e.horizon_hours, ' h') AS horizon,
-       ROUND(100 * k.avg_continuation, 2) AS avg_pct,  -- + kept going, - turned back
+       ROUND(100 * k.avg_continuation, 2) AS avg_pct,  -- + continued, - reversed
        CASE WHEN :kind IN ('stock', 'commodity') THEN 'not tested'  -- no 2020-2024 years
             WHEN e.verdict = 'held up'                 -- the side, and a trade from 2025 after costs
             THEN CONCAT(e.side, ' ', ROUND(100 * e.held_back_net_after_cost, 2), '%')
@@ -658,7 +658,7 @@ ORDER BY CASE e.direction WHEN 'up' THEN 1 ELSE 2 END,
     description: 'What the moves did next, year by year: the median (the middle move) and the average (pulled by a few big ones). A pattern worth trusting shows up every year, not in one.',
     columns: [{ name: 'year', label: 'Year' }, { name: 'moves', label: 'Moves', format: 'int' },
       { name: 'median_pct', label: 'Median', format: 'pct' }, { name: 'average_pct', label: 'Average', format: 'pct' },
-      { name: 'kept_going_share', label: 'Kept going', format: 'share' }],
+      { name: 'kept_going_share', label: 'Continued', format: 'share' }],
     chart: { type: 'bar', x: 'year', y: ['median_pct', 'average_pct'], unit: '%', tip: ['moves', 'kept_going_share'],
       drill: { panel: 'moves', set: { year: 'year' } } },
     sql: `SELECT year,
@@ -674,16 +674,16 @@ ORDER BY year`,
     id: 'insight_spread',
     kind: 'metric',
     name: 'Spread of outcomes',
-    description: 'How many moves ended in each 1% step over the hours chosen: how often a move turned back, kept going, or ran far either way. The tails are the risk of taking a side.',
+    description: 'How many moves ended in each 1% step over the hours chosen: how often a move reversed, continued, or ran far either way. The tails are the risk of taking a side.',
     columns: [{ name: 'from_pct', label: 'From (%)' }, { name: 'moves', label: 'Moves', format: 'int' },
       { name: 'share_pct', label: 'Share of moves', format: 'pct_plain' }, { name: 'range_text', label: 'Outcome' }, { name: 'bucket', format: 'hidden' }],
-    chart: { type: 'bar', x: 'from_pct', y: 'moves', sign: 'bucket', unit: '', pos_label: 'Kept going', neg_label: 'Turned back',
+    chart: { type: 'bar', x: 'from_pct', y: 'moves', sign: 'bucket', unit: '', pos_label: 'Continued', neg_label: 'Reversed',
       tip: ['range_text', 'share_pct'], drill: { panel: 'moves', set: { bucket: 'bucket' } } },
     sql: `SELECT CASE WHEN bucket = -11 THEN '<-10' WHEN bucket = 10 THEN '10+' ELSE CONCAT(bucket) END AS from_pct,
        COUNT(*) AS moves,
        ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS share_pct,
-       CASE WHEN bucket = -11 THEN 'turned back more than 10%'
-            WHEN bucket = 10 THEN 'kept going 10% or more'
+       CASE WHEN bucket = -11 THEN 'reversed more than 10%'
+            WHEN bucket = 10 THEN 'continued 10% or more'
             ELSE CONCAT(bucket, '% to ', bucket + 1, '%')
        END AS range_text,
        bucket
@@ -698,8 +698,8 @@ ORDER BY bucket`,
     description: 'What the moves did next by the UTC hour they became unusual (the median move). India is UTC + 5:30.',
     columns: [{ name: 'hour', label: 'Hour (UTC)' }, { name: 'moves', label: 'Moves', format: 'int' },
       { name: 'median_pct', label: 'Median', format: 'pct' }, { name: 'average_pct', label: 'Average', format: 'pct' },
-      { name: 'kept_going_share', label: 'Kept going', format: 'share' }],
-    chart: { type: 'bar', x: 'hour', y: 'median_pct', sign: true, unit: '%', pos_label: 'Kept going (median)', neg_label: 'Turned back (median)',
+      { name: 'kept_going_share', label: 'Continued', format: 'share' }],
+    chart: { type: 'bar', x: 'hour', y: 'median_pct', sign: true, unit: '%', pos_label: 'Continued (median)', neg_label: 'Reversed (median)',
       tip: ['average_pct', 'moves', 'kept_going_share'], drill: { panel: 'moves', set: { hour: 'hour' } } },
     sql: `SELECT hour_of_day AS hour,
        COUNT(*) AS moves,
@@ -717,7 +717,7 @@ ORDER BY hour_of_day`,
     description: 'The median next move for each size of move (in usual daily moves) and each liquidity group (average daily volume over 30 days: large ≥ 100 million USDT, mid ≥ 10 million, small below).',
     columns: [{ name: 'size', label: 'Size' }, { name: 'markets', label: 'Markets' }, { name: 'moves', label: 'Moves', format: 'int' },
       { name: 'median_pct', label: 'Median', format: 'pct' }, { name: 'average_pct', label: 'Average', format: 'pct' },
-      { name: 'kept_going_share', label: 'Kept going', format: 'share' }, { name: 'z_band', format: 'hidden' }, { name: 'liquidity', format: 'hidden' }],
+      { name: 'kept_going_share', label: 'Continued', format: 'share' }, { name: 'z_band', format: 'hidden' }, { name: 'liquidity', format: 'hidden' }],
     chart: { type: 'heatmap', x: 'markets', y: 'size', value: 'median_pct', unit: '%', tip: ['average_pct', 'moves', 'kept_going_share'],
       drill: { panel: 'moves', set: { z_band: 'z_band', liquidity: 'liquidity' } } },
     sql: `SELECT CASE z_band WHEN '3-4' THEN '3 to 4σ' WHEN '4-6' THEN '4 to 6σ' ELSE '6σ or more' END AS size,
@@ -738,7 +738,7 @@ ORDER BY z_band, CASE liquidity WHEN 'large' THEN 1 WHEN 'mid' THEN 2 ELSE 3 END
     name: 'The market by hour of the day',
     description: 'The average move of the markets chosen in each UTC hour, in basis points (0.01%), in 2020–2024 and again from 2025, before costs. An hour that leaned one way in 2020–2024 only counts if it kept leaning that way from 2025.',
     columns: [{ name: 'hour', label: 'Hour (UTC)' }, { name: 'in_sample_bp', label: '2020–2024 (bp)' }, { name: 'held_back_bp', label: 'From 2025 (bp)' },
-      { name: 'in_sample_t', label: 't 2020–2024' }, { name: 'held_back_t', label: 't from 2025' }, { name: 'verdict', label: 'Verdict' },
+      { name: 'in_sample_t', label: 't 2020–2024' }, { name: 'held_back_t', label: 't from 2025' }, { name: 'verdict', label: 'Tested edge?' },
       { name: 'in_sample_days', label: 'Days 2020–2024', format: 'int' }, { name: 'held_back_days', label: 'Days from 2025', format: 'int' }],
     chart: { type: 'bar', x: 'hour', y: ['in_sample_bp', 'held_back_bp'], unit: 'bp', tip: ['in_sample_t', 'held_back_t', 'verdict'],
       drill: { panel: 'drift', set: { hour: 'hour' } } },
@@ -773,8 +773,8 @@ ORDER BY hour`,
     id: 'moves_summary',
     kind: 'metric',
     name: 'The middle move',
-    description: 'The moves picked: how many, and what the middle one (the median), the average and the share that kept going did over the hours chosen.',
-    card: { value: '{median_pct:pct}', sub: '{moves:int} moves on {days:int} days · average {average_pct:pct} · {kept_going_share:share} kept going' },
+    description: 'The moves picked: how many, and what the middle one (the median), the average and the share that continued did over the hours chosen.',
+    card: { value: '{median_pct:pct}', sub: '{moves:int} moves on {days:int} days · average {average_pct:pct} · {kept_going_share:share} continued' },
     sql: `SELECT COUNT(*) AS moves,
        COUNT(DISTINCT event_date) AS days,
        COUNT(DISTINCT symbol) AS markets,
@@ -791,13 +791,13 @@ FROM moves_picked`,
     description: 'How many of the moves picked ended in each 1% step over the hours chosen.',
     columns: [{ name: 'from_pct', label: 'From (%)' }, { name: 'moves', label: 'Moves', format: 'int' },
       { name: 'share_pct', label: 'Share of moves', format: 'pct_plain' }, { name: 'range_text', label: 'Outcome' }, { name: 'bucket', format: 'hidden' }],
-    chart: { type: 'bar', x: 'from_pct', y: 'moves', sign: 'bucket', unit: '', pos_label: 'Kept going', neg_label: 'Turned back',
+    chart: { type: 'bar', x: 'from_pct', y: 'moves', sign: 'bucket', unit: '', pos_label: 'Continued', neg_label: 'Reversed',
       tip: ['range_text', 'share_pct'], drill: { panel: 'moves', set: { bucket: 'bucket' } } },
     sql: `SELECT CASE WHEN bucket = -11 THEN '<-10' WHEN bucket = 10 THEN '10+' ELSE CONCAT(bucket) END AS from_pct,
        COUNT(*) AS moves,
        ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS share_pct,
-       CASE WHEN bucket = -11 THEN 'turned back more than 10%'
-            WHEN bucket = 10 THEN 'kept going 10% or more'
+       CASE WHEN bucket = -11 THEN 'reversed more than 10%'
+            WHEN bucket = 10 THEN 'continued 10% or more'
             ELSE CONCAT(bucket, '% to ', bucket + 1, '%')
        END AS range_text,
        bucket
@@ -812,7 +812,7 @@ ORDER BY bucket`,
     description: 'The moves picked, year by year: the median and the average next move.',
     columns: [{ name: 'year', label: 'Year' }, { name: 'moves', label: 'Moves', format: 'int' },
       { name: 'median_pct', label: 'Median', format: 'pct' }, { name: 'average_pct', label: 'Average', format: 'pct' },
-      { name: 'kept_going_share', label: 'Kept going', format: 'share' }],
+      { name: 'kept_going_share', label: 'Continued', format: 'share' }],
     chart: { type: 'bar', x: 'year', y: ['median_pct', 'average_pct'], unit: '%', tip: ['moves', 'kept_going_share'],
       drill: { panel: 'moves', set: { year: 'year' } } },
     sql: `SELECT year,
@@ -831,8 +831,8 @@ ORDER BY year`,
     description: 'The newest 300 of the moves picked, each with what it did over the hours chosen. Click a row for every past move of that market.',
     show: 100,
     columns: [COL.market, { name: 'event_hour', label: 'When (UTC)' }, { ...COL.z, format: 'z_tag' },
-      { name: 'z_band', label: 'Size band' }, COL.liquidity, { name: 'kept_going_pct', label: 'Then', format: 'pct', title: '+ kept going, − turned back, over the hours chosen' },
-      { name: 'period', label: 'Period' }],
+      { name: 'z_band', label: 'Size band' }, COL.liquidity, { name: 'kept_going_pct', label: 'Result', format: 'pct', title: '+ continued, − reversed, over the hours chosen' },
+      { name: 'period', label: 'Years', format: 'period' }],
     drill: { panel: 'moves', set: { symbol: 'market' } },
     sql: `SELECT symbol AS market,
        event_hour,
@@ -872,7 +872,7 @@ ORDER BY year`,
     name: 'This hour, by liquidity',
     description: 'The hour picked for each liquidity group: its average move in 2020–2024 and from 2025, with t (beyond ±2 is unlikely to be chance), before costs.',
     columns: [{ name: 'liquidity', label: 'Markets', format: 'liquidity' }, { name: 'in_sample_bp', label: '2020–2024 (bp)' }, { name: 'in_sample_t', label: 't 2020–2024' },
-      { name: 'held_back_bp', label: 'From 2025 (bp)' }, { name: 'held_back_t', label: 't from 2025' }, { name: 'verdict', label: 'Verdict' }],
+      { name: 'held_back_bp', label: 'From 2025 (bp)' }, { name: 'held_back_t', label: 't from 2025' }, { name: 'verdict', label: 'Tested edge?' }],
     sql: `SELECT liquidity,
        in_sample_bp,
        in_sample_t,

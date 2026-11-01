@@ -24,7 +24,7 @@ The data engineering terms used in this project, in plain words.
 | **Checksum (SHA-256)** | A fingerprint of a file's bytes. If the fingerprint doesn't match the published one, the file is damaged | The downloader |
 | **CI/CD** | Automatically checking and deploying code when it changes | Planned |
 | **Clustering by day** | Averaging each day's events first and doing the statistics over days, because events on the same day (coins moving together) aren't independent | `event_evidence` |
-| **Continuation** | The return after a move, in the move's direction: positive means it kept going, negative means it turned back | `event_evidence` |
+| **Continuation** | The return after a move, in the move's direction: positive means it continued, negative means it reversed (the page's words) | `event_evidence` |
 | **Data contract** | The rules data must meet before a consumer gets it, checked automatically; data that breaks them doesn't reach the consumer | The dbt tests on `metric_definitions`: a broken definition stops the publish |
 | **Data domain** | One area of data with its own owner, meaning and access rules (market data, a person's trades, logs). Keeping domains apart means a grant on one never opens another | One catalog per domain: `market`, `journal`, `ops` |
 | **Data observability** | A pipeline reporting on its own data: completeness, freshness, unexpected changes | `data_health` |

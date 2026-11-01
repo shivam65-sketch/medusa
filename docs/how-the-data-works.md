@@ -653,8 +653,8 @@ answer. So the page knows a new version exists without fetching the file.
 address carries the version, the browser can keep the file for a day and a new publish is still never hidden.
 The worker unpacks it, off the main page so nothing freezes, and fills `market_events`.
 
-**6. The query.** `moves` picks the direction and turns each result into *kept going*: positive means the
-move carried on, negative means it turned back.
+**6. The query.** `moves` picks the direction and turns each result into a result: positive means the
+move continued, negative means it reversed.
 
 ```sql
 100 * CASE WHEN direction = 'up' THEN 1 ELSE -1 END
@@ -677,7 +677,7 @@ ORDER BY year
 
 The same sum run in Databricks on the master table, up moves over the next 4 hours:
 
-| Year | Moves | Median | Average | Kept going |
+| Year | Moves | Median | Average | Continued |
 |---|---:|---:|---:|---:|
 | 2020 | 227 | −0.62% | −0.70% | 42% |
 | 2021 | 807 | −0.97% | +0.04% | 43% |
@@ -687,7 +687,7 @@ The same sum run in Databricks on the master table, up moves over the next 4 hou
 | 2025 | 3,019 | −0.71% | −0.16% | 43% |
 | 2026 | 5,170 | −0.69% | −0.11% | 42% |
 
-The middle up move turned back in all seven years. Whether a pattern holds year after year is what this graph
+The middle up move reversed in all seven years. Whether a pattern holds year after year is what this graph
 is there to show.
 
 **7. The drawing.** The definition also carries a chart spec. It names columns and nothing else:

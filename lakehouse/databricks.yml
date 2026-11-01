@@ -162,6 +162,13 @@ resources:
             warehouse_id: ${var.warehouse_id}
             file:
               path: ./sql/seed/008_metric_definitions_playbook.sql
+        - task_key: seed_plain_words
+          depends_on:
+            - task_key: seed_playbook
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/seed/009_metric_definitions_plain_words.sql
 
   # Bronze: loads new landing files into market.bronze. Runs when started, then stops.
   pipelines:
