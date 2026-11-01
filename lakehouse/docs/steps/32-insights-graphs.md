@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Built** | 32.1: 2026-10-26 to 30 · 32.2.1: 2026-11-01 · the rest of 32.2 and 32.3: next |
-| **Commits** | 32.1: `26a06bb` (the graph engine, the Insights view and these docs) · the live results |
+| **Commits** | 32.1: `26a06bb` (the graph engine, the Insights view and these docs) · the live results · 32.2.1: `5ba4cbe`, `82339e1`, `cedf351`, `0f8faeb`, `849876a`, `d35f7f8` |
 | **Files** | [`dbt/models/gold/hour_drift.sql`](../../dbt/models/gold/hour_drift.sql) (the market by hour, every year) and its test · [`serving/publish_to_medusa.py`](../../serving/publish_to_medusa.py) (the Insights file) · [`sql/seed/003_metric_definitions_insights.sql`](../../sql/seed/003_metric_definitions_insights.sql) (version 1 of the 16 definitions) · `databricks.yml` (the seed task) · MEDUSA: [`public/markets-charts.js`](../../../public/markets-charts.js) (the graphs), `public/markets.js`, `public/markets-metrics.js`, `public/markets-sql.js`, `public/markets-window.js`, `src/market.js`, `src/metrics.js`, `src/worker.js` |
 | **Decisions** | [ADR-034](../decisions.md#adr-034-the-insights-history-goes-to-medusa-as-one-gzip-file-kept-as-it-is) · [ADR-035](../decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page) · [ADR-037](../decisions.md#adr-037-market-type-comes-from-a-reference-list-and-only-tested-markets-get-a-verdict) |
 
@@ -315,6 +315,19 @@ already open was brought to the front with the query it opened with. Reproduced 
 | Window names for four combinations and the market by hour | All different; the market by hour includes only the type, the one choice it uses |
 | A second click on Crypto, Up, Next 4 h | All, All moves, no hours; all three horizons shown, 60 cells |
 | With no hours chosen, 2020 | 432 moves, −1.50%, −1.61%, the 4-hour figures |
+
+### Live result
+
+| Check | Result |
+|---|---:|
+| **Lakehouse transform** run 11, started by hand on commit `d35f7f8` | Success in 4 min 32 s: 18 built, 154 tests passed, 1 warned (the expected `assert_no_missing_days`), 0 failed |
+| `gold.hour_drift` | 2,088 rows: 672 all, 672 crypto, 504 other, 144 commodity, 96 stock |
+| `gold.event_evidence` | 35 no pattern, 15 too few, 5 held up, 5 did not hold, as before |
+| The 5 that held up, from 2025 after costs | +13.17%, +4.71% (was +3.96%), +3.82% (was +3.24%), +0.67% (was +0.65%), +0.24% (was +0.22%) |
+| The live answer in KV | `moves` v4, `moves_summary` v2, `insight_live_map` v4, `insight_patterns_map` v4, `hour_stats` v2, `patterns_held` v3 |
+| The live Insights file | 668,205 bytes, with 2,088 hour rows by type |
+| `dim_market_type` | Tagged `domain`, `layer` and `personal_data` |
+| The owner, on the live site | Confirmed the page works after run 11 |
 
 ## Next: 32.2 and 32.3
 

@@ -16,10 +16,10 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
-| [33](#issue-33) | 2026-11-01 | Markets | The ‹› window's code was the same for Next 1 h and Next 4 h | Bug | Built, waiting to go live |
-| [32](#issue-32) | 2026-11-01 | Markets | *Down moves* and *Next 24 h* didn't change *Every market right now* | Bug | Built, waiting to go live |
-| [31](#issue-31) | 2026-11-01 | Markets | Dots drawn outside the graph on *Every market right now* | Bug | Built, waiting to go live |
-| [30](#issue-30) | 2026-11-01 | Markets | The market filter did nothing on Insights | Bug | Built, waiting to go live |
+| [33](#issue-33) | 2026-11-01 | Markets | The ‹› window's code was the same for Next 1 h and Next 4 h | Bug | Fixed |
+| [32](#issue-32) | 2026-11-01 | Markets | *Down moves* and *Next 24 h* didn't change *Every market right now* | Bug | Fixed |
+| [31](#issue-31) | 2026-11-01 | Markets | Dots drawn outside the graph on *Every market right now* | Bug | Fixed |
+| [30](#issue-30) | 2026-11-01 | Markets | The market filter did nothing on Insights | Bug | Fixed |
 | [29](#issue-29) | 2026-11-01 | Lakehouse | The transform failed: *dim_market_type was not found* | Bug | Fixed |
 | [28](#issue-28) | 2026-11-01 | Markets | Stocks and commodities showed verdicts tested on crypto | Bug | Fixed |
 | [27](#issue-27) | 2026-10-31 | Lab | The Python engine takes a long time to start | Limit | Known, unchanged |
@@ -65,7 +65,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 - **Checked:** reproduced first: both clicks went to `medusa-calc-ins_year`, and the second never loaded. After the fix,
   each combination gets its own window, and in two real windows 3 of 34 lines differ, exactly the three choices. A second
   click on each choice clears it, with no query failing.
-- **State:** built, waiting to go live.
+- **State:** fixed and live since transform run 11.
 
 <a id="issue-32"></a>
 ### 32. *Down moves* and *Next 24 h* didn't change *Every market right now*
@@ -81,7 +81,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
   version took about 3.5 seconds on every click.
 - **Checked:** locally with real data, three combinations match Databricks exactly. With *Down* chosen, 0 rising markets
   are shown. *Every kind of move* takes 0.13 to 0.35 seconds.
-- **State:** built, waiting to go live.
+- **State:** fixed and live since transform run 11.
 
 <a id="issue-31"></a>
 ### 31. Dots drawn outside the graph on *Every market right now*
@@ -93,7 +93,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 - **Change:** the axis now reaches down to the lowest market, as far as ×0.01. Anything lower sits on the bottom of the
   graph, and its hover still shows the real value. A small margin keeps whole dots inside.
 - **Checked:** locally on real data, for each market type: every dot's position against the bottom of the graph.
-- **State:** built, waiting to go live.
+- **State:** fixed and live since transform run 11.
 
 <a id="issue-30"></a>
 ### 30. The market filter did nothing on Insights
@@ -113,7 +113,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
   with real data, all seven Insights graphs change with each of the 5 types, with no failures, and the Stocks figures match
   Databricks. A page left open picked up a publish by itself at the 5-minute mark. `hour_drift`'s `all` rows match the
   old table on all 672 rows.
-- **State:** built, waiting to go live.
+- **State:** fixed and live since transform run 11.
 
 <a id="issue-29"></a>
 ### 29. The transform failed: *dim_market_type was not found*

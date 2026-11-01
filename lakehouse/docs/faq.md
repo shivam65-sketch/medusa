@@ -227,7 +227,7 @@ are append-only.
 ## How do I read the Insights graphs, and how do they help?
 
 Each graph answers one question about the unusual moves since 2020 (the same moves behind Patterns), for
-up or down moves and over the next 1, 4 or 24 hours, chosen at the top
+the market type, the direction and the next 1, 4 or 24 hours chosen at the top
 ([step 32](steps/32-insights-graphs.md)). *Kept going* is positive, *turned back* negative. **Year by
 year** shows whether a tendency is there every year or only in one; **Spread of outcomes** how often a
 move ran far against a fade (the risk to size for); **By the hour** and **By size and liquidity** where a
@@ -239,6 +239,23 @@ behind it in a window of its own, and a row there opens that market's past moves
 They help to see whether a pattern is steady, where it is stronger and what can go wrong. They are not
 signals: only a pattern that held up on the years held back (the verdicts in Patterns) has passed a test,
 and a graph that suggests something new is an idea to test the same way.
+
+## What do the choices at the top of Markets do to a query?
+
+They change the query itself. A definition is written with its choices as parameters:
+`:kind IN ('all', market_type)` means this type, or every type. Before running it, the page writes the
+choice into the SQL, so the ‹› window shows the query that really ran: with Stocks chosen that line reads
+`market_type = 'stock'`, and with no type chosen it reads `TRUE`. A second click on a choice removes it.
+A line under each graph says which choices it follows, read from its own query. *The market by hour* follows
+only the type, because it is the whole market hour by hour, not a set of moves. Each choice has its own ‹›
+window, so Next 1 h and Next 4 h can stay open side by side.
+
+## Why does a stock show *not tested*?
+
+A verdict needs years to choose a side on and later years held back to test it. Stocks and commodities
+have no 2020–2024 years, and a tendency found on crypto says nothing about Apple. They keep their move and
+their past moves, but no verdict, and the evidence covers crypto and other markets only
+([ADR-037](decisions.md#adr-037-market-type-comes-from-a-reference-list-and-only-tested-markets-get-a-verdict)).
 
 ## Why does the Insights history come as a file, not from MEDUSA's database?
 
