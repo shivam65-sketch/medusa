@@ -141,6 +141,7 @@
   /* ---------- API ---------- */
   class SignedOut extends Error {}
   const AUTH_PATHS = new Set(['/api/login', '/api/signup', '/api/recover']); // a 401 there is a wrong password, not a lost session
+  let offline = false;   // the last call couldn't reach the server
   async function call(method, path, body) {
     const opts = { method, headers: { Accept: 'application/json' }, credentials: 'same-origin' };
     if (method !== 'GET') {
@@ -150,7 +151,12 @@
     }
     let r;
     const t0 = performance.now();
-    try { r = await fetch(path, opts); } catch { log('api', `${method} ${path.split('?')[0]}: no connection`, null, 'error'); throw new Error("Couldn't reach your journal. Check your connection."); }
+    try { r = await fetch(path, opts); } catch {
+      if (!offline) log('api', `${method} ${path.split('?')[0]}: no connection`, null, 'error');   // once per outage: pages retry every few seconds
+      offline = true;
+      throw new Error("Couldn't reach your journal. Check your connection.");
+    }
+    offline = false;
     log('api', `${method} ${path.split('?')[0]} → ${r.status} (${Math.round(performance.now() - t0)} ms)`, null, 'debug');
     const data = await r.json().catch(() => ({}));
     if (r.status === 401 && !AUTH_PATHS.has(path)) { showLogin(); throw new SignedOut('Signed out'); }
@@ -1844,7 +1850,7 @@
     const host = $('#markets');
     if (!mktLoad) {
       host.innerHTML = '<div class="loading">Opening Markets…</div>';
-      mktLoad = import('/markets.js?v=20').catch((e) => {
+      mktLoad = import('/markets.js?v=22').catch((e) => {
         mktLoad = null;
         log('markets', `Markets couldn't be opened: ${e.message}`, null, 'error');
         host.innerHTML = `<div class="banner"><div><b>Markets couldn’t be opened.</b> ${esc(e.message)} Reload the page to try again.</div></div>`;

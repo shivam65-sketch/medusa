@@ -24,8 +24,8 @@
 // Each ‹› button opens one number's or graph's calculation in its own window (markets-window.html):
 // the same code with its own data, engine and live prices, running only that window's queries.
 
-import { DEFINITIONS } from './markets-metrics.js?v=9';
-import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=3';
+import { DEFINITIONS } from './markets-metrics.js?v=11';
+import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=4';
 
 const RULE = { z: 3 };
 // The daily run is set for 13:23 UTC, but GitHub starts it hours late (ops.logs.etl_runs: finished 16:50 to 19:36).
@@ -74,8 +74,8 @@ export function definitionsFrom(rows) {
       columns: (display && Array.isArray(display.columns) && display.columns) || base.columns,
       card: (display && display.card && display.card.value != null && display.card) || base.card,
       chart: (display && display.chart && display.chart.type && display.chart) || base.chart,
-      drill: (display && display.drill && display.drill.panel && display.drill) || base.drill,
       show: (display && Number.isInteger(display.show) && display.show) || base.show,
+      each: (display && display.each && display.each.panel && display.each) || base.each,
       version: r.version, validFrom: r.valid_from, changedBy: r.changed_by, note: r.change_note, from: 'lakehouse',
     });
   }
@@ -190,6 +190,11 @@ const PARAM_WORDS = {
   bucket: 'the 1% step clicked (NULL: every outcome)',
   z_band: 'the size band clicked (NULL: every size)',
   liquidity: 'the liquidity group clicked (NULL: every group)',
+  period: 'the years clicked (NULL: every year)',
+  kept: 'moves that continued (1) or reversed (0) (NULL: both)',
+  at_least: 'moves that continued at least this far, in % (NULL: every move)',
+  at_most: 'moves that reversed at least this far, in % (NULL: every move)',
+  verdict: 'the verdict clicked',
 };
 // What a click on a graph can pick (lakehouse step 32), and what each may be: anything else, from a
 // window's address, is ignored.
@@ -200,6 +205,11 @@ const PICKS = {
   z_band: (v) => (['3-4', '4-6', '6+'].includes(v) ? v : null),
   liquidity: (v) => (['large', 'mid', 'small'].includes(v) ? v : null),
   symbol: (v) => (/^[A-Z0-9_]{2,40}$/.test(v) ? v : null),
+  period: (v) => (['in_sample', 'held_back'].includes(v) ? v : null),
+  kept: (v) => (v === '0' || v === '1' ? Number(v) : null),
+  at_least: (v) => (/^-?\d{1,6}(\.\d{1,4})?$/.test(v) ? Number(v) : null),
+  at_most: (v) => (/^-?\d{1,6}(\.\d{1,4})?$/.test(v) ? Number(v) : null),
+  verdict: (v) => (['held up', 'did not hold', 'no pattern', 'too few'].includes(v) ? v : null),
 };
 const NO_PICKS = Object.fromEntries(Object.keys(PICKS).map((k) => [k, null]));
 const DIRS = [['all', 'All moves'], ['up', 'Up moves'], ['down', 'Down moves']];
@@ -218,7 +228,7 @@ const INSIGHTS = [
   { id: 'insight_live_map', panel: 'ins_live', wide: true,
     how: 'Right of the middle is up today, left is down; higher means more volume than on a usual day. A big move on heavy volume is usually news; a big move on thin volume turns back more easily. <b>Blue</b> dots are unusual and their kind of move held up over the hours chosen (see Patterns); <b>orange</b> ones are unusual with no tested edge over those hours. <b>All, Up or Down moves</b> show markets moving either way, up or down today. Click a dot for that market\'s numbers.' },
   { id: 'playbook', panel: 'ins_playbook', wide: true, table: true,
-    how: () => `<b>Most of a row describes the group, not the market:</b> two markets in the same group show the same numbers. <b>Compared with</b> is that group: direction, size, and how much the market trades. <b>Times before</b> counts every move in it, on any market of this type, and the days they fell on: more days is stronger evidence, and a click shows those moves. <b>This market before</b> is the only number about this market alone, and a click anywhere else on the row opens its own moves. <b>Typical after</b> is the middle result: + the move continued, − it reversed. <b>Continued</b> is how often it did, over the next ${S.hz === 1 ? 'hour' : `${S.hz || 4} hours`}, and so are the bad cases: 1 time in 20 it went at least this far against you, <b>against the move</b> if you bet it would reverse, <b>with the move</b> if you joined it. That is the price at the end of the hours, not the worst point along the way, so a stop can be hit sooner. Small type is the same number from 2025 only: where the two disagree, older years are pulling the first one. Everything is before costs and stays empty with fewer than 20 days behind it. The clock starts when a move first became unusual, so for a market flagged hours ago part of it has already passed.` },
+    how: () => `Most of a row describes the group in <b>Kind of move</b>, so markets in one group show the same numbers. Only <b>Its own past</b> is this market alone. <b>Past moves</b> counts the group's moves and the days they fell on: more days is stronger evidence. <b>Next 1, 4 and 24 h</b> are the middle result, + continued or − reversed, with the same from 2025 underneath. <b>Kept going</b> and the <b>worst 5%</b> are over the next ${S.hz === 1 ? 'hour' : `${S.hz || 4} hours`}: 1 time in 20 the move went at least this far by the end of them, the risk if you bet against it (<b>kept going</b>) or joined it (<b>turned back</b>). Click any number for what is behind it. Before costs; empty with fewer than 20 days.` },
   { id: 'insight_patterns_map', panel: 'ins_patterns', wide: true,
     how: '<b>Blue</b>: moves of that kind continued on average; <b>red</b>: they reversed. The words are each verdict; only <b>fade</b> or <b>follow</b> with a result passed the test on 2025 onwards after costs. Click a cell for the moves behind it.' },
   { id: 'insight_by_year', panel: 'ins_year',
@@ -253,7 +263,7 @@ const S = {
   logged: new Set(),                                 // failures already in the log ("key\nerror"): each once per page
   frozen: null,                                     // the engine's browser-only tables as of the last run, for Copy
   seen: new Map(),                                   // symbol -> when this page first saw it unusual
-  view: 'today', kind: 'all', sort: 'z', q: '', limit: 50, open: null, openAll: null, pat: null,
+  view: 'today', kind: 'all', sort: 'z', q: '', limit: 50, open: null, openAll: null,
   dir: 'all', hz: 4,                                 // Insights: all, up or down moves, and the hours after them
   // The Insights file: the version the lakehouse published (ver), the one fetched (gz, gzVer), and what
   // the engine found in it (info: {as_of, rows}).
@@ -338,15 +348,31 @@ function fillCard(tpl, res) {
   return tpl.replace(/\{(\w+)(?::(\w+))?\}/g, (m, col, f) => (row && col in row ? (FMT[f] || FMT.auto)(row[col], row) : '–'));
 }
 
-/** A column's small second line: `under` names the column, its format and the words around it. */
+/** A column's small second line: `under` names the column, its format and the words around it, and what a
+ * click on it opens. */
 function underLine(u, row) {
   const [before, after] = u.text.split('{}');
-  return `<span class="mkt-under">${esc(before)}${(FMT[u.format] || FMT.auto)(row[u.col], row, u)}${esc(after || '')}</span>`;
+  const v = row[u.col], opens = u.drill && v != null && v !== 0 ? `${drillAttrs(u, row)} tabindex="0"` : '';
+  return `<span class="mkt-under${opens ? ' mkt-link' : ''}"${opens}>${esc(before)}${(FMT[u.format] || FMT.auto)(v, row, u)}${esc(after || '')}</span>`;
 }
 
+/** A value that opens something: a window, named like a graph's click. */
+const opener = (panel, set, html) => `<span class="mkt-link" data-mkt="drill" data-panel="${panel}" data-p="${esc(JSON.stringify(set))}" tabindex="0">${html}</span>`;
+
 /** A query's result as a table, each column shown by its format (columns the definition doesn't list
- * are shown as they come). `row` adds attributes to each row; `extra` adds columns kept by the page. */
-function resultTable(res, def, { row = null, extra = [] } = {}) {
+ * are shown as they come). `row` adds attributes to each row, `open` makes the market's name open
+ * something on the page, and `extra` adds columns kept by the page. Every value opens its own window:
+ * its column's `drill`, what the whole table drills to (`each`, or a graph's click), or its market. A
+ * value with nothing behind it opens nothing. */
+function resultTable(res, def, { row = null, open = null, extra = [] } = {}) {
+  const each = def.each || (def.chart && def.chart.drill);
+  const opensFor = (c, o, v) => {
+    if (c.format === 'market' && open) return ` ${open(o)}`;
+    if (v == null) return '';
+    if (c.drill) return v === 0 ? '' : drillAttrs(c, o);
+    if (each) return drillAttrs({ drill: each }, o);
+    return MARKET_ROWS.has(def.id) && o.market ? drillAttrs(TO_MARKET, o) : '';
+  };
   const spec = new Map((def.columns || []).map((c) => [c.name, c]));
   const cols = res.columns.map((n) => spec.get(n) || { name: n, label: n, format: 'auto' }).filter((c) => c.format !== 'hidden');
   const left = (c, v) => LEFT.has(c.format) || (c.format === 'auto' && typeof v === 'string') || c.format === undefined;
@@ -357,7 +383,8 @@ function resultTable(res, def, { row = null, extra = [] } = {}) {
     const v = o[c.name];
     const cls = c.format === 'market' ? ' class="sym"' : left(c, v) ? ' class="l"' : '';
     const text = (FMT[c.format] || FMT.auto)(v, o, c);
-    const cell = c.drill ? `<span class="mkt-link"${drillAttrs(c, o)} tabindex="0">${text}</span>` : text;
+    const opens = opensFor(c, o, v);
+    const cell = opens ? `<span class="mkt-link"${opens} tabindex="0">${text}</span>` : text;
     return `<td${cls}>${cell}${c.under ? underLine(c.under, o) : ''}</td>`;
   }).join('')}${extra.map((x) => `<td>${x.cell(o)}</td>`).join('')}</tr>`).join('');
   return `<div class="scroll-x"><table class="mkt-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
@@ -626,7 +653,14 @@ const WINDOWS = {
   ins_drift: ['insight_hour_drift'], ins_playbook: ['playbook'],
   moves: ['moves_summary', 'moves_spread', 'moves_by_year', 'moves_list'],
   drift: ['drift_by_year', 'drift_by_liquidity'],
+  // What a number opens when no graph or market holds what is behind it.
+  now: ['now_in_group'], verdicts: ['kinds_with_verdict'],
 };
+// A card opens the list behind it.
+const CARD_OPENS = { breadth: ['markets'], median_move: ['markets'], unusual_count: ['unusual'], bitcoin: ['market', 'BTCUSDT'] };
+// Tables with one row per market now: a value with nothing more specific behind it opens that market.
+const MARKET_ROWS = new Set(['unusual', 'gainers', 'losers', 'markets', 'playbook', 'unusual_all_types', 'now_in_group', 'patterns_held']);
+const TO_MARKET = { drill: { panel: 'market', set: { symbol: 'market' } } };
 
 /** A ‹› button: the number's calculation in its own window. Pressing it again brings that window to the
  * front as it is (it isn't reloaded). */
@@ -726,7 +760,6 @@ function sqlProblems(id, sql) {
 function neededColumns(id) {
   const d = DEFS.get(id);
   if (d.chart) return chartColumns(d.chart);
-  if (d.drill) return [...new Set([...(d.columns || []).map((c) => c.name), ...Object.values(d.drill.set || {})])];
   if (d.card) return [...new Set([...`${d.card.value} ${d.card.sub}`.matchAll(/\{(\w+)/g)].map((m) => m[1]))];
   return (d.columns || []).map((c) => c.name);
 }
@@ -1081,8 +1114,6 @@ table.mkt-table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 .mkt-table td { text-align: right; padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .mkt-table th:first-child, .mkt-table td:first-child, .mkt-table .l { text-align: left; }
 .mkt-table tr:last-child td { border-bottom: 0; }
-.mkt-table tr[data-mkt="row"], .mkt-table td[data-mkt="pat"] { cursor: pointer; }
-.mkt-table tr[data-mkt="row"]:hover td, .mkt-table td[data-mkt="pat"]:hover { background: #2b2b2b; }
 .mkt-table tr[aria-selected="true"] td, .mkt-table td[aria-selected="true"] { background: #2b2b2b; }
 .mkt-table td.sym { font-weight: 700; }
 .mkt-table tr.grp td { font-weight: 700; color: var(--text); background: #222; }
@@ -1092,7 +1123,9 @@ table.mkt-table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 .mkt-ev { font-weight: 700; color: var(--green); }
 .mkt-ev-all { font-size: 12px; color: var(--text-3); }
 .mkt-under { display: block; font-size: 12px; color: var(--text-3); white-space: nowrap; }
-.mkt-link { text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
+.mkt-under.mkt-link { display: block; }
+.mkt-link { display: inline-block; cursor: pointer; text-underline-offset: 3px; }
+.mkt-link:hover, .mkt-link:focus-visible { text-decoration: underline; }
 .mkt-ev-all b { color: var(--green); font-weight: 600; }
 .mkt-tag { display: inline-block; padding: 1px 7px; border-radius: 5px; font-size: 12px; font-weight: 700; background: #2f2f2f; color: var(--text-2); }
 .mkt-tag.up { background: rgba(34, 197, 94, 0.15); color: var(--green); }
@@ -1244,8 +1277,6 @@ table.mkt-result td, table.mkt-result th { white-space: nowrap; font-family: ui-
 .mkt-tbl { margin-top: 10px; }
 .mkt-tbl summary { cursor: pointer; color: var(--text-3); font-size: 13px; }
 .mkt-tbl .scroll-x { margin-top: 6px; max-height: 420px; overflow: auto; }
-.mkt-table tr[data-mkt="drill"] { cursor: pointer; }
-.mkt-table tr[data-mkt="drill"]:hover td, .mkt-table tr[data-mkt="drill"]:focus-visible td { background: #2b2b2b; }
 `;
 
 function shell() {
@@ -1266,7 +1297,7 @@ function shell() {
   <div id="mkt-today" class="view">
     <section class="kpis mkt-kpis" id="mkt-kpis" aria-label="The markets today"></section>
     <section class="card">
-      <div class="card-head"><div><h2>Unusual right now</h2><p>Markets that have moved at least ${RULE.z} of their usual daily moves today, and what similar moves did next. Tap a row for the details and how its numbers are calculated. The <b>playbook</b> on Insights shows how far moves like these went.</p></div>${srcBtn('unusual')}</div>
+      <div class="card-head"><div><h2>Unusual right now</h2><p>Markets that have moved at least ${RULE.z} of their usual daily moves today, and what similar moves did next. Tap a market for the details, or any value for what is behind it. The <b>playbook</b> on Insights shows how far moves like these went.</p></div>${srcBtn('unusual')}</div>
       <div id="mkt-unusual"></div>
     </section>
     <section class="card">
@@ -1456,14 +1487,16 @@ function kpi(id, res, btn = '') {
   const d = DEFS.get(id);
   const v = res && res.error ? '<span class="neg">!</span>' : fillCard(d.card.value, res);
   const s = res && res.error ? 'The query failed: see ‹›' : fillCard(d.card.sub, res);
-  return `<div class="kpi"><div class="k"><span class="kt">${esc(d.name)}</span>${btn}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+  const [panel, sym] = CARD_OPENS[id] || [];
+  const value = panel ? `<span class="mkt-link" data-mkt="win" data-panel="${panel}"${sym ? ` data-sym="${sym}"` : ''} tabindex="0">${v}</span>` : v;
+  return `<div class="kpi"><div class="k"><span class="kt">${esc(d.name)}</span>${btn}</div><div class="v">${value}</div><div class="s">${s}</div></div>`;
 }
 
 function paintKpis() {
   put('mkt-kpis', ['breadth', 'median_move', 'unusual_count', 'bitcoin'].map((id) => kpi(id, S.res.get(id), srcBtn(id))).join(''));
 }
 
-const KEY = `<p class="mkt-key"><b>Size of move</b> = how many times bigger today's move is than the market's usual daily move (<b>σ</b>, the spread of its daily moves over its last 30 days); ${RULE.z}σ or more is unusual. <b>Next 1 h / 4 h / 24 h</b>: what moves of the same kind (direction, size, liquidity) did next since 2020. <b>Fade</b> or <b>Follow</b> with a result means the pattern held up on years held back from the choice, after costs; otherwise the verdict. The small line is every up (or down) move together, a wider group.</p>`;
+const KEY = `<p class="mkt-key"><b>z</b> = how many times bigger today's move is than the market's usual daily move (<b>σ</b>, the spread of its daily moves over its last 30 days); ${RULE.z}σ or more is unusual. <b>Next 1 h / 4 h / 24 h</b>: what moves of the same kind (direction, size, liquidity) did next since 2020. <b>Fade</b> or <b>Follow</b> with a result means the pattern held up on years held back from the choice, after costs; otherwise the verdict. The small line is every up (or down) move together, a wider group.</p>`;
 
 function paintUnusual() {
   const res = S.res.get('unusual');
@@ -1474,7 +1507,8 @@ function paintUnusual() {
     return;
   }
   const table = resultTable(res, DEFS.get('unusual'), {
-    row: (o) => `data-mkt="row" data-sym="${esc(o.market)}" aria-selected="${S.open === o.market}"`,
+    row: (o) => `aria-selected="${S.open === o.market}"`,
+    open: (o) => `data-mkt="row" data-sym="${esc(o.market)}"`,
     extra: [{ label: 'Since', title: 'When this page first saw it unusual (kept by the page, not by the query)', cell: (o) => `<span class="faint">${clock(S.seen.get(o.market))}</span>` }],
   });
   // The chosen market's details sit under the table (not in it), so the text always fits the screen.
@@ -1508,11 +1542,12 @@ function paintAll() {
     vol: (r) => (iVol < 0 ? 0 : num(r[iVol], -1)),
   }[S.sort];
   rows = [...rows].sort((a, b) => key(b) - key(a) || (iSym < 0 ? 0 : String(a[iSym]).localeCompare(String(b[iSym]))));
-  put('mkt-all-sub', `${rows.length} ${KIND_WORD[S.kind]}markets${S.q ? ` matching “${esc(S.q)}”` : ''}; size of move is today's move in the market's usual daily moves (σ); volume is the last 24 hours against its usual day`);
+  put('mkt-all-sub', `${rows.length} ${KIND_WORD[S.kind]}markets${S.q ? ` matching “${esc(S.q)}”` : ''}; z is today's move in the market's usual daily moves (σ); volume is the last 24 hours against its usual day`);
   if (!rows.length) { put('mkt-all', '<div class="mkt-empty">No market matches.</div>'); return; }
   const shown = { columns: res.columns, rows: rows.slice(0, S.limit) };
   const table = resultTable(shown, DEFS.get('markets'), {
-    row: (o) => `data-mkt="row" data-list="all" data-sym="${esc(o.market)}" aria-selected="${S.openAll === o.market}"`,
+    row: (o) => `aria-selected="${S.openAll === o.market}"`,
+    open: (o) => `data-mkt="row" data-list="all" data-sym="${esc(o.market)}"`,
   });
   const picked = S.openAll && objects(shown).some((o) => o.market === S.openAll) ? marketDetail(S.openAll) : '';
   const more = rows.length > S.limit ? `<button class="btn btn-sm mkt-more-btn" data-mkt="more">Show ${Math.min(50, rows.length - S.limit)} more (of ${rows.length - S.limit})</button>` : '';
@@ -1600,7 +1635,6 @@ ORDER BY event_hour DESC;`);
 /** The Patterns view, drawn from three queries (patterns_summary, patterns_held, patterns_grid) like
  * Today's numbers. A cell's details put that kind of move's evidence row into words. */
 function paintPatterns() {
-  const ev = S.data.ev;
   const pub = S.data.published.market_evidence || {};
   const sumRes = S.res.get('patterns_summary'), heldRes = S.res.get('patterns_held'), gridRes = S.res.get('patterns_grid');
   const sum = sumRes && !sumRes.error ? objects(sumRes)[0] || {} : {};
@@ -1617,7 +1651,7 @@ function paintPatterns() {
       if (!held.length || held[held.length - 1].k !== k) held.push({ k, r, markets: [] });
       if (r.market) held[held.length - 1].markets.push(r.market);
     }
-    heldHtml = held.length ? held.map(({ r, markets }) => `<div><b>${r.side === 'fade' ? 'Fade' : 'Follow'} ${kindPhrase(r.direction, r.z_band, r.liquidity)}, over the next ${Number(r.horizon_hours) === 1 ? 'hour' : `${r.horizon_hours} hours`}:</b> <span class="mkt-ev">${pct(r.held_back_pct / 100)}</span> a trade from 2025 after ${Number(r.cost_pct).toFixed(2)}% costs (t ${tval(r.held_back_t)} over ${r.held_back_days} days), chosen on 2020–2024 (t ${tval(r.in_sample_t)} over ${r.in_sample_days} days). ${r.events} moves on ${r.days} days in all. Right now: ${markets.length ? markets.map(name).join(', ') : 'no market'}.</div>`).join('')
+    heldHtml = held.length ? held.map(({ r, markets }) => `<div>${opener('moves', { direction: r.direction, z_band: r.z_band, liquidity: r.liquidity, horizon: r.horizon_hours }, `<b>${r.side === 'fade' ? 'Fade' : 'Follow'} ${kindPhrase(r.direction, r.z_band, r.liquidity)}, over the next ${Number(r.horizon_hours) === 1 ? 'hour' : `${r.horizon_hours} hours`}:</b>`)} <span class="mkt-ev">${pct(r.held_back_pct / 100)}</span> a trade from 2025 after ${Number(r.cost_pct).toFixed(2)}% costs (t ${tval(r.held_back_t)} over ${r.held_back_days} days), chosen on 2020–2024 (t ${tval(r.in_sample_t)} over ${r.in_sample_days} days). ${r.events} moves on ${r.days} days in all. Right now: ${markets.length ? markets.map((s) => opener('market', { symbol: s }, name(s))).join(', ') : 'no market'}.</div>`).join('')
       : '<div>No kind of move held up.</div>';
   }
 
@@ -1627,26 +1661,14 @@ function paintPatterns() {
     let dir = null;
     for (const r of objects(gridRes)) {
       if (r.direction !== dir) { dir = r.direction; rows.push(`<tr class="grp"><td colspan="5">${dir === 'up' ? 'Up moves' : 'Down moves'}</td></tr>`); }
-      const cells = HORIZONS.map((h) => {
-        const k = evKey(r.direction, r.z_band, r.liquidity, h);
-        return `<td data-mkt="pat" data-k="${k}" aria-selected="${S.pat === k}"><div class="mkt-evc"><span class="v">${verdictText(r[`next_${h}h`])}</span></div></td>`;
-      }).join('');
-      rows.push(`<tr><td class="l">${kindName(r.direction, r.z_band, r.liquidity)}</td><td>${Number(r.now) || '<span class="faint">0</span>'}</td>${cells}</tr>`);
+      const kind = { direction: r.direction, z_band: r.z_band, liquidity: r.liquidity };
+      const cells = HORIZONS.map((h) => `<td>${opener('moves', { ...kind, horizon: h }, `<div class="mkt-evc"><span class="v">${verdictText(r[`next_${h}h`])}</span></div>`)}</td>`).join('');
+      rows.push(`<tr><td class="l">${kindName(r.direction, r.z_band, r.liquidity)}</td><td>${Number(r.now) ? opener('now', kind, Number(r.now)) : '<span class="faint">0</span>'}</td>${cells}</tr>`);
     }
     gridHtml = `<div class="scroll-x"><table class="mkt-table"><thead><tr><th>Kind of move</th><th title="Markets in this group right now">Now</th><th>Next 1 h</th><th>Next 4 h</th><th>Next 24 h</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
   }
 
-  let detail = '';
-  if (S.pat && ev.get(S.pat)) {
-    const e = ev.get(S.pat);
-    const flagged = objects(S.res.get('unusual_all_types'));   // live, every type
-    const chosen = (r) => { const g = (typeOf(r.market) || {}).group; return ['crypto', 'other'].includes(g) && (S.kind === 'all' || g === S.kind); };   // as the Now column counts them
-    const m = flagged.filter((r) => chosen(r) && r.direction === e.direction && (e.z_band === 'all' || (r.z_band === e.z_band && r.liquidity === e.liquidity)));
-    detail = `<div class="mkt-more"><p><b>${kindName(e.direction, e.z_band, e.liquidity)}</b>${e.z_band === 'all' ? ' (any size, any market)' : ''}.</p>${evWords(e, e.horizon_hours)}<p>Right now: ${m.length ? m.map((r) => `${name(r.market)} ${sig(r.z)}`).join(', ') : 'no market is in this group'}.</p>
-      <h4>Where these numbers come from</h4><p>The lakehouse's <code>gold.event_evidence</code> (${ghLink('event_evidence.sql')}), built from <code>gold.intraday_events</code> (${ghLink('intraday_events.sql')}), copied to MEDUSA's <code>market_evidence</code>. <b>Now</b> is live; the table's queries are under ‹›.</p>${evidenceSql(e.direction, e.z_band, e.liquidity)}</div>`;
-  }
-
-  const counts = state(sumRes) || `<div class="mkt-counts"><span><b>${n(sum.held_up)}</b> held up</span><span><b>${n(sum.did_not_hold)}</b> did not hold</span><span><b>${n(sum.no_pattern)}</b> no pattern</span><span><b>${n(sum.too_few)}</b> too few</span><span>of <b>${n(sum.kinds)}</b> kinds of move and horizons</span></div>`;
+  const counts = state(sumRes) || `<div class="mkt-counts">${[[sum.held_up, 'held up'], [sum.did_not_hold, 'did not hold'], [sum.no_pattern, 'no pattern'], [sum.too_few, 'too few']].map(([v, word]) => `<span>${opener('verdicts', { verdict: word }, `<b>${n(v)}</b> ${word}`)}</span>`).join('')}<span>of <b>${n(sum.kinds)}</b> kinds of move and horizons</span></div>`;
   const moves = sum.moves_up == null ? '' : `: about ${n(Number(sum.moves_up) + Number(sum.moves_down))} moves (${n(sum.moves_up)} up, ${n(sum.moves_down)} down), almost all of them crypto`;
   const untested = ['stock', 'commodity'].includes(S.kind)
     ? `<section class="card"><p class="warn">${S.kind === 'stock' ? 'Stocks are' : 'Commodities are'} <b>not tested</b>: Binance only listed them from December 2025, so they have no 2020–2024 years to choose a side on, and the verdicts below are for crypto and other markets. Insights shows how past moves on them went.</p></section>` : '';
@@ -1660,9 +1682,8 @@ function paintPatterns() {
       <div class="mkt-held">${heldHtml}</div>
     </section>
     <section class="card">
-      <div class="card-head"><div><h2>Every kind of move</h2><p>By direction, size (z) and the market's liquidity; <b>Now</b> counts the tested markets of the type chosen in each group right now. Tap a cell for the details.</p></div>${srcBtn('patterns')}</div>
+      <div class="card-head"><div><h2>Every kind of move</h2><p>By direction, size (z) and the market's liquidity; <b>Now</b> counts the tested markets of the type chosen in each group right now. Tap a verdict for the moves behind it, or a number under <b>Now</b> for those markets.</p></div>${srcBtn('patterns')}</div>
       ${gridHtml}
-      ${detail}
     </section>
     <section class="card">
       <div class="card-head"><div><h2>How a verdict is decided</h2></div></div>
@@ -1746,7 +1767,7 @@ function tableBlock(id, key) {
   if (res.error) return failed(res);
   if (!res.rows.length) return `<div class="mkt-empty">${S.live.size ? 'No market of this choice is unusual right now.' : 'Waiting for prices…'}</div>`;
   if (S.ins.info && S.ins.info.rows && S.ins.info.rows.market_outcomes === 0) return '<div class="mkt-empty">The numbers behind this table come with the lakehouse\'s next publish.</div>';
-  return resultTable(res, d, { row: d.drill ? (o) => `${drillAttrs(d, o)} tabindex="0"` : null });
+  return resultTable(res, d);
 }
 
 /** Which of the choices at the top a definition uses, read from its query, so it says what really
@@ -1821,6 +1842,7 @@ function windowShell() {
       </section>`).join('')}
       ${panel === 'patterns' ? '<section class="card"><div id="mkt-win-pat"></div></section>' : ''}
       ${panel === 'market' ? '<section class="card"><div id="mkt-win-extra" class="mkt-hold"></div></section>' : ''}
+      ${panel === 'moves' ? '<section class="card"><div id="mkt-win-kind"></div></section>' : ''}
     </div>
   </div>`;
   S.html.clear();
@@ -1862,8 +1884,7 @@ function shownAs(id, key, box) {
   const iz = res.columns.indexOf('z');
   if (id === 'markets' && iz >= 0) rows = [...rows].sort((a, b) => Math.abs(b[iz] ?? -1) - Math.abs(a[iz] ?? -1));   // the page's first order
   const n = d.show || 20;
-  const row = d.drill ? (o) => `${drillAttrs(d, o)} tabindex="0"` : null;   // a row opens what its drill names
-  return resultTable({ columns: res.columns, rows: rows.slice(0, n) }, d, { row })
+  return resultTable({ columns: res.columns, rows: rows.slice(0, n) }, d)
     + (rows.length > n ? `<p class="faint mkt-win-note">The first ${n} of ${rows.length} rows${id === 'markets' ? ', most unusual first as on the page' : ''}; download the result below for all of them.</p>` : '');
 }
 
@@ -1875,6 +1896,15 @@ function patternSources() {
     ${sqlBlock('How many moves, and when (Databricks SQL)', 'SELECT direction, period, COUNT(*) AS moves, COUNT(DISTINCT event_date) AS days\nFROM market.gold.intraday_events\nGROUP BY direction, period\nORDER BY direction, period;')}`;
 }
 
+/** A window of one kind of move: its verdict in words, and where the numbers come from. */
+function kindNote() {
+  const p = S.win.picks, hz = S.hz || 4, e = S.dir !== 'all' && p.z_band && p.liquidity ? S.data.ev.get(evKey(S.dir, p.z_band, p.liquidity, hz)) : null;
+  if (!e) return '';
+  const tested = ['crypto', 'other', 'all'].includes(S.kind);
+  return `<div class="mkt-more"><p><b>${kindName(e.direction, e.z_band, e.liquidity)}</b></p>${tested ? `${evWords(e, hz)}<p class="faint">The verdict counts crypto and other markets together, so its number of moves can differ a little from this window's.</p>` : '<p>Not tested: this type of market has no 2020–2024 years to choose a side on.</p>'}
+    <h4>Where these numbers come from</h4><p>The lakehouse's <code>gold.event_evidence</code> (${ghLink('event_evidence.sql')}), built from <code>gold.intraday_events</code> (${ghLink('intraday_events.sql')}), copied to MEDUSA's <code>market_evidence</code>.</p>${evidenceSql(e.direction, e.z_band, e.liquidity)}</div>`;
+}
+
 /** A graph's window: what was clicked, in words. */
 function pickTitle() {
   const p = S.win.picks, parts = [];
@@ -1882,6 +1912,10 @@ function pickTitle() {
   if (p.liquidity) parts.push(`on ${LIQ_WORDS[p.liquidity]} markets`);
   if (p.year) parts.push(`in ${p.year}`);
   if (p.hour != null) parts.push(`starting ${String(p.hour).padStart(2, '0')}:00 UTC`);
+  if (p.period === 'held_back') parts.push('from 2025');
+  if (p.kept != null) parts.push(p.kept ? 'that continued' : 'that reversed');
+  if (p.at_least != null) parts.push(`that continued ${p.at_least}% or more`);
+  if (p.at_most != null) parts.push(`that reversed ${Math.abs(p.at_most)}% or more`);
   if (p.bucket != null) parts.push(p.bucket === -11 ? 'that reversed more than 10%' : p.bucket === 10 ? 'that continued 10% or more' : `that ended ${p.bucket}% to ${p.bucket + 1}%`);
   const hz = S.hz || 4;
   const way = { all: '', up: 'up ', down: 'down ' }[S.dir];
@@ -1901,6 +1935,7 @@ function paintWindow() {
   const title = panel === 'market' ? `${String(symbol).replace(/USDT$/, '')}: one market`
     : panel === 'moves' ? pickTitle()
       : panel === 'drift' ? `The market at ${String(S.win.picks.hour ?? '?').padStart(2, '0')}:00 UTC`
+        : panel === 'verdicts' ? `Verdict: ${S.win.picks.verdict ?? '?'}`
         : WIN_TITLES[panel] || DEFS.get(ids[0]).name;
   put('mkt-win-tools', choices(usedParams(ids)));
   document.title = `${title} · how it is calculated · MEDUSA`;
@@ -1921,6 +1956,7 @@ function paintWindow() {
     put(`mkt-win-prev-${i}`, previewQuery(id, key, extra));
   });
   if (panel === 'market') put('mkt-win-extra', marketExtras(symbol));
+  if (panel === 'moves') put('mkt-win-kind', kindNote());
 }
 
 /* ---------- data: the lakehouse's copy, market types, yesterday's closes, live prices ---------- */
@@ -1931,7 +1967,7 @@ async function load() {
     try {
       // The shared data (the same for every account) and this account's own definitions, side by side.
       const mine = api.call('GET', '/api/market/metrics/mine').catch((e) => {
-        if (e.message !== 'Signed out') api.log('markets', `Your own definitions couldn't be loaded: ${e.message}`, null, 'error');
+        if (e.message !== 'Signed out' && !S.loadErr) api.log('markets', `Your own definitions couldn't be loaded: ${e.message}`, null, 'error');
         return null;
       });
       const d = await api.call('GET', '/api/market/scanner');
@@ -1954,8 +1990,8 @@ async function load() {
       S.loadErr = base.size ? null : 'The lakehouse hasn\'t published its tables to MEDUSA yet.';
     } catch (e) {
       if (e.message !== 'Signed out') {
+        if (!S.loadErr) api.log('markets', `The market data couldn't be loaded: ${e.message}`, null, 'error');   // once per outage: load() retries every few seconds
         S.loadErr = e.message;
-        api.log('markets', `The market data couldn't be loaded: ${e.message}`, null, 'error');
       }
     } finally {
       S.loading = null;
@@ -2154,7 +2190,7 @@ async function downloadCsv(key, what) {
 function onClick(e) {
   const el = e.target.closest('[data-mkt]');
   if (!el || !host.contains(el)) return;
-  if (/^T[RD]$/.test(el.tagName) && !getSelection().isCollapsed) return;   // a drag that selected text in a row isn't a click on it
+  if ((el.tagName === 'TD' || el.classList.contains('mkt-link')) && !getSelection().isCollapsed) return;   // a drag that selected text isn't a click
   const act = el.dataset.mkt;
   if (act === 'retry') { S.loadErr = null; paint(); start(); return; }
   if (act === 'engine') { restartEngine(); draw(); return; }
@@ -2179,7 +2215,6 @@ function onClick(e) {
   else if (act === 'more') { S.limit += 50; draw(); return; }
   else if (act === 'row' && el.dataset.list === 'all') S.openAll = S.openAll === el.dataset.sym ? null : el.dataset.sym;
   else if (act === 'row') S.open = S.open === el.dataset.sym ? null : el.dataset.sym;
-  else if (act === 'pat') { S.pat = S.pat === el.dataset.k ? null : el.dataset.k; draw(); return; }
   draw();
   S.urgent = true;
   paint();   // the view, type or an opened market changes which queries run
@@ -2231,9 +2266,9 @@ function onInput(e) {
 
 function onKey(e) {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.matches('textarea[data-def]')) { e.preventDefault(); startPreview(); return; }
-  // Enter on a graph's mark or a table's row (reached with Tab) does what a click does.
-  const d = e.key === 'Enter' && e.target.closest && e.target.closest('[data-mkt="drill"]');
-  if (d && host.contains(d)) { e.preventDefault(); drill(d); }
+  // Enter on a graph's mark or a number in a table (reached with Tab) does what a click does.
+  const d = e.key === 'Enter' && e.target.closest && e.target.closest('[data-mkt="drill"], .mkt-link');
+  if (d && host.contains(d)) { e.preventDefault(); d.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
 }
 
 /* A graph's details on hover or keyboard focus: one box that follows the pointer. Its text comes from

@@ -16,6 +16,8 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
+| [37](#issue-37) | 2026-11-01 | Markets | An outage wrote the same errors to the Logs on every retry | Bug | Built, waiting to go live |
+| [36](#issue-36) | 2026-11-01 | Markets | Next 1 h and Next 24 h in the playbook opened 4 hours | Bug | Built, waiting to go live |
 | [35](#issue-35) | 2026-11-01 | Markets | A click on POWR's row in the playbook showed other coins | Bug | Built, waiting to go live |
 | [34](#issue-34) | 2026-11-01 | Markets | The playbook's column names couldn't be understood | Request | Built, waiting to go live |
 | [33](#issue-33) | 2026-11-01 | Markets | The ‹› window's code was the same for Next 1 h and Next 4 h | Bug | Fixed |
@@ -54,6 +56,39 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 ## Details
 
+<a id="issue-37"></a>
+### 37. An outage wrote the same errors to the Logs on every retry
+
+- **Seen:** the owner asked for proof that no errors were left. The browser console and the server were clean, but the Logs
+  of the local test account held 656 error lines for the day.
+- **Why:** they were 4 messages, 164 times each, all *no connection*, from when the local server was stopped with a page
+  open. None were real failures of the app, but they showed a real fault: once a page can't reach MEDUSA it retries every
+  10 seconds, and each retry wrote 4 lines. On the live site a dropped connection would have filled the Logs, and then
+  `ops.logs.app_events`.
+- **Change:** an outage writes its errors once, and the next one writes them again. The app's calls keep a flag for the
+  connection, and the Markets page uses its own load error.
+- **Checked:** the server was stopped with a page open: 7 retries wrote 3 lines where the old code would have written 28,
+  and the page reconnected by itself. Then, on the final code in a new tab, every view, filter and kind of window: 0 console
+  errors, 0 server errors, 0 failed queries and no new lines in the Logs. On the live site, `ops.logs.recent_failures` shows
+  no failed Markets query, and transform runs 10 to 13 succeeded. That table gets the page's errors with the daily load, so
+  today's aren't in it yet.
+- **State:** built, waiting to go live.
+
+<a id="issue-36"></a>
+### 36. Next 1 h and Next 24 h in the playbook opened 4 hours
+
+- **Seen:** a click on the 1-hour or 24-hour column opened the next 4 hours, like the 4-hour one. Also asked for: any column
+  or aggregate value should open its own window with its drill-down, charts included, keeping the app simple and fast.
+- **Why:** the click was on the whole row, and a row knows only the page's **Over** choice. A column's own hours never
+  reached the window.
+- **Change:** no table row opens anything. Every value on Markets opens its own window, showing exactly what is behind it,
+  and a column carries its own hours. The Journal and the Lab are next, because they are built differently. The full list is
+  in [step 32](../lakehouse/docs/steps/32-insights-graphs.md#plain-words-and-every-value-opens-its-own-window).
+- **Checked:** on a local MEDUSA with the real rows, every value of POWR's row was clicked, each opening its own window, and
+  the windows show the cells' numbers: −1.04%, −2.88% and −5.71%, on 929, 929 and 924 moves. The worst 5% opens 47 of the 929.
+  The new picks gave the same numbers in SQLite and Databricks, in 10 of 10 checks.
+- **State:** built, waiting to go live.
+
 <a id="issue-35"></a>
 ### 35. A click on POWR's row in the playbook showed other coins
 
@@ -61,11 +96,12 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
   POWR's, and why POWR and G showed the same numbers.
 - **Why:** the numbers were right, and the design was at fault. Most of a row describes the group the market belongs to, and
   a click on the row opened that group. Nothing on the page said so, and the window's title didn't name the market.
-- **Change:** a click on a row opens that market's own moves. The number under **Times before** opens the group, so each
-  number opens what it counts. Each window's title says whose moves they are (*POWR's own up moves*, *Up crypto moves of
-  4–6σ, on small markets*), and the note under the table says most of a row describes the group.
-- **Checked:** on a local MEDUSA with the real rows, a row opens POWR's 18 moves and the number opens the 929, and each
-  matches its row: −0.52% and −2.88%.
+- **Change:** a row opens nothing now ([issue 36](#issue-36)). A market's name and **Its own past** open that market's own
+  moves, and **Past moves** opens the group, so each number opens what it counts. Each window's title says whose moves they are (*POWR's own
+  up moves*, *Up crypto moves of 4–6σ, on small markets*), and the note under the table says most of a row describes the
+  group.
+- **Checked:** on a local MEDUSA with the real rows, **Its own past** opens POWR's 18 moves and **Past moves** the 929, and
+  each matches its row: −0.52% and −2.88%.
 - **State:** built, waiting to go live.
 
 <a id="issue-34"></a>
@@ -75,13 +111,12 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 - **Why:** the names described the data, not the trade. *Worst 5%: kept going* needed knowing that one table holds up and
   down moves, and which side it is the worst for. The words also came from the rest of Insights, so the problem was wider
   than one table.
-- **Change:** one set of plain words across the whole screener, listed in
-  [step 32](../lakehouse/docs/steps/32-insights-graphs.md#plain-words-and-a-row-that-opens-its-own-market): *continued* and
-  *reversed*, *Size of move*, *Tested edge?*, and the playbook's own columns. The raw `held_back` in the moves list now
-  reads *From 2025*. Internal column names stayed.
-- **Checked:** Today, Patterns, Insights and the windows read on a local MEDUSA: none of the old labels left, and every
-  number the same. All 36 live definitions matched the last commit first, so nothing edited was overwritten, and no
-  query's working changed.
+- **Change:** sentences, graph legends and tooltips say *continued* and *reversed*, the note under the table is a third of
+  its length, and the raw `held_back` in the moves list reads *From 2025*. New column names went live too, and the owner,
+  seeing them, asked for the old ones back: every column has its original name again, on every view. See
+  [step 32](../lakehouse/docs/steps/32-insights-graphs.md#plain-words-and-every-value-opens-its-own-window).
+- **Checked:** Today, Patterns, Insights and the windows read on a local MEDUSA: every column has its first name, and every
+  number is the same. All 36 live definitions matched the last commit before each seed, so nothing edited was overwritten.
 - **State:** built, waiting to go live.
 
 <a id="issue-33"></a>

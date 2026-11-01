@@ -799,11 +799,11 @@ window runs the edited SQL on that screen only:
 | `flagged` | One unusual market (\|z\| ≥ 3) | Every column of `today`, plus `direction`, `z_band` and `tested` (1 for crypto and other markets, 0 for the rest, which show *not tested*) |
 | `verdicts` | One kind of move (`direction`, `z_band`, `liquidity`) | `next_1h`, `next_4h`, `next_24h`: `fade 0.22%` (the side and its held-back result) when the pattern held up, otherwise the verdict |
 | `moves` | One past move in the direction chosen (`:direction`: `all`, `up` or `down`), on the type chosen (`:kind`), with a result over the hours chosen (`:horizon`) | `symbol`, `market_type`, `event_date`, `event_hour`, `year` (text), `hour_of_day`, `z`, `z_band`, `liquidity`, `period`, `kept_going_pct` (+ kept going, − turned back, in %), `bucket` (its 1% step: −3 holds −3% to −2%; −11 and 10 hold everything beyond 10% either way) |
-| `moves_picked` | One move of `moves` that matches what a click picked | Every column of `moves`; filtered by `:year`, `:hour`, `:bucket`, `:z_band`, `:liquidity`, `:symbol`, each ignored when NULL |
+| `moves_picked` | One move of `moves` that matches what a click picked | Every column of `moves`; filtered by `:year`, `:hour`, `:bucket`, `:z_band`, `:liquidity`, `:symbol`, `:period`, `:kept`, `:at_least`, `:at_most`, each ignored when NULL |
 | `hour_stats` | One UTC hour, liquidity group and period, for the type chosen (`:kind`) | `utc_hour`, `liquidity`, `period`, `days`, `avg_return`, `sd_return` (pooled over the years from `market_hours`' sums), `up_days` |
 
 Insights' graphs and their windows' numbers are metrics like Today's, with a `chart` in their display
 (the columns each axis, colour, hover and click use; [ADR-035](decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page)):
 `insight_live_map`, `insight_patterns_map`, `insight_by_year`, `insight_spread`, `insight_by_hour`,
 `insight_by_group`, `insight_hour_drift`; and in the windows `moves_summary`, `moves_spread`,
-`moves_by_year`, `moves_list`, `drift_by_year`, `drift_by_liquidity`. The playbook, `playbook`, is a table on the same view.
+`moves_by_year`, `moves_list`, `drift_by_year`, `drift_by_liquidity`. The playbook, `playbook`, is a table on the same view. Two windows answer what a value on Patterns opens: `now_in_group` (the markets in a group now) and `kinds_with_verdict`.

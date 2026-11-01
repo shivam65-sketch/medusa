@@ -677,7 +677,7 @@ ORDER BY year
 
 The same sum run in Databricks on the master table, up moves over the next 4 hours:
 
-| Year | Moves | Median | Average | Continued |
+| Year | Moves | Median | Average | Kept going |
 |---|---:|---:|---:|---:|
 | 2020 | 227 | −0.62% | −0.70% | 42% |
 | 2021 | 807 | −0.97% | +0.04% | 43% |

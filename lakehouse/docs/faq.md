@@ -259,29 +259,30 @@ their past moves, but no verdict, and the evidence covers crypto and other marke
 
 ## How do I read the playbook?
 
-Insights has one row for each market that is unusual right now, and most of the row describes the group that market is
-compared with, so two markets in the same group show the same numbers. Read it left to right: the group, whether it
-passed the test, how many times a move in that group happened before and on how many days, the typical result after 1, 4
-and 24 hours, how often the move continued, and the bad case: 1 time in 20 it went at least this far against you, **against
-the move** if you bet it would reverse, **with the move** if you joined it. **This market before** is the only number about
-this market alone. Under the numbers is the same from 2025: where the two disagree, the older years are pulling the first
-one. The bad cases are at the end of the hours, so a stop can be hit sooner. Only **Tested edge?** has passed a test; the
-rest describes what happened, before costs ([step 32.2.2](steps/32-insights-graphs.md#3222-the-playbook)).
+Insights has one row for each market that is unusual right now, and most of the row describes the group in **Kind of
+move**, so two markets in the same group show the same numbers. Read it left to right: the group, its verdict, how many
+times a move in that group happened before and on how many days, the middle result after 1, 4 and 24 hours, how often the
+move continued, and the worst 5%: 1 time in 20 it went at least this far, **kept going** being the risk if you bet against
+the move and **turned back** if you joined it. **Its own past** is the only number about this market alone. Under the
+numbers is the same from 2025: where the two disagree, the older years are pulling the first one. The worst 5% is at the
+end of the hours, so a stop can be hit sooner. Only the **Verdict** has passed a test; the rest describes what happened,
+before costs. Click any number for what is behind it
+([step 32.2.2](steps/32-insights-graphs.md#3222-the-playbook)).
 
-## Where do Times before and its days come from? Is it a backtest?
+## Where do Past moves and its days come from? Is it a backtest?
 
 They are counts, and nobody chose them. On every daily run the lakehouse goes through every market's hourly candles since
 January 2020 and records each time a market's move during a day first reached 3 of its usual daily moves
-(`gold.intraday_events`). `gold.move_outcomes` then groups those moves and counts: `COUNT(*)` is **Times before** and
+(`gold.intraday_events`). `gold.move_outcomes` then groups those moves and counts: `COUNT(*)` is **Past moves** and
 `COUNT(DISTINCT event_date)` the days. A group that happened more often has a bigger number, which is why it differs from
 row to row. It isn't a backtest: no trades are simulated. It only records where the price was 1, 4 and 24 hours later.
 
-## Is a big bad case good or bad?
+## Is a big worst 5% good or bad?
 
-Neither: it depends on your side, and it isn't compared with the size of today's move. Together the two bad cases give the
-range: a bad case of +32% against the move and −22% with it means about 90 of every 100 past moves ended between those
-two. A wide range means more risk on either side. Set it beside the typical result: a small typical gain with a large bad
-case is a poor bargain unless **Tested edge?** says otherwise.
+Neither: it depends on your side, and it isn't compared with today's z. Together the two give the range: +32% kept going
+and −22% turned back means about 90 of every 100 past moves ended between those two. A wide range means more risk on
+either side. Set it beside the middle result: a small usual gain with a large worst case is a poor bargain unless the
+**Verdict** says otherwise.
 
 ## Why is the playbook's history in gold, when the other graphs are calculated on the page?
 

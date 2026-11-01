@@ -85,6 +85,7 @@ export function drillAttrs(spec, row) {
   if (!d || !d.panel) return '';
   const set = {};
   for (const [param, col] of Object.entries(d.set || {})) set[param] = row[col] ?? null;
+  Object.assign(set, d.fixed);
   return ` data-mkt="drill" data-panel="${esc(d.panel)}" data-p="${esc(JSON.stringify(set))}"`;
 }
 

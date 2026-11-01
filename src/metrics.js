@@ -22,8 +22,8 @@ import { replaceTable, rebuildAnswer } from './market.js';
 const WAREHOUSE_NAME = 'Serverless Starter Warehouse';
 const SHARED_TABLE = 'market.semantic.metric_definitions';
 const OWN_TABLE = 'market.semantic.user_metric_definitions';
-// The parameters the Markets page fills in (markets.js PARAMS); the Insights graphs added the last seven.
-const PARAMS = ['kind', 'yesterday', 'symbol', 'direction', 'horizon', 'year', 'hour', 'bucket', 'z_band', 'liquidity'];
+// The parameters the Markets page fills in (markets.js PARAMS); what a click on a graph or a number can pick came later.
+const PARAMS = ['kind', 'yesterday', 'symbol', 'direction', 'horizon', 'year', 'hour', 'bucket', 'z_band', 'liquidity', 'period', 'kept', 'at_least', 'at_most', 'verdict'];
 const DAY = 86_400_000;
 // A day's allowance, per account and in all: every save and every history read wakes the warehouse.
 const LIMITS = {
