@@ -484,14 +484,78 @@ playbook is about 20 ms of that.
 | **Lakehouse transform** runs 13 to 15, on `5a1a859`, `70f15ff` and `de5994d` | Each a success in about 4 min 30 s, publishing the words, the names and the clicks. 38 definitions current |
 | The owner, on the live site | Confirmed the page after run 15 |
 
+## 32.2.3: two ideas tested, neither built
+
+Crowded or alone and aggressive buying were tested on the real moves before anything was built, under the
+same rules as the evidence: crypto and `other` markets, days as the unit, the years 2020 to 2024 to choose,
+the years from 2025 to check, 0.10% for costs. A negative number means the move turned back, and t says how
+far a result stands from noise: 2 or more, up or down, counts. Neither idea added anything the page doesn't
+already say, so neither is on the page: a graph that finds nothing would only be one more thing to read.
+
+### Crowded or alone
+
+For each move, the share of markets that had already made an unusual move the same way that day, up to the
+move's hour. The cuts were fixed from how the share is spread, before looking at any return: under 1% is
+alone, 1% to 10% is some, 10% or more is crowded. A share and not a count, because about 195 markets were
+trading on the day of the average move in the first years and about 540 from 2025.
+
+| Move | Band | 2020 to 2024: next 4 h | From 2025: next 4 h |
+|---|---|---:|---:|
+| Down | Alone | −0.22%, t −0.20, 248 days | +0.14%, t 0.32, 430 days |
+| Down | Some | −0.46%, t −1.18, 90 days | −0.08%, t −0.17, 59 days |
+| Down | Crowded | −2.66%, t −3.37, 51 days | +1.58%, t 0.72, 11 days |
+| Up | Alone | −0.02%, t −0.14, 1,124 days | −0.47%, t −1.99, 645 days |
+| Up | Some | −0.62%, t −3.52, 525 days | −0.63%, t −2.53, 410 days |
+| Up | Crowded | −0.16%, t −0.34, 41 days | −0.36%, t −0.75, 10 days |
+
+- **Up, some** passes, but it says what the page already says: all up moves turned back over 4 hours,
+  −0.48% and −0.78%, and that row of the evidence already reads *held up*. Moving the cuts moves the band
+  that stands out: with cuts at 2% and 20% the strongest held-back band is alone (−0.65%, t −3.13) and some
+  shows nothing (−0.26%, t −0.92). So the band isn't the cause.
+- **Down, crowded** is the one real difference in the chosen years: a fall with the whole market bounced.
+  From 2025 it has 11 days, and its sign follows the cut: +1.58% at 10%, +0.81% at 5%, −1.09% at 20%. That
+  is too few days to say anything.
+
+### Aggressive buying
+
+For each move, the share of the value traded that day, up to the move's hour, that was aggressive buying
+(`taker_buy_quote_volume` / `quote_volume`, in the hourly series since 2020, so this one has the full
+history). For a down move, the share of aggressive selling. Thirds fixed on 2020 to 2024: weak, middle,
+strong.
+
+| Up moves | 2020 to 2024: next 1 h | From 2025: next 1 h |
+|---|---:|---:|
+| Weak buyers | −0.50%, t −3.95 | −0.47%, t −2.52 |
+| Middle | −0.21%, t −1.77 | −0.56%, t −3.09 |
+| Strong buyers | −0.05%, t −0.34 | −0.14%, t −0.45 |
+
+This looked promising and failed the checks that matter:
+
+- **The same day, side by side.** On days with both a weak and a strong move, weak minus strong is −0.46%
+  (t −1.88, 325 days) in the chosen years and −0.23% (t −0.57, 477 days) from 2025: no difference that
+  stands out from the noise.
+- **By size of market.** From 2025 large and mid markets show nothing (weak buyers +0.57%, t 0.82, and
+  +0.06%, t 0.16). The result comes from small markets alone (−0.56%, t −2.74), where trading costs most.
+- **Year by year** it is uneven: 2020, 2024 and 2026 show no real gap.
+- **Down moves** show no pattern from 2025 at any horizon.
+
+### Open interest and the long/short ratio
+
+These can't be tested yet. `fct_metrics_5m` starts on 18 September 2026: 43 days, all inside the held-back
+years, so there are no chosen years to pick a side on, and the held-back test has nothing to check.
+
+Binance keeps the history: daily metrics files from 1 September 2020, with no monthly files, so each market
+needs one file per day. Up to 18 September 2026 that is about 590,000 files for every market, or about
+114,000 for the 104 large markets (those averaging 100 million USDT a day or more). The hourly history was
+22,221 files. Loading it would be a job of its own, and nothing shows yet that it would repay the effort.
+
 ## Next: 32.2 and 32.3
 
 - **Before them:** [step 32a](32a-missing-days.md), the missing-days check, and filling 28 October
   (October's monthly 1-minute file, expected around 2 November, if it holds that day; otherwise the live
   API).
-- **The rest of 32.2, from data already here:** crowded or alone (a move on a day many markets
-  moved against one on its own), positioning from `fct_metrics_5m` (open interest against price, the
-  long/short ratio, aggressive-buy share), regime gauges and a risk table.
+- **The rest of 32.2:** regime gauges and a risk table. Open interest and the long/short ratio wait until
+  they have years of history (see above).
 - **32.3, on-chain from the free sources:** DefiLlama (stablecoins, chain TVL, DEX volume, fees),
   CoinMetrics Community (exchange flows, active addresses, MVRV, transactions), mempool.space (Bitcoin
   fees), and the other free APIs surveyed first, loaded by GitHub Actions into landing → bronze → silver
