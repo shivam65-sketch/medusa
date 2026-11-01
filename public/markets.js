@@ -24,7 +24,7 @@
 // Each ‹› button opens one number's or graph's calculation in its own window (markets-window.html):
 // the same code with its own data, engine and live prices, running only that window's queries.
 
-import { DEFINITIONS } from './markets-metrics.js?v=6';
+import { DEFINITIONS } from './markets-metrics.js?v=7';
 import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=3';
 
 const RULE = { z: 3 };
@@ -139,8 +139,15 @@ const LIVE = ['live_prices', 'binance_markets'];
  * that runs) changes with the filter: the type filter `:kind IN ('all', market_type)` becomes
  * `market_type = 'crypto'` for a type, or TRUE (every row) for All. */
 export function fill(sql, params) {
+  // Each choice is written out, so the SQL on screen shows it plainly: a filter becomes a condition on its
+  // column, or TRUE when nothing is chosen, and the hours become the one column they mean.
+  const choice = (param, none) => (m, col) => (!(param in params) ? m : params[param] === none ? 'TRUE' : `${col} = ${literal(params[param])}`);
   return sql
-    .replace(/:kind\s+IN\s*\(\s*'all'\s*,\s*([A-Za-z_][\w.]*)\s*\)/gi, (m, col) => (params.kind === 'all' ? 'TRUE' : `${col} = ${literal(params.kind)}`))
+    .replace(/:kind\s+IN\s*\(\s*'all'\s*,\s*([A-Za-z_][\w.]*)\s*\)/gi, choice('kind', 'all'))
+    .replace(/:direction\s+IN\s*\(\s*'all'\s*,\s*([A-Za-z_][\w.]*)\s*\)/gi, choice('direction', 'all'))
+    .replace(/:horizon\s+IN\s*\(\s*0\s*,\s*([A-Za-z_][\w.]*)\s*\)/gi, choice('horizon', 0))
+    .replace(/CASE\s+:horizon\s+WHEN\s+1\s+THEN\s+(\w+)\s+WHEN\s+24\s+THEN\s+(\w+)\s+ELSE\s+(\w+)\s+END/gi,
+      (m, one, day, four) => (!('horizon' in params) ? m : ({ 1: one, 24: day }[params.horizon] || four)))
     .replace(/:([a-z_]+)\b/g, (m, k) => (k in params ? literal(params[k]) : m));
 }
 
@@ -198,6 +205,7 @@ const NO_PICKS = Object.fromEntries(Object.keys(PICKS).map((k) => [k, null]));
 const DIRS = [['all', 'All moves'], ['up', 'Up moves'], ['down', 'Down moves']];
 const validDir = (d) => (DIRS.some(([v]) => v === d) ? d : 'all');
 const HZS = [[1, 'Next 1 h'], [4, 'Next 4 h'], [24, 'Next 24 h']];
+const validHz = (h) => (Number(h) === 0 || HZS.some(([v]) => v === Number(h)) ? Number(h) : 4);   // 0: none chosen
 
 /** Whether a definition reads the Insights tables, directly or through its shared steps. */
 function readsSnapshot(def, defs = DEFS) {
@@ -613,8 +621,12 @@ const WINDOWS = {
 function openWindow(panel, symbol, picks = null, choice = null) {
   const set = Object.entries(picks || {}).filter(([, v]) => v != null);
   const c = choice || { dir: S.dir, hz: S.hz };
-  // A window per thing picked: the same click brings the same window back to the front.
-  const which = set.length || panel === 'moves' ? `-${c.dir}-${c.hz}${set.map(([k, v]) => `-${k}-${v}`).join('')}` : '';
+  // A window per thing picked and per choice at the top that its queries use: the same click brings the
+  // same window back to the front, and another choice gets a window of its own. An open window is never
+  // reloaded to follow the page: it may hold edits that aren't saved.
+  const uses = new Set((WINDOWS[panel] || []).flatMap((id) => choicesIn(DEFS.get(id)).map(([p]) => p)));
+  const shown = [uses.has('kind') ? S.kind : null, uses.has('direction') ? c.dir : null, uses.has('horizon') ? c.hz : null].filter((v) => v != null);
+  const which = [...shown, ...set.flat()].map((v) => `-${v}`).join('');
   const name = `medusa-calc-${panel}${symbol ? `-${symbol}` : ''}${which}`;
   const url = `/markets-window?${new URLSearchParams({ panel, kind: S.kind, dir: c.dir, hz: String(c.hz), ...(symbol ? { symbol } : {}), ...Object.fromEntries(set.map(([k, v]) => [k, String(v)])) })}`;
   const size = `width=${Math.min(1600, screen.availWidth - 40)},height=${Math.min(1000, screen.availHeight - 40)}`;
@@ -1685,7 +1697,7 @@ function insStatus() {
   const st = S.ins.state, n = (v) => Number(v || 0).toLocaleString('en-US');
   if (st === 'ok' && S.ins.info) {
     const r = S.ins.info.rows || {};
-    return `History: ${n(r.market_events)} unusual moves since 2020 and ${n(r.market_hours)} rows of the market by hour, lakehouse day ${shortDay(S.ins.info.as_of)}, in this browser's SQL engine. A graph is drawn again whenever its query's result changes; <b>Every market right now</b> is live. The type chosen at the top applies to every graph here.`;
+    return `History: ${n(r.market_events)} unusual moves since 2020 and ${n(r.market_hours)} rows of the market by hour, lakehouse day ${shortDay(S.ins.info.as_of)}, in this browser's SQL engine. A graph is drawn again whenever its query's result changes; <b>Every market right now</b> is live. Click a choice at the top again to remove it.${S.hz ? '' : ' <b>No hours are chosen:</b> the graphs of past moves need a number of hours to measure, so they use the next 4.'}`;
   }
   if (st === 'error') return `<span class="warn">The history couldn't be loaded: ${esc(S.ins.err)}</span> <button class="btn btn-sm" type="button" data-mkt="ins-retry">Try again</button>`;
   if (st === 'none') return 'The lakehouse hasn\'t published the history for these graphs yet (it comes with the daily publish). The live graph works already.';
@@ -1712,13 +1724,14 @@ function chartBlock(id, key, box) {
     <details class="mkt-tbl" data-key="${esc(key)}" data-def="${esc(id)}"${open ? ' open' : ''}><summary>The result as a table (${res.rows.length} row${res.rows.length === 1 ? '' : 's'})</summary><div class="mkt-tbl-body">${open ? resultTable(res, d) : ''}</div></details>`;
 }
 
-/** Which of the choices at the top a graph follows, in words. It is read from the query itself, so it
- * says what really happens, whichever version of a definition is in use. */
+/** Which of the choices at the top a definition uses, read from its query, so it says what really
+ * happens, whichever version is in use. */
+const CHOICES = [['kind', 'Markets'], ['direction', 'Moves'], ['horizon', 'Over']];
+const choicesIn = (d) => { const sql = noComments(assemble(d)); return CHOICES.filter(([p]) => new RegExp(`:${p}\\b`).test(sql)); };
+
+/** The same in words, for a graph. */
 function followsNote(d) {
-  const sql = noComments(assemble(d));
-  const has = ([p]) => new RegExp(`:${p}\\b`).test(sql);
-  const all = [['kind', 'Markets'], ['direction', 'Moves'], ['horizon', 'Over']];
-  const on = all.filter(has).map(([, l]) => l), off = all.filter((c) => !has(c)).map(([, l]) => l);
+  const on = choicesIn(d).map(([, l]) => l), off = CHOICES.map(([, l]) => l).filter((l) => !on.includes(l));
   return `<p class="mkt-follows">Follows: <b>${on.join(', ') || 'none of the choices'}</b>${off.length ? `. ${off.join(' and ')} ${off.length > 1 ? 'don\'t' : 'doesn\'t'} apply to this graph.` : ''}</p>`;
 }
 
@@ -1846,7 +1859,8 @@ function pickTitle() {
   if (p.year) parts.push(`in ${p.year}`);
   if (p.hour != null) parts.push(`starting ${String(p.hour).padStart(2, '0')}:00 UTC`);
   if (p.bucket != null) parts.push(p.bucket === -11 ? 'that turned back more than 10%' : p.bucket === 10 ? 'that kept going 10% or more' : `that ended ${p.bucket}% to ${p.bucket + 1}%`);
-  return `${{ all: 'All', up: 'Up', down: 'Down' }[S.dir]} moves${parts.length ? ` ${parts.join(', ')}` : ''}: the next ${S.hz === 1 ? 'hour' : `${S.hz} hours`}`;
+  const hz = S.hz || 4;
+  return `${{ all: 'All', up: 'Up', down: 'Down' }[S.dir]} moves${parts.length ? ` ${parts.join(', ')}` : ''}: the next ${hz === 1 ? 'hour' : `${hz} hours`}`;
 }
 
 /** The parameters a window's queries use, so it offers only the choices that change something. */
@@ -2131,9 +2145,10 @@ function onClick(e) {
   if (act === 'ins-retry') { loadInsights(true); return; }
   if (act.startsWith('edit-') || act.startsWith('preview') || act.startsWith('save-') || act === 'defs-reload') { onEdit(act, el.dataset.def, el); return; }
   if (act === 'view') { S.view = el.dataset.v; api.store.set('mktView', S.view); }
-  else if (act === 'dir') { S.dir = validDir(el.dataset.v); if (!S.win) api.store.set('mktDir', S.dir); }
-  else if (act === 'hz') { S.hz = Number(el.dataset.v) || 4; if (!S.win) api.store.set('mktHz', S.hz); }
-  else if (act === 'kind') { S.kind = el.dataset.v; S.limit = 50; if (!S.win) api.store.set('mktKind', S.kind); }   // a window's choice is its own
+  // A second click on a choice removes it. A window's choices are its own.
+  else if (act === 'dir') { S.dir = el.dataset.v === S.dir ? 'all' : validDir(el.dataset.v); if (!S.win) api.store.set('mktDir', S.dir); }
+  else if (act === 'hz') { S.hz = Number(el.dataset.v) === S.hz ? 0 : validHz(el.dataset.v); if (!S.win) api.store.set('mktHz', S.hz); }
+  else if (act === 'kind') { S.kind = el.dataset.v === S.kind ? 'all' : el.dataset.v; S.limit = 50; if (!S.win) api.store.set('mktKind', S.kind); }
   else if (act === 'sort') { S.sort = el.dataset.v; S.limit = 50; draw(); return; }
   else if (act === 'more') { S.limit += 50; draw(); return; }
   else if (act === 'row' && el.dataset.list === 'all') S.openAll = S.openAll === el.dataset.sym ? null : el.dataset.sym;
@@ -2260,7 +2275,7 @@ export function render(el, appApi) {
     S.view = ['patterns', 'insights'].includes(view) ? view : 'today';
     S.kind = validKind(api.store.get('mktKind', 'all'));
     S.dir = validDir(api.store.get('mktDir', 'all'));
-    S.hz = HZS.some(([h]) => h === api.store.get('mktHz', 4)) ? api.store.get('mktHz', 4) : 4;
+    S.hz = validHz(api.store.get('mktHz', 4));
   }
   if (!document.getElementById('mkt-status')) shell();
   S.stopped = false;
@@ -2288,7 +2303,7 @@ export function renderWindow(el, appApi, { panel, symbol = null, kind = 'all', p
   S.win = { panel, ids: picks.year ? ids.filter((id) => id !== 'moves_by_year') : ids, symbol: panel === 'market' ? symbol : null, picks };
   S.kind = validKind(kind);
   S.dir = validDir(params.dir);
-  S.hz = HZS.some(([h]) => h === Number(params.hz)) ? Number(params.hz) : 4;
+  S.hz = validHz(params.hz);
   S.edit.open = [...ids];   // the number's own query is ready to edit
   attach(el);
   // Closing the window, or reloading it, asks first while there are changes (nothing is saved).

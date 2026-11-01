@@ -16,6 +16,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
+| [33](#issue-33) | 2026-11-01 | Markets | The ‹› window's code was the same for Next 1 h and Next 4 h | Bug | Built, waiting to go live |
 | [32](#issue-32) | 2026-11-01 | Markets | *Down moves* and *Next 24 h* didn't change *Every market right now* | Bug | Built, waiting to go live |
 | [31](#issue-31) | 2026-11-01 | Markets | Dots drawn outside the graph on *Every market right now* | Bug | Built, waiting to go live |
 | [30](#issue-30) | 2026-11-01 | Markets | The market filter did nothing on Insights | Bug | Built, waiting to go live |
@@ -50,6 +51,21 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 | [1](#issue-1) | 2026-09-27 | Local copy | The app kept loading and never opened | Setup | Closed |
 
 ## Details
+
+<a id="issue-33"></a>
+### 33. The ‹› window's code was the same for Next 1 h and Next 4 h
+
+- **Seen:** choosing *Next 1 h* and then *Next 4 h*, the code in the ‹› window was the same line by line, which suggested
+  the filters weren't being applied. Also asked for: a second click on a choice should remove it.
+- **Why:** two things, and the first was on the page all along. Each graph had one window under a fixed name, and an open
+  window was brought to the front with the query it opened with, so the filter never reached it. The live site was also
+  mid-way through a deploy: the new definitions were in Databricks, but only **Lakehouse transform** copies them to MEDUSA.
+- **Change:** each combination of choices gets its own window, and the SQL writes each choice out as a plain condition
+  or column. A second click removes a choice. With no hours chosen, past moves use the next 4 hours and the page says so.
+- **Checked:** reproduced first: both clicks went to `medusa-calc-ins_year`, and the second never loaded. After the fix,
+  each combination gets its own window, and in two real windows 3 of 34 lines differ, exactly the three choices. A second
+  click on each choice clears it, with no query failing.
+- **State:** built, waiting to go live.
 
 <a id="issue-32"></a>
 ### 32. *Down moves* and *Next 24 h* didn't change *Every market right now*

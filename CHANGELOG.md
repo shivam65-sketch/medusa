@@ -5,6 +5,9 @@ app's menu and on the sign-in page); each release adds a section here with the s
 
 ## Unreleased
 
+- Markets: a second click on a choice removes it: Markets and Moves go back to All, and Over to no hours chosen, where *Every kind of move at a glance* shows all three. The graphs of past moves then use the next 4 hours, and the page says so.
+- Markets: fixed the ‹› window showing an earlier filter. Each graph had one window, which kept the query it opened with, so changing a filter and pressing ‹› showed the old code. Each choice now gets its own window, so two can be compared.
+- Markets: the SQL in a ‹› window now shows the choices in plain words: `direction = 'down'` and `fwd_return_4h`, not a number inside a `CASE`.
 - Markets, **Insights**: **Moves** and **Over** now reach every graph they can. *Every market right now* shows the markets moving the way chosen, and its blue dots mean a kind of move held up over the hours chosen. *Every kind of move at a glance* shows that direction and those hours. A new **All moves** choice, the default, shows both directions.
 - Markets, **Insights**: a line under each graph says which choices it follows, read from its own query. The market by hour says Moves and Over don't apply.
 - Markets, graphs: an axis with ticks closer than 1 now shows its decimals. *Every market right now* read 0, 1, 1, 2, 2.

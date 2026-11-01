@@ -148,6 +148,13 @@ resources:
             warehouse_id: ${var.warehouse_id}
             file:
               path: ./sql/seed/006_metric_definitions_moves_and_hours.sql
+        - task_key: seed_no_hours
+          depends_on:
+            - task_key: seed_moves_and_hours
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/seed/007_metric_definitions_no_hours.sql
 
   # Bronze: loads new landing files into market.bronze. Runs when started, then stops.
   pipelines:

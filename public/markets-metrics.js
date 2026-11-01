@@ -30,7 +30,9 @@
 //               which keeps a row for 'all'.
 //   :yesterday  yesterday's date (UTC), the day today's move is measured from
 //   :symbol     one market, for its details (NULL in a graph's window: every market)
-//   :direction  Insights: all, up or down moves;  :horizon  Insights: the next 1, 4 or 24 hours
+//   :direction  Insights: all, up or down moves
+//   :horizon    Insights: the next 1, 4 or 24 hours, or 0 when none is chosen. Past moves need a number of
+//               hours to measure, so they use 4 then; a filter written :horizon IN (0, column) shows all
 //   :year, :hour, :bucket, :z_band, :liquidity   what a click on a graph picked (NULL: no filter)
 //
 // How a result is shown: `columns` gives each column's label and format (a column a query returns
@@ -411,8 +413,8 @@ ORDER BY CASE v.direction WHEN 'up' THEN 1 ELSE 2 END,
        END AS bucket
 FROM (SELECT *,
              100 * CASE WHEN direction = 'up' THEN 1 ELSE -1 END     -- + kept going, - turned back
-                 * CASE :horizon WHEN 1 THEN fwd_return_1h WHEN 4 THEN fwd_return_4h ELSE fwd_return_24h END
-               AS kept_going_pct                    -- the price change over the next :horizon hours, in %
+                 * CASE :horizon WHEN 1 THEN fwd_return_1h WHEN 24 THEN fwd_return_24h ELSE fwd_return_4h END
+               AS kept_going_pct                    -- the price change over the hours chosen, in %
       FROM market_events
       WHERE :direction IN ('all', direction)
         AND :kind IN ('all', market_type)) e
@@ -474,7 +476,7 @@ LEFT JOIN flagged f ON f.symbol = t.symbol
 LEFT JOIN (SELECT DISTINCT direction, z_band, liquidity      -- kinds of move that held up over the hours chosen
            FROM market_evidence
            WHERE verdict = 'held up'
-             AND horizon_hours = :horizon) h
+             AND :horizon IN (0, horizon_hours)) h
        ON h.direction = f.direction AND h.z_band = f.z_band AND h.liquidity = f.liquidity
 WHERE t.z IS NOT NULL
   AND t.volume_x > 0
@@ -498,7 +500,7 @@ WHERE t.z IS NOT NULL
     sql: `WITH moved AS (                                     -- the moves chosen: + kept going, - turned back
   SELECT direction, z_band, liquidity, event_date,
          CASE WHEN direction = 'up' THEN 1 ELSE -1 END
-           * CASE :horizon WHEN 1 THEN fwd_return_1h WHEN 4 THEN fwd_return_4h ELSE fwd_return_24h END AS c
+           * CASE :horizon WHEN 1 THEN fwd_return_1h WHEN 24 THEN fwd_return_24h ELSE fwd_return_4h END AS c
   FROM market_events
   WHERE :direction IN ('all', direction)
     AND :kind IN ('all', market_type)
@@ -544,7 +546,7 @@ SELECT CASE WHEN e.z_band = 'all' THEN CONCAT('Every ', e.direction, ' move')
 FROM market_evidence e
 LEFT JOIN kinds k ON k.direction = e.direction AND k.z_band = e.z_band AND k.liquidity = e.liquidity
 WHERE :direction IN ('all', e.direction)            -- the moves and hours chosen at the top
-  AND e.horizon_hours = :horizon
+  AND :horizon IN (0, e.horizon_hours)
 ORDER BY CASE e.direction WHEN 'up' THEN 1 ELSE 2 END,
          CASE e.z_band WHEN 'all' THEN 0 WHEN '3-4' THEN 1 WHEN '4-6' THEN 2 ELSE 3 END,
          CASE e.liquidity WHEN 'large' THEN 1 WHEN 'mid' THEN 2 ELSE 3 END,
@@ -680,7 +682,7 @@ ORDER BY hour`,
        ROUND(MEDIAN(kept_going_pct), 2) AS median_pct,
        ROUND(AVG(kept_going_pct), 2) AS average_pct,
        ROUND(100.0 * AVG(CASE WHEN kept_going_pct > 0 THEN 1 ELSE 0 END), 0) AS kept_going_share,
-       :horizon AS hours
+       CASE :horizon WHEN 0 THEN 4 ELSE :horizon END AS hours
 FROM moves_picked`,
   },
   {

@@ -293,6 +293,29 @@ horizons in both directions and then used one. It now works out only what was ch
 | Every kind of move, each click | 0.13 to 0.35 seconds, from 3 to 3.7 |
 | A click to the screen on Insights | 1 to 2 seconds, in a test browser running unfocused |
 
+### The ‹› window follows the filter, and a second click removes one
+
+The owner compared the code in a graph's ‹› window for *Next 1 h* and *Next 4 h*, and it was the same line by line.
+That was a real bug, and it affected all three choices: each graph had one window, under a fixed name, and a window
+already open was brought to the front with the query it opened with. Reproduced before the fix: both clicks went to
+`medusa-calc-ins_year`, and the second never loaded the new address.
+
+- **A window per choice.** The window's name now includes the choices its queries use, such as
+  `medusa-calc-ins_year-stock-down-4`, read from the queries themselves. Choosing differently opens a new window, so two
+  versions can sit side by side. An open window is never reloaded to follow the page, because it may hold unsaved edits.
+- **The SQL shows the choice.** `fill()` now writes each choice out, as it already did for the type: `direction = 'down'`
+  or `TRUE`, and the one column the hours mean, `fwd_return_4h`, instead of a number inside a `CASE`.
+- **A second click removes a choice.** Markets and Moves go back to All. Over goes to none chosen: *Every kind of move*
+  shows all three horizons, a blue dot means held up over any of them, and the graphs of past moves use the next 4 hours,
+  because they need a number of hours to measure. The page says so while it happens. `:horizon` is then 0.
+
+| Check, locally with real data | Result |
+|---|---:|
+| Two real windows, Stocks, Down, 1 h and Crypto, Up, 4 h | 3 of 34 lines differ: `fwd_return_1h` and `fwd_return_4h`, `direction = 'down'` and `'up'`, `market_type = 'stock'` and `'crypto'` |
+| Window names for four combinations and the market by hour | All different; the market by hour includes only the type, the one choice it uses |
+| A second click on Crypto, Up, Next 4 h | All, All moves, no hours; all three horizons shown, 60 cells |
+| With no hours chosen, 2020 | 432 moves, −1.50%, −1.61%, the 4-hour figures |
+
 ## Next: 32.2 and 32.3
 
 - **Before them:** [step 32a](32a-missing-days.md), the missing-days check, and filling 28 October
