@@ -16,11 +16,12 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
-| [38](#issue-38) | 2026-11-01 | Markets | A window led with a different number from the one clicked | Bug | Built, waiting to go live |
-| [37](#issue-37) | 2026-11-01 | Markets | An outage wrote the same errors to the Logs on every retry | Bug | Built, waiting to go live |
-| [36](#issue-36) | 2026-11-01 | Markets | Next 1 h and Next 24 h in the playbook opened 4 hours | Bug | Built, waiting to go live |
-| [35](#issue-35) | 2026-11-01 | Markets | A click on POWR's row in the playbook showed other coins | Bug | Built, waiting to go live |
-| [34](#issue-34) | 2026-11-01 | Markets | The playbook's column names couldn't be understood | Request | Built, waiting to go live |
+| [39](#issue-39) | 2026-11-01 | Markets | The SQL showed direction = 'up' with Down moves chosen | Explained | Answered |
+| [38](#issue-38) | 2026-11-01 | Markets | A window led with a different number from the one clicked | Bug | Fixed |
+| [37](#issue-37) | 2026-11-01 | Markets | An outage wrote the same errors to the Logs on every retry | Bug | Fixed |
+| [36](#issue-36) | 2026-11-01 | Markets | Next 1 h and Next 24 h in the playbook opened 4 hours | Bug | Fixed |
+| [35](#issue-35) | 2026-11-01 | Markets | A click on POWR's row in the playbook showed other coins | Bug | Fixed |
+| [34](#issue-34) | 2026-11-01 | Markets | The playbook's column names couldn't be understood | Request | Fixed |
 | [33](#issue-33) | 2026-11-01 | Markets | The ‹› window's code was the same for Next 1 h and Next 4 h | Bug | Fixed |
 | [32](#issue-32) | 2026-11-01 | Markets | *Down moves* and *Next 24 h* didn't change *Every market right now* | Bug | Fixed |
 | [31](#issue-31) | 2026-11-01 | Markets | Dots drawn outside the graph on *Every market right now* | Bug | Fixed |
@@ -57,6 +58,17 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 ## Details
 
+<a id="issue-39"></a>
+### 39. The SQL showed direction = 'up' with Down moves chosen
+
+- **Seen:** with *Down moves* chosen, a window's query still had `CASE WHEN direction = 'up' THEN 1 ELSE -1 END`.
+- **Why:** that line isn't a filter. It turns each result into *continued* or *reversed*: an up move continues when the price
+  rises and a down move when it falls, so a down move's return is multiplied by −1. The filter is further down the same
+  query, `WHERE direction = 'down'`, so every row takes the −1.
+- **Change:** none.
+- **Checked:** the query in the owner's screenshot has `WHERE direction = 'down'`, and its title and verdict are for down moves.
+- **State:** answered.
+
 <a id="issue-38"></a>
 ### 38. A window led with a different number from the one clicked
 
@@ -71,7 +83,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
   [step 32](../lakehouse/docs/steps/32-insights-graphs.md#plain-words-and-a-click-only-on-an-aggregate).
 - **Checked:** on a local MEDUSA with the real rows: −22.23% opens on −22.23%, 17 of 336; 32% opens on 32%, 107 of 336; a verdict
   opens on that verdict. Today has 4 clickable columns and no cards, and a playbook row 8 values. 0 console and server errors.
-- **State:** built, waiting to go live.
+- **State:** fixed and live since transform run 15.
 
 <a id="issue-37"></a>
 ### 37. An outage wrote the same errors to the Logs on every retry
@@ -89,7 +101,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
   errors, 0 server errors, 0 failed queries and no new lines in the Logs. On the live site, `ops.logs.recent_failures` shows
   no failed Markets query, and transform runs 10 to 13 succeeded. That table gets the page's errors with the daily load, so
   today's aren't in it yet.
-- **State:** built, waiting to go live.
+- **State:** fixed and live since transform run 15.
 
 <a id="issue-36"></a>
 ### 36. Next 1 h and Next 24 h in the playbook opened 4 hours
@@ -102,7 +114,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
   [issue 38](#issue-38). The Journal and the Lab are still to do, because they are built differently.
 - **Checked:** on a local MEDUSA with the real rows, the windows show the cells' numbers: −1.04%, −2.88% and −5.71%, on 929, 929
   and 924 moves.
-- **State:** built, waiting to go live.
+- **State:** fixed and live since transform run 15.
 
 <a id="issue-35"></a>
 ### 35. A click on POWR's row in the playbook showed other coins
@@ -117,7 +129,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
   group.
 - **Checked:** on a local MEDUSA with the real rows, **Its own past** opens POWR's 18 moves and **Past moves** the 929, and
   each matches its row: −0.52% and −2.88%.
-- **State:** built, waiting to go live.
+- **State:** fixed and live since transform run 15.
 
 <a id="issue-34"></a>
 ### 34. The playbook's column names couldn't be understood
@@ -132,7 +144,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
   [step 32](../lakehouse/docs/steps/32-insights-graphs.md#plain-words-and-a-click-only-on-an-aggregate).
 - **Checked:** Today, Patterns, Insights and the windows read on a local MEDUSA: every column has its first name, and every
   number is the same. All 36 live definitions matched the last commit before each seed, so nothing edited was overwritten.
-- **State:** built, waiting to go live.
+- **State:** fixed and live since transform run 15.
 
 <a id="issue-33"></a>
 ### 33. The ‹› window's code was the same for Next 1 h and Next 4 h

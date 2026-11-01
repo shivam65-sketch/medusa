@@ -481,6 +481,8 @@ playbook is about 20 ms of that.
 | Publish to MEDUSA | 17 seconds, with `market_outcomes` in the Insights file |
 | Definitions | 36 current, `playbook`, `past_kinds` and `past_own` at version 1 |
 | The owner, on the live site | The table shows real numbers: POWR, 929 on 490 days, −2.88%, 37%, +22.78%, −15.43%, the same as local |
+| **Lakehouse transform** runs 13 to 15, on `5a1a859`, `70f15ff` and `de5994d` | Each a success in about 4 min 30 s, publishing the words, the names and the clicks. 38 definitions current |
+| The owner, on the live site | Confirmed the page after run 15 |
 
 ## Next: 32.2 and 32.3
 
