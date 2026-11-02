@@ -5,6 +5,7 @@ app's menu and on the sign-in page); each release adds a section here with the s
 
 ## Unreleased
 
+- Market data lakehouse: markets with non-Latin names (牛来 and four others) are now loaded. The downloader had been skipping them without a word.
 - Markets: a window's editor now shows only the code of the query beside it: its CTEs in the order they run, then its final query. It follows the number being read on the right, where it used to open every number in the window at once.
 - Markets: a **Bad day** column in *Every market* and in a market's details: how far it fell on 1 day in 20, judged by its last 30 days. A guide for sizing a position, not a limit. Tested on 608,106 market-days since 2020: passed on 4.88% of them, against the 5% it should be.
 - Markets: the sentence that says what a clicked number means is shown in full. It was cut off at the end of one line.

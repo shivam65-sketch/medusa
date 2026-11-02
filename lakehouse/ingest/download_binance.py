@@ -60,7 +60,8 @@ DATASETS = {
 PARTITION = {"daily": "date", "monthly": "month"}
 
 # USDT-margined perpetuals only: no USDC/BUSD pairs, no dated futures like BTCUSDT_250926.
-PERPETUAL = re.compile(r"^[A-Z0-9]+USDT$")
+# Not every name is Latin letters (牛来USDT), so the rule is what a name ends with and what it can't hold.
+PERPETUAL = re.compile(r"^[^_\s]+USDT$")
 
 # lakehouse/data/landing (the data/ folder is in .gitignore, so downloads never reach Git).
 LANDING = pathlib.Path(__file__).resolve().parent.parent / "data" / "landing"
@@ -71,7 +72,8 @@ def fetch(url):
     Network hiccups are retried three times (after 5, 10 and 15 seconds) before giving up."""
     for attempt in range(1, 5):
         try:
-            request = urllib.request.Request(url, headers={"User-Agent": "medusa-lakehouse"})
+            # An address can only carry plain characters, so 牛 goes as %E7%89%9B.
+            request = urllib.request.Request(urllib.parse.quote(url, safe=":/?&=%"), headers={"User-Agent": "medusa-lakehouse"})
             with urllib.request.urlopen(request, timeout=60) as response:
                 return response.read()
         except urllib.error.HTTPError as e:

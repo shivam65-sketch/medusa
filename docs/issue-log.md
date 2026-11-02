@@ -16,6 +16,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
+| [43](#issue-43) | 2026-11-02 | Lakehouse | Five markets with non-Latin names were never loaded | Bug | Built, waiting to go live |
 | [42](#issue-42) | 2026-11-02 | Markets | A window's editor showed code that isn't in the query beside it | Bug | Fixed |
 | [41](#issue-41) | 2026-11-02 | Docs | GitHub's main page said nothing about the scanner | Bug | Fixed |
 | [40](#issue-40) | 2026-11-02 | Markets | The sentence under a clicked number was cut off | Bug | Fixed |
@@ -60,6 +61,22 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 | [1](#issue-1) | 2026-09-27 | Local copy | The app kept loading and never opened | Setup | Closed |
 
 ## Details
+
+<a id="issue-43"></a>
+### 43. Five markets with non-Latin names were never loaded
+
+- **Seen:** asked whether new listings reach MEDUSA, a comparison with Binance's contract list found 5 trading markets missing: 哈基米,
+  币安人生, 我踏马来了, 牛来 and 龙虾. 牛来 was in Binance's futures top 8 that day.
+- **Why:** the downloader kept only names of `A-Z` and `0-9`, a rule written to leave out USDC and dated contracts. These five failed it
+  without any message, and their addresses would have failed too, because a web address can't carry those characters as they are.
+  The type list has them, because it comes from the contract list, so nothing looked wrong.
+- **Change:** a market is now any name ending in `USDT` with no `_` or space, and addresses are encoded. Bronze decodes the name from
+  the file name, in case Databricks hands it over encoded. The page's check on a market's name accepts any letters or digits. A market
+  appears after its first daily load, and shows z and a bad day once it has 20 days of history.
+- **Checked:** the archive's 1,080 folders under both rules: exactly these 5 are added, and USDC, BUSD and settled contracts stay out.
+  A real day of 牛来 downloaded through the real checks: 1,440 rows, checksum matched. Not yet checked: the upload and bronze on Databricks,
+  which the first daily run after this change will show.
+- **State:** built, waiting to go live.
 
 <a id="issue-42"></a>
 ### 42. A window's editor showed code that isn't in the query beside it

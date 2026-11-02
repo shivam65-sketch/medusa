@@ -36,7 +36,7 @@ CREATE OR REFRESH STREAMING TABLE klines_1h (
 COMMENT 'Raw 1-hour candles from data.binance.vision monthly files, one row per file line (header lines included), all columns as text'
 AS SELECT
   -- The coin is only in the file name, e.g. BTCUSDT-1h-2020-01.csv.gz
-  regexp_extract(_metadata.file_name, '^(.+)-1h-', 1) AS symbol,
+  url_decode(regexp_extract(_metadata.file_name, '^(.+)-1h-', 1)) AS symbol,   -- not every name is Latin letters
   month,  -- from the folder name month=YYYY-MM
   open_time,
   open,

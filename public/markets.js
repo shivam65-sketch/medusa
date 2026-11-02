@@ -195,13 +195,14 @@ const PARAM_WORDS = {
 };
 // What a click on a graph can pick (lakehouse step 32), and what each may be: anything else, from a
 // window's address, is ignored.
+const SYMBOL = /^[\p{L}\p{N}_]{2,40}$/u;   // a market's name: not always Latin letters (牛来USDT)
 const PICKS = {
   year: (v) => (/^\d{4}$/.test(v) ? v : null),
   hour: (v) => (/^\d{1,2}$/.test(v) && Number(v) <= 23 ? Number(v) : null),
   bucket: (v) => (/^-?\d{1,2}$/.test(v) && Number(v) >= -11 && Number(v) <= 10 ? Number(v) : null),
   z_band: (v) => (['3-4', '4-6', '6+'].includes(v) ? v : null),
   liquidity: (v) => (['large', 'mid', 'small'].includes(v) ? v : null),
-  symbol: (v) => (/^[A-Z0-9_]{2,40}$/.test(v) ? v : null),
+  symbol: (v) => (SYMBOL.test(v) ? v : null),
   at_least: (v) => (/^-?\d{1,6}(\.\d{1,4})?$/.test(v) ? Number(v) : null),
   at_most: (v) => (/^-?\d{1,6}(\.\d{1,4})?$/.test(v) ? Number(v) : null),
   verdict: (v) => (['held up', 'did not hold', 'no pattern', 'too few'].includes(v) ? v : null),
@@ -2362,7 +2363,7 @@ export function render(el, appApi) {
 export function renderWindow(el, appApi, { panel, symbol = null, kind = 'all', params = {} }) {
   api = appApi;
   const ids = WINDOWS[panel];
-  if (!ids || (panel === 'market' && !/^[A-Z0-9_]{2,40}$/.test(symbol || ''))) {
+  if (!ids || (panel === 'market' && !SYMBOL.test(symbol || ''))) {
     el.innerHTML = '<div class="banner"><div><b>Nothing to show here.</b> Open this window with a ‹› button on MEDUSA\'s Markets page.</div></div>';
     return;
   }

@@ -37,7 +37,7 @@ COMMENT 'Raw 1-minute candles from data.binance.vision, one row per file line, a
 AS SELECT
   -- The candle files have no coin column: the coin is only in the file name,
   -- e.g. BTCUSDT-1m-2026-10-19.csv.gz
-  regexp_extract(_metadata.file_name, '^(.+)-1m-', 1) AS symbol,
+  url_decode(regexp_extract(_metadata.file_name, '^(.+)-1m-', 1)) AS symbol,   -- not every name is Latin letters
   date,  -- from the folder name date=YYYY-MM-DD
   open_time,
   open,
