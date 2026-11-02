@@ -489,8 +489,9 @@ playbook is about 20 ms of that.
 Crowded or alone, aggressive buying, regime gauges and the risk figure were tested on the real moves before anything was built,
 mostly under the same rules as the evidence: crypto and `other` markets, days as the unit, the years 2020 to 2024 to choose,
 the years from 2025 to check, 0.10% for costs. A negative number means the move turned back, and t says how
-far a result stands from noise: 2 or more, up or down, counts. None of the ideas added anything the page doesn't
-already say, so none is on the page: a graph that finds nothing would only be one more thing to read.
+far a result stands from noise: 2 or more, up or down, counts. The first three added nothing the page doesn't
+already say, so they stayed off it: a graph that finds nothing would only be one more thing to read. The fourth, a market's bad day,
+tested well and became a column.
 
 ### Crowded or alone
 
@@ -592,6 +593,9 @@ it means. `today` works it out, `average − 1.645 × σ`, from 20 days of histo
   1 market too new to have a figure, which shows a dash. Nine queries in 31 ms once the page had loaded. No console or server error.
 - **On the live numbers:** 732 of the 751 trading markets have a figure, from −0.04% to −79.40%, with the middle one at −6.63%. None
   is above zero. The three largest are young, wild markets, with a usual day above 40%.
+- **Live:** commit `c1bcd5d`, seed run at 01:05 UTC on 2 November (`today` v2, `markets` v4, `market` v6, 38 definitions current).
+  **Lakehouse transform** run 16: a success in 4 min 11 s, 19 built, 169 tests passed, 1 warned (the expected
+  `assert_no_missing_days`), 0 failed, publish 18 seconds. The live site serves the new page code.
 
 ## Next: 32.2 and 32.3
 

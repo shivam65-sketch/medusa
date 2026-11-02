@@ -16,9 +16,9 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
-| [42](#issue-42) | 2026-11-02 | Markets | A window's editor showed code that isn't in the query beside it | Bug | Built, waiting to go live |
-| [41](#issue-41) | 2026-11-02 | Docs | GitHub's main page said nothing about the scanner | Bug | Built, waiting to go live |
-| [40](#issue-40) | 2026-11-02 | Markets | The sentence under a clicked number was cut off | Bug | Built, waiting to go live |
+| [42](#issue-42) | 2026-11-02 | Markets | A window's editor showed code that isn't in the query beside it | Bug | Fixed |
+| [41](#issue-41) | 2026-11-02 | Docs | GitHub's main page said nothing about the scanner | Bug | Fixed |
+| [40](#issue-40) | 2026-11-02 | Markets | The sentence under a clicked number was cut off | Bug | Fixed |
 | [39](#issue-39) | 2026-11-01 | Markets | The SQL showed direction = 'up' with Down moves chosen | Explained | Answered |
 | [38](#issue-38) | 2026-11-01 | Markets | A window led with a different number from the one clicked | Bug | Fixed |
 | [37](#issue-37) | 2026-11-01 | Markets | An outage wrote the same errors to the Logs on every retry | Bug | Fixed |
@@ -75,7 +75,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 - **Checked:** all 34 numbers in 23 windows, from Today's cards to the windows a click opens: the left side against the CTEs at the
   top of the query on the right, in order. 33 matched by name; the other, *Every kind of move at a glance*, writes its three CTEs
   inside its own query, so they are in its box. Typing held the left side still, and a change survived moving away and back.
-- **State:** built, waiting to go live.
+- **State:** fixed and live on 2026-11-02.
 
 <a id="issue-41"></a>
 ### 41. GitHub's main page said nothing about the scanner
@@ -95,7 +95,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
   From now on a change that adds a feature also updates those summaries.
 - **Checked:** the diagram drawn with the real Mermaid library; every link and image path in the README resolved; the screenshots
   looked at one by one for personal data; all 67 Confluence pages older than 1 November listed by their last edit.
-- **State:** built, waiting to go live.
+- **State:** fixed and live on 2026-11-02.
 
 <a id="issue-40"></a>
 ### 40. The sentence under a clicked number was cut off
@@ -106,7 +106,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
   in dots when it doesn't fit. On those cards the line is a few words; here it is the sentence that says what the number means.
 - **Change:** that card is wider, up to 560 pixels, and its sentence wraps. The page's own cards are unchanged.
 - **Checked:** the same window at 1,440 pixels shows the whole sentence.
-- **State:** built, waiting to go live.
+- **State:** fixed and live on 2026-11-02.
 
 <a id="issue-39"></a>
 ### 39. The SQL showed direction = 'up' with Down moves chosen
