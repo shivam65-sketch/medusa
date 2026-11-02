@@ -16,7 +16,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
-| [44](#issue-44) | 2026-11-02 | Markets | Patterns showed fades as held up without counting funding | Bug | Built, waiting to go live |
+| [44](#issue-44) | 2026-11-02 | Markets | Patterns showed fades as held up without counting funding | Bug | Fixed |
 | [43](#issue-43) | 2026-11-02 | Lakehouse | Five markets with non-Latin names were never loaded | Bug | Built, waiting to go live |
 | [42](#issue-42) | 2026-11-02 | Markets | A window's editor showed code that isn't in the query beside it | Bug | Fixed |
 | [41](#issue-41) | 2026-11-02 | Docs | GitHub's main page said nothing about the scanner | Bug | Fixed |
