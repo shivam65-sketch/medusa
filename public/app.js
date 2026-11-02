@@ -1790,6 +1790,7 @@
     $('#markets').hidden = view !== 'markets';
     $('#lab').hidden = view !== 'lab';
     $('#devtools').hidden = view !== 'devtools';
+    $('#mkts').hidden = view !== 'markets';   // market hours belong to the Markets page
     if (save) store.set('view', view === 'lab' ? `lab:${labTab}` : view === 'devtools' ? `devtools:${devTab}` : view);
     history.replaceState(null, '', view === 'journal' ? location.pathname + location.search : view === 'markets' ? '#markets' : view === 'lab' ? `#lab/${labTab}` : devTab === 'logs' ? '#devtools/logs' : '#devtools');
     markNav();

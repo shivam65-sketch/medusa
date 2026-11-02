@@ -597,13 +597,38 @@ it means. `today` works it out, `average − 1.645 × σ`, from 20 days of histo
   **Lakehouse transform** run 16: a success in 4 min 11 s, 19 built, 169 tests passed, 1 warned (the expected
   `assert_no_missing_days`), 0 failed, publish 18 seconds. The live site serves the new page code.
 
+## 32.3: on-chain data, tested and not built
+
+**The sources, asked directly on 2 November 2026.** Free with no key and history back past 2020: DefiLlama (stablecoins, TVL, DEX
+volume, fees), CoinMetrics Community (BTC and ETH: MVRV, active addresses, exchange flows, hash rate), blockchain.com, mempool.space
+and alternative.me (Fear & Greed). DefiLlama's perps and bridges are paid now, CoinGecko's long history needs a key, and CoinMetrics' CSV
+files on GitHub stopped in May 2026. Etherscan, Dune, Glassnode, CryptoQuant and Nansen need a key or a paid plan.
+
+**The test.** 15 signals against Bitcoin and the whole market: 30 tests. Each signal in thirds fixed on 2020 to 2024, known the day
+before, top third minus bottom third of the next 7 days' return, each week counted once. A signal needs t of 2 or more in the chosen
+years and again from 2025, the same way round.
+
+**Result: none of the 30 held up.** Only one even reached t 2 in the chosen years.
+
+| Closest results | 2020 to 2024 | From 2025 |
+|---|---:|---:|
+| BTC MVRV, 30-day change, on the market | +4.83%, t 2.4 | +2.53%, t 0.7 |
+| BTC MVRV, 30-day change, on Bitcoin | +2.55%, t 1.7 | +1.74%, t 1.0 |
+| Stablecoin supply, 30-day change, on Bitcoin | +1.21%, t 0.9 | +0.00%, t 0.0 |
+| BTC exchange netflow, 7 days, on Bitcoin | +0.21%, t 0.1 | −1.45%, t −0.7 |
+
+ETH MVRV shows −4.91% (t −3.0) from 2025 with nothing at all in the chosen years, so it doesn't count: that is how luck looks.
+
+**What unusual moves did next.** The same 15 signals against the moves themselves: up and down moves, the next 4 and 24 hours, each day's moves averaged so a day counts once. 60 tests. 5 reached t 2 in the chosen years, about what chance gives, every one of them turned the other way from 2025, and none held up.
+
+**Limits.** The market test covers the next 7 days only. Free data is Bitcoin, Ethereum and market-wide, so nothing here tests a single coin's own on-chain activity, and daily data can't speak to the next hour. Several signals have few weeks in a third from 2025 (stablecoin supply has 2), because
+their 2020 to 2024 cuts rarely apply now, so the held-back test is weak for them. The market index is the average daily move of
+every market. It says these series don't help time the next week. It doesn't say they are useless as a picture of the market.
+
 ## Next: 32.2 and 32.3
 
 - **Before them:** [step 32a](32a-missing-days.md), the missing-days check, and filling 28 October
   (October's monthly 1-minute file, expected around 2 November, if it holds that day; otherwise the live
   API).
 - **The rest of 32.2:** open interest and the long/short ratio wait until they have years of history (see above).
-- **32.3, on-chain from the free sources:** DefiLlama (stablecoins, chain TVL, DEX volume, fees),
-  CoinMetrics Community (exchange flows, active addresses, MVRV, transactions), mempool.space (Bitcoin
-  fees), and the other free APIs surveyed first, loaded by GitHub Actions into landing → bronze → silver
-  → gold and tested held-back like the patterns.
+- **Step 33:** journal trades in the lakehouse. On-chain data was tested and not built (see above).
