@@ -1755,7 +1755,7 @@
     const fromHash = (fallback) => {
       const h = location.hash.slice(1);
       if (h === 'logs' || h === 'devtools/logs') return 'devtools:logs';   // the Logs used to be a page of their own
-      return h.startsWith('lab') ? `lab:${h.split('/')[1] || 'dashboard'}` : h === 'devtools' ? 'devtools:tools' : h === 'markets' || h === 'journal' ? h : fallback;
+      return h.startsWith('lab') ? `lab:${h.split('/')[1] || 'dashboard'}` : h === 'devtools' ? 'devtools:tools' : h === 'markets' || h === 'risk' || h === 'journal' ? h : fallback;
     };
     const want = fromHash(store.get('view', 'journal'));
     if (want !== 'journal') setView(want, false);
@@ -1763,7 +1763,7 @@
     addEventListener('hashchange', () => setView(fromHash('journal')));   // a #lab/... link or the address bar
     if (!store.get('menuHint', false)) {                                   // once: where the pages went
       store.set('menuHint', true);
-      setTimeout(() => showToast('The Journal, Markets, the Lab’s pages (Dashboard, Get data, Files, Chart, Strategies, Python, Strategy guide) and Dev tools (with the Logs) are in the menu on the left.', '', 10000), 1200);
+      setTimeout(() => showToast('The Journal, Markets, Risk, the Lab’s pages (Dashboard, Get data, Files, Chart, Strategies, Python, Strategy guide) and Dev tools (with the Logs) are in the menu on the left.', '', 10000), 1200);
     }
     if (importNow && state.hasKey) runImport(false);
   }
@@ -1783,22 +1783,24 @@
     if (v.startsWith('lab:')) { tab = v.slice(4); v = 'lab'; }
     if (v === 'logs') v = 'devtools:logs';
     if (v.startsWith('devtools:')) { devTab = v.slice(9) === 'logs' ? 'logs' : 'tools'; v = 'devtools'; }
-    view = v === 'lab' || v === 'devtools' || v === 'markets' ? v : 'journal';
+    view = v === 'lab' || v === 'devtools' || v === 'markets' || v === 'risk' ? v : 'journal';
     if (tab) labTab = tab;
     $('#app').dataset.view = view;
     $('#journal').hidden = view !== 'journal';
     $('#markets').hidden = view !== 'markets';
+    $('#risk').hidden = view !== 'risk';
     $('#lab').hidden = view !== 'lab';
     $('#devtools').hidden = view !== 'devtools';
     $('#mkts').hidden = view !== 'markets';   // market hours belong to the Markets page
     if (save) store.set('view', view === 'lab' ? `lab:${labTab}` : view === 'devtools' ? `devtools:${devTab}` : view);
-    history.replaceState(null, '', view === 'journal' ? location.pathname + location.search : view === 'markets' ? '#markets' : view === 'lab' ? `#lab/${labTab}` : devTab === 'logs' ? '#devtools/logs' : '#devtools');
+    history.replaceState(null, '', view === 'journal' ? location.pathname + location.search : view === 'markets' ? '#markets' : view === 'risk' ? '#risk' : view === 'lab' ? `#lab/${labTab}` : devTab === 'logs' ? '#devtools/logs' : '#devtools');
     markNav();
-    if (view !== 'lab') log('nav', view === 'devtools' ? (devTab === 'logs' ? 'Logs' : 'Dev tools') : view === 'markets' ? 'Markets' : 'Journal', null, 'debug');   // the Lab logs its own pages
+    if (view !== 'lab') log('nav', view === 'devtools' ? (devTab === 'logs' ? 'Logs' : 'Dev tools') : view === 'markets' ? 'Markets' : view === 'risk' ? 'Risk' : 'Journal', null, 'debug');   // the Lab logs its own pages
     if (view !== 'markets' && mktLoad) mktLoad.then((m) => { if (m && view !== 'markets') m.stop(); });   // close Binance's live stream
     if (view === 'lab') openLab(labTab);
     else if (view === 'devtools') openDevtools();
     else if (view === 'markets') openMarkets();
+    else if (view === 'risk') openRisk();
     else if (state.loaded) render();
   }
   /* On a phone the menu is a slim bar of icons; its button slides the full menu over the page (with a
@@ -1851,7 +1853,7 @@
     const host = $('#markets');
     if (!mktLoad) {
       host.innerHTML = '<div class="loading">Opening Markets…</div>';
-      mktLoad = import('/markets.js?v=26').catch((e) => {
+      mktLoad = import('/markets.js?v=27').catch((e) => {
         mktLoad = null;
         log('markets', `Markets couldn't be opened: ${e.message}`, null, 'error');
         host.innerHTML = `<div class="banner"><div><b>Markets couldn’t be opened.</b> ${esc(e.message)} Reload the page to try again.</div></div>`;
@@ -1861,6 +1863,23 @@
     mktLoad.then((m) => { if (m && view === 'markets') m.render(host, mktApi); });
   }
   const mktApi = { call, log, store, toast: showToast };
+
+  /* ---------- Risk (risk.js, downloaded only when the page is opened) ---------- */
+  let riskLoad = null;
+  function openRisk() {
+    const host = $('#risk');
+    if (!riskLoad) {
+      host.innerHTML = '<div class="loading">Opening Risk…</div>';
+      riskLoad = import('/risk.js?v=1').catch((e) => {
+        riskLoad = null;
+        log('risk', `Risk couldn't be opened: ${e.message}`, null, 'error');
+        host.innerHTML = `<div class="banner"><div><b>Risk couldn’t be opened.</b> ${esc(e.message)} Reload the page to try again.</div></div>`;
+        return null;
+      });
+    }
+    riskLoad.then((m) => { if (m && view === 'risk') m.render(host, riskApi); });
+  }
+  const riskApi = { call, log, store, toast: showToast, journal: () => (state.loaded ? current().s : null) };
 
   /* ---------- Dev tools (devtools.js, downloaded only when the page is opened) ---------- */
   let devLoad = null;

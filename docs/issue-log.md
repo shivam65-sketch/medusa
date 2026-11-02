@@ -16,6 +16,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
+| [44](#issue-44) | 2026-11-02 | Markets | Patterns showed fades as held up without counting funding | Bug | Built, waiting to go live |
 | [43](#issue-43) | 2026-11-02 | Lakehouse | Five markets with non-Latin names were never loaded | Bug | Built, waiting to go live |
 | [42](#issue-42) | 2026-11-02 | Markets | A window's editor showed code that isn't in the query beside it | Bug | Fixed |
 | [41](#issue-41) | 2026-11-02 | Docs | GitHub's main page said nothing about the scanner | Bug | Fixed |
@@ -61,6 +62,14 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 | [1](#issue-1) | 2026-09-27 | Local copy | The app kept loading and never opened | Setup | Closed |
 
 ## Details
+
+<a id="issue-44"></a>
+### 44. Patterns showed fades as held up without counting funding
+
+- **Seen:** while testing shorts after unusual up moves for the Risk page, 15 mixes passed before funding and none passed after it.
+- **Why:** `gold.event_evidence` counts a round-trip trading cost, but the lakehouse has no funding data, so a short's funding was never in the verdict. On large and mid markets it averaged 0.27% a trade over 24 hours, and up to 28.7%. Verdicts also average each day's moves, which needs to know how many moves a day will bring.
+- **Change:** Patterns now says under its heading and in *How a verdict is decided* that its results are before funding, and that a fade's figure is the most it could have made. The verdicts themselves don't change: that would need funding in the lakehouse.
+- **Checked:** the tests are in [the Risk research](risk-research.md#shorting-after-unusual-up-moves), with each coin's real funding from Binance's monthly files.
 
 <a id="issue-43"></a>
 ### 43. Five markets with non-Latin names were never loaded

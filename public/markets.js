@@ -1684,7 +1684,7 @@ function paintPatterns() {
       ${counts}
     </section>
     <section class="card">
-      <div class="card-head"><div><h2>Patterns that held up</h2><p>Chosen on 2020–2024 and still profitable after costs from 2025, on years that played no part in choosing them</p></div>${srcBtn('patterns')}</div>
+      <div class="card-head"><div><h2>Patterns that held up</h2><p>Chosen on 2020–2024 and still profitable from 2025, on years that played no part in choosing them. After trading costs, before funding: see below</p></div>${srcBtn('patterns')}</div>
       <div class="mkt-held">${heldHtml}</div>
     </section>
     <section class="card">
@@ -1699,6 +1699,7 @@ function paintPatterns() {
         <li><b>The side is chosen on 2020–2024 only.</b> If moves continued there with t ≥ 2, the side is <b>follow</b>; if they reversed with t ≤ −2, it is <b>fade</b>; otherwise there is <b>no pattern</b>.</li>
         <li><b>It is then checked on 2025 onwards</b>, which played no part in the choice. <b>Held up</b> needs the moves to behave the same way there (t ≥ 2 for follow, t ≤ −2 for fade) and a profit after ${cost} round-trip costs in both periods; otherwise it <b>did not hold</b>.</li>
         <li><b>Too few</b>: fewer than 20 days in either period.</li>
+        <li><b>Funding isn't counted.</b> A short pays funding when a market squeezes: after up moves on large and mid markets that averaged 0.27% a trade over 24 hours, far more than the cost counted here, and a few squeezes cost much more. Averaging each day's moves also assumes you know how many moves a day will bring. With funding counted and every trade the same size, shorting after up moves stopped holding up, so read a fade's figure here as the most it could have made. The Risk page has the test.</li>
         <li>With ${n(sum.kinds)} groups tested, a few can pass by luck, which is why the held-back check matters and why the rules aren't tuned after looking at it (ADR-022). Costs are optimistic for small markets, funding isn't counted, and almost all the history is crypto. This is research, not trading advice.</li>
       </ul>
     </section>`);

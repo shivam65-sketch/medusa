@@ -5,6 +5,8 @@ app's menu and on the sign-in page); each release adds a section here with the s
 
 ## Unreleased
 
+- **Risk**, a new page: BTC's and ETH's place against their 50-day average right now, the history of that trend rule, when it works and when it doesn't, four tools (position size with a Bad day warning, break-even win rate after fees and funding, daily loss limit, Kelly from your own numbers) and the ideas tested that failed. The tests are in `docs/risk-research.md`.
+- Markets: Patterns now says that its verdicts count trading costs but not funding. With funding counted and every trade the same size, shorting after up moves stopped holding up.
 - Market hours now show on the Markets page only.
 - Market data lakehouse: markets with non-Latin names (牛来 and four others) are now loaded. The downloader had been skipping them without a word.
 - Markets: a window's editor now shows only the code of the query beside it: its CTEs in the order they run, then its final query. It follows the number being read on the right, where it used to open every number in the window at once.

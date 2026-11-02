@@ -12,6 +12,7 @@ Version in <a href="public/version.json"><code>public/version.json</code></a> ·
 | Part | What it does | Runs on |
 |---|---|---|
 | **[Markets](#markets-the-live-scanner)** | A live scanner of every Binance USDT perpetual, about 750 markets. It flags what is unusual right now and shows what similar moves did next, tested on years held back. Every number is SQL you can read and edit | Your browser, with live prices from Binance and the history from the lakehouse |
+| **[Risk](#risk)** | What has held up, when it works and how much to trade: the trend rule's state right now, position size, break-even, daily loss limit and Kelly, and the ideas tested that failed | Your browser, and Binance's public prices |
 | **[Journal](#what-it-does)** | Imports your closed CoinDCX futures trades: net P&L, win rate, drawdown, a trading calendar, P&L by coin, notes on each trade | Cloudflare |
 | **[MEDUSA Lab](#medusa-lab)** | Downloads any Binance coin's history and backtests Python strategies with costs, full reports, charts and a candle-by-candle replay | Your browser (Python with Pyodide) |
 | **[Market data lakehouse](#market-data-lakehouse)** | Loads every market daily through landing, bronze, silver, gold and semantic layers, with 170 data tests, and publishes what the scanner needs | Databricks Free Edition, dbt Core, GitHub Actions |
@@ -54,6 +55,19 @@ Each market's move today is compared with its own normal, its last 30 days from 
 - **It says when something is missing:** a day the lakehouse doesn't have, or a lakehouse that has fallen behind, shows at the top of the page.
 
 Live prices come straight from Binance to your browser while the page is open; the daily numbers come from MEDUSA. Like every page, it needs a signed-in account. Live numbers are unchecked until the next daily run, and the evidence is history, not a trading signal.
+
+## Risk
+
+**The question it answers:** can a strategy that works only some of the time be made profitable with risk management?
+
+The answer from the tests is that risk management changes how far an account falls, but doesn't create an edge. So the page shows what held up and what didn't, and then helps you size what you trade:
+
+- **The trend rule.** Half BTC, half ETH, each held only above its 50-day average, with today's state from Binance. Since July 2020 it grew money 12.6 times against 4.9 for holding, with a worst fall of 56% against 77%. It isn't proven: t is 2.5 to 2024 and 1.4 from 2025.
+- **When does it work?** Months and wild markets, 2020–2024 beside 2025 on. Neither repeated.
+- **How much to trade.** Position size with a warning when a stop is closer than the market's Bad day, the win rate needed after fees and funding, a daily loss limit, and Kelly from your own numbers or your Journal.
+- **Tested and failed.** Seasons, Turtle, shorting after up moves, scalping, memecoins and more, with their numbers.
+
+The history on the page is fixed, from tests on data to 31 October 2026. How each test was run, and the results on Indian futures and other markets, are in [docs/risk-research.md](docs/risk-research.md).
 
 ## Market data lakehouse
 
@@ -304,6 +318,7 @@ The Lab's folders use Workers KV: 1 GB in total, 100,000 reads and 1,000 writes 
 ## Files
 
 - `public/`: the page (`index.html`, `app.css` (every page's styles, shared with the calculation windows), `app.js` (the journal, the menu, market hours, the INR switch and the Logs), `devtools.js` (the Dev tools page, loaded when it is opened), `markets.js` (the Markets page, the live scanner, loaded when it is opened: Today, Patterns and Insights; it feeds the SQL engine and draws what the queries return), `markets-charts.js` (the Insights graphs: a query's result drawn as SVG from the chart spec in its definition), `markets-window.html` and `markets-window.js` (one number's calculation in its own window, opened by its ‹› button: the same code with its own data, engine and live prices, running only that number's queries, with an editor to change its SQL, preview the result on that screen, save it to the lakehouse and see every earlier version), `markets-metrics.js` (the built-in copy of every number on Markets as SQL, used until the lakehouse's definitions are published: shared steps and a query per card or table; its rule matches `lakehouse/dbt/models/gold/intraday_events.sql`), `markets-sql.js` (the SQL engine: SQLite in a background worker; it unpacks the Insights file into its tables), `stats.js`, `version.json` (the release), icons)
+- `public/risk.js`: the Risk page, loaded only when it is opened
 - `public/vendor/sqljs-1.14.2/`: sql.js, SQLite compiled to WebAssembly (MIT licence, `LICENSE` included), used by `markets-sql.js`
 - `public/lab/`: MEDUSA Lab, loaded only when the Lab is opened: `main.js` (the tabs: dashboard, get data, files, strategies), `console.js` (the Python tab, loaded when opened), `chart.js` (the Chart tab, loaded when opened; `sim.js` is its trading simulation and `vendor/` holds its chart library), `data.js` (Binance downloads, files for your computer, reading uploads, the compressed file format), `report.js` (the report and its CSV export), `standalone.js` (a result's standalone Python code), `learn.js` (the Strategy guide), `util.js`, `lab.css`, `py-worker.js` (the Python engine thread), `py/` (the Python engine), `strategies/` (built-in strategies and `index.json`), `template.py` (the new-strategy template), `docs/` (Strategy guide pages, and `examples/` with the real trades their charts show), `pyodide/` (Python for the browser)
 - `src/lab.js`: the Lab's API: the Downloads, Uploads and Results folders (KV, listed in D1), free storage, and your strategy files
@@ -326,6 +341,7 @@ The Lab's folders use Workers KV: 1 GB in total, 100,000 reads and 1,000 writes 
 - `wrangler.example.toml`: the Cloudflare settings, without anyone's ids; copy it to `wrangler.toml` (step 4)
 - `CHANGELOG.md`: every release and what changed in it (the current version is in `public/version.json`)
 - `docs/how-the-data-works.md`: from a Binance file to a number on the Markets page: every table and how they relate, a day in the pipeline, a page refresh, the one-second loop, one number followed all the way, and how to trace a problem back upstream
+- `docs/risk-research.md`: the tests behind the Risk page, on crypto, Indian futures and other markets
 - `docs/issue-log.md`: every problem reported on MEDUSA: what was seen, why it happened, what changed and how it was checked
 - `docs/images/`: the screenshots in this README
 - `THIRD_PARTY_NOTICES.md`: the open-source software bundled with MEDUSA and its licences

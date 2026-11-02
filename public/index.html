@@ -9,7 +9,7 @@
 <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">
 <link rel="manifest" href="/manifest.webmanifest?v=2">
 <link rel="apple-touch-icon" href="/icon-192.png?v=2">
-<link rel="stylesheet" href="/app.css?v=2">
+<link rel="stylesheet" href="/app.css?v=3">
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -27,6 +27,7 @@
     <div class="side-sep" aria-hidden="true"></div>
     <button class="side-item" data-action="nav" data-nav="journal" data-tip="Journal" aria-label="Journal" aria-current="false"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3.5h12.5A1.5 1.5 0 0 1 19 5v15H6.5A1.5 1.5 0 0 1 5 18.5z"/><path d="M5 18.5A1.5 1.5 0 0 1 6.5 17H19M9 7.5h6M9 11h6"/></svg><span class="side-label">Journal</span></button>
     <button class="side-item" data-action="nav" data-nav="markets" data-tip="Markets" aria-label="Markets" aria-current="false"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 17.5l5.5-5.5 4 4 7.5-7.5"/><path d="M15 8.5h5.5V14"/></svg><span class="side-label">Markets</span></button>
+    <button class="side-item" data-action="nav" data-nav="risk" data-tip="Risk" aria-label="Risk" aria-current="false"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l7.5 2.8v5.4c0 4.4-3.1 7.6-7.5 8.8-4.4-1.2-7.5-4.4-7.5-8.8V6.3z"/><path d="M9 12l2.2 2.2L15.2 10"/></svg><span class="side-label">Risk</span></button>
     <div class="side-group"><span>Lab</span></div>
     <button class="side-item" data-action="nav" data-nav="lab:dashboard" data-tip="Dashboard" aria-label="Dashboard" aria-current="false"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15.5a8 8 0 1 1 16 0"/><path d="M12 15.5l4-4.5"/><circle cx="12" cy="15.5" r="1.2"/></svg><span class="side-label">Dashboard</span></button>
     <button class="side-item" data-action="nav" data-nav="lab:data" data-tip="Get data" aria-label="Get data" aria-current="false"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 19.5h14"/></svg><span class="side-label">Get data</span></button>
@@ -134,6 +135,7 @@
   </section>
   </div>
   <div id="markets" class="view" hidden></div>
+  <div id="risk" class="view" hidden></div>
   <div id="lab" class="view" hidden></div>
   <div id="devtools" class="view" hidden>
     <div class="toggle dev-tabs" role="group" aria-label="Dev tools">
@@ -152,6 +154,6 @@
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="/stats.js?v=20"></script>
-<script src="/app.js?v=50"></script>
+<script src="/app.js?v=51"></script>
 </body>
 </html>
