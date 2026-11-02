@@ -2,17 +2,34 @@
   <img src="public/medusa.svg" alt="MEDUSA logo" width="120" height="120">
 </p>
 <h1 align="center">MEDUSA</h1>
-<p align="center">A trading journal and backtesting lab that runs free on Cloudflare.<br>
+<p align="center">A crypto trading workbench that runs free: a live market scanner backed by every unusual move since 2020, a trading journal, a backtesting lab, and the data lakehouse behind them.<br>
 Version in <a href="public/version.json"><code>public/version.json</code></a> · every release in <a href="CHANGELOG.md">CHANGELOG.md</a></p>
 
-<p align="center"><img src="docs/images/journal.webp" alt="The journal: net P&L, win rate, profit factor, performance chart and advanced statistics" width="900"></p>
+<p align="center"><img src="docs/images/markets-today.webp" alt="The Markets page: breadth, median move, unusual markets now, and what similar moves did over the next 1, 4 and 24 hours" width="900"></p>
+
+## What's inside
+
+| Part | What it does | Runs on |
+|---|---|---|
+| **[Markets](#markets-the-live-scanner)** | A live scanner of every Binance USDT perpetual, about 750 markets. It flags what is unusual right now and shows what similar moves did next, tested on years held back. Every number is SQL you can read and edit | Your browser, with live prices from Binance and the history from the lakehouse |
+| **[Journal](#what-it-does)** | Imports your closed CoinDCX futures trades: net P&L, win rate, drawdown, a trading calendar, P&L by coin, notes on each trade | Cloudflare |
+| **[MEDUSA Lab](#medusa-lab)** | Downloads any Binance coin's history and backtests Python strategies with costs, full reports, charts and a candle-by-candle replay | Your browser (Python with Pyodide) |
+| **[Market data lakehouse](#market-data-lakehouse)** | Loads every market daily through landing, bronze, silver, gold and semantic layers, with 170 data tests, and publishes what the scanner needs | Databricks Free Edition, dbt Core, GitHub Actions |
 
 ## Screenshots
 
-The screenshots use a demo account with made-up trades placed on real Binance prices.
+The Markets screenshots show real Binance markets on 1 November 2026. The journal and chart screenshots use a demo account with made-up trades placed on real Binance prices.
+
+<p align="center"><img src="docs/images/markets-playbook.webp" alt="The playbook: for each unusual market, what similar past moves did next and how far the worst 5% went" width="900"><br><b>Playbook:</b> for each market unusual now, what similar past moves did next and how far the worst 5% went</p>
 
 | | |
 |---|---|
+| ![Every market right now: today's move against its volume](docs/images/markets-live-map.webp) | ![Year by year and the spread of outcomes](docs/images/markets-year-spread.webp) |
+| **Insights:** every market right now, live | **Insights:** a kind of move year by year, and how its outcomes spread |
+| ![Patterns that held up on years held back](docs/images/markets-patterns.webp) | ![A window that opens with the number clicked](docs/images/markets-window-number.webp) |
+| **Patterns:** what held up on years that played no part in choosing it | **A click on a number:** its window opens with that number, says what it means, and shows the query behind it |
+| ![Every kind of move at a glance](docs/images/markets-kinds.webp) | ![A number's query, with an editor to preview and save a new version](docs/images/markets-window-sql.webp) |
+| **Insights:** every kind of move at a glance, with its verdict | **Every number is SQL:** read it, edit it, preview it and save a new version |
 | ![Trading calendar, P&L by coin and trade history](docs/images/journal-calendar.webp) | ![A backtest report in the Lab](docs/images/backtest-report.webp) |
 | **Journal:** trading calendar, P&L by coin and every trade | **Lab:** a backtest report, with warnings first |
 | ![Four charts side by side with indicators](docs/images/chart-four.webp) | ![A replay of a picked portion on two charts](docs/images/chart-replay.webp) |
@@ -20,57 +37,82 @@ The screenshots use a demo account with made-up trades placed on real Binance pr
 | ![Your journal trades on the chart with stop loss and take profit](docs/images/chart-my-trades.webp) | <img src="docs/images/phone-journal.webp" alt="The journal on a phone" width="49%"> <img src="docs/images/phone-chart-full-screen.webp" alt="Two charts in full screen on a phone" width="49%"> |
 | **My trades:** your trades on the chart, with stop loss and take profit | **Phone:** the journal, and two charts in full screen |
 
+## Markets: the live scanner
+
+**The question it answers:** which markets are doing something unusual right now, and what did moves like that do next?
+
+Each market's move today is compared with its own normal, its last 30 days from the lakehouse: how many of its usual daily moves (σ) it has moved, called z. A move of 3σ or more is unusual, so a calm market and a wild one are judged by their own standards. It covers every Binance USDⓈ-M perpetual quoted in USDT: crypto, and the TradFi perpetuals on stocks, commodities, a currency and indices.
+
+**What similar moves did next is tested, not assumed.** The lakehouse records every unusual move since January 2020 and what the price did over the next 1, 4 and 24 hours, about 21,000 moves, delisted coins included. Each kind of move (direction, size, liquidity) gets a side chosen on 2020 to 2024 only, then checked on the years from 2025, which played no part in the choice, after 0.10% costs and counting days, not moves, because markets move together. On 1 November 2026, 5 of the 60 kinds of move and horizon held up. Everything else says *no pattern*, *did not hold* or *too few*, and stocks and commodities say *not tested*, because they have no 2020 to 2024 years.
+
+- **Today:** breadth, the median move, the markets unusual now with each one's verdict for the next 1, 4 and 24 hours, the day's movers, and every market with search and sorting.
+- **Patterns:** every kind of move and its verdict, the patterns that held up, and which markets are in each group right now.
+- **Insights:** graphs that look for an edge, and the **playbook**: for each market unusual now, how many similar moves there were, the middle result over the next 1, 4 and 24 hours, how often they kept going, how far the worst 5% went either way, and the market's own past. The graphs show every market right now, every kind of move at a glance, year by year, the spread of outcomes, by the hour of the move, by size and liquidity, and the whole market by hour of the day.
+- **Choices at the top reach every graph and table they can:** the type of market, up or down moves, and the next 1, 4 or 24 hours. A second click removes a choice, and a line under each graph says which choices it follows.
+- **A click on an aggregate opens what is behind it:** a window with the same number under the same name, what it means, and the moves it summarises.
+- **Every number is SQL.** A small SQLite database inside your browser holds MEDUSA's copies of the lakehouse tables and the live prices, and each card, table and graph is the result of a query on them. The queries are kept, with every version, in the lakehouse (`market.semantic.metric_definitions`). The ‹› button shows a number's query exactly as it ran, its parameters and result, where each table comes from, a copy that returns the same result in MEDUSA's D1 or in Databricks, and CSVs. There the SQL can be **edited**, previewed on your screen and **saved** back to the lakehouse as a new version (the owner's account changes it for everyone; any other account keeps its own), with every earlier version a click away.
+- **It says when something is missing:** a day the lakehouse doesn't have, or a lakehouse that has fallen behind, shows at the top of the page.
+
+Live prices come straight from Binance to your browser while the page is open; the daily numbers come from MEDUSA. Like every page, it needs a signed-in account. Live numbers are unchecked until the next daily run, and the evidence is history, not a trading signal.
+
+## Market data lakehouse
+
+The history behind the scanner, built as a data engineering project in [`lakehouse/`](lakehouse/README.md), one documented step at a time.
+
+- **Every day:** GitHub Actions downloads the previous day's 1-minute candles and 5-minute market metrics for every USDT perpetual from Binance's archive, about 1.26 million candles and 205,000 snapshots, checks each file's checksum, and loads it into Databricks.
+- **History:** hourly candles for 918 markets since January 2020, delisted ones included, so the evidence has no survivorship bias.
+- **Layers:** landing (Binance's files), bronze (every line, as text, loaded once by Auto Loader), silver (typed, checked facts), gold (each market's normal, the evidence, the moves, the playbook's percentiles) and semantic (every version of every Markets definition).
+- **Checked:** 170 dbt tests in every build, including reconciliation between layers; the previous 7 days compared with Binance's fingerprints; a calendar check for a day that goes missing, retried daily for a week.
+- **Served:** after every build a publish job copies the gold tables to MEDUSA through a write-only endpoint and fails unless the row counts and the file's SHA-256 match.
+- **Logged:** every workflow run, with its jobs, steps and errors, and MEDUSA's own errors, in append-only tables in `ops.logs`.
+
+Built with Databricks Free Edition (Unity Catalog, Delta, Lakeflow pipelines, a SQL warehouse, Asset Bundles), dbt Core and GitHub Actions.
+
+**Where to read more:** [`lakehouse/README.md`](lakehouse/README.md) for the layers and every build step, and [`docs/how-the-data-works.md`](docs/how-the-data-works.md) for one number followed from a Binance file to the screen. Every problem reported, with its cause and fix, is in [`docs/issue-log.md`](docs/issue-log.md).
+
 ## How it fits together
 
 ```mermaid
 flowchart LR
-  subgraph B["Your browser (phone or computer)"]
+  subgraph S["Sources"]
     direction TB
-    J["Journal page<br>index.html · app.js · stats.js<br>devtools.js (Dev tools, loaded when opened)"]
-    subgraph L["MEDUSA Lab (loaded when opened)"]
-      direction TB
-      LM["main.js<br>dashboard · files · strategies"]
-      LD["data.js<br>Binance downloads · file format"]
-      LR["report.js · standalone.js · learn.js<br>reports · exported Python · guide"]
-      LC["chart.js + Lightweight Charts<br>1–4 charts · indicators · replay · my trades · simulation"]
-      LP["console.js · editor.js<br>Python tab"]
-      PY["py-worker.js → Pyodide (Python 3.14)<br>py/ engine · indicators · stats · strategies/"]
-    end
+    BA["Binance archive<br>daily and monthly files"]
+    BL["Binance live stream<br>prices · 24-hour volume"]
+    CD["CoinDCX<br>your trades, read-only"]
+  end
+
+  subgraph H["Market data lakehouse"]
+    direction TB
+    GA["GitHub Actions<br>load · re-check · transform<br>publish · logs"]
+    DB[("Databricks Free Edition<br>landing · bronze · silver<br>gold · semantic<br>dbt Core · 170 tests")]
+    GA --> DB
   end
 
   subgraph CF["Cloudflare (free plan)"]
     direction TB
-    A["Static files<br>public/ (page, Lab, Pyodide)"]
-    W["Worker: src/worker.js (the API)<br>auth.js · vault.js · sync.js · trades.js<br>coindcx.js · lab.js · logs.js · logos.js"]
-    D[("D1 · SQLite<br>accounts · sessions · orders · trades<br>stop loss/take profit · notes · days<br>Lab file lists · results list · logs")]
-    K[("Workers KV · LAB<br>downloads/ · uploads/ · results/")]
-    S["Secret: ENCRYPTION_KEY<br>(passwords, 2-step, CoinDCX keys)"]
-    C["Cron (optional)<br>import every 30 minutes"]
+    W["Worker: the API<br>accounts · import · market copy"]
+    D[("D1 · SQLite<br>accounts · trades · notes<br>market copy · definitions")]
+    K[("Workers KV<br>Lab files · scanner answer<br>Insights file")]
+    W --> D
+    W --> K
   end
 
-  subgraph X["Outside services"]
+  subgraph B["Your browser"]
     direction TB
-    CD["CoinDCX private API<br>read-only: futures orders,<br>position transactions"]
-    CP["CoinDCX public data<br>trade candles · USDT/INR"]
-    BN["Binance public data<br>candles · funding · monthly archives"]
-    LG["Coin logos<br>CoinCap · CoinGecko"]
+    M["Markets<br>every number is SQL<br>in SQLite in the browser"]
+    J["Journal"]
+    L["MEDUSA Lab<br>backtests in Python (Pyodide)<br>charts · replay"]
   end
 
-  B -->|"pages and scripts"| A
-  J -->|"/api/* (session cookie)"| W
-  L -->|"/api/lab/* · /api/levels"| W
-  LD -->|"candles, straight from the browser"| BN
-  LM -.->|"backtests run here"| PY
-  W --> D
-  W --> K
-  S -.->|"encrypts"| W
-  C --> W
-  W -->|"import (key decrypted only here)"| CD
-  W --> CP
-  W --> LG
+  BA -->|"daily files"| GA
+  GA -->|"publish"| W
+  CD -->|"import"| W
+  W -->|"/api/*"| B
+  BL -->|"live prices"| M
+  BA -->|"candles"| L
 ```
 
-**In short:** the page and the Lab are static files. Everything that needs your account goes through the Worker, which only ever reads your own rows in D1 and your own Lab files in KV. Your CoinDCX key is stored encrypted and only the Worker can decrypt it, and Medusa only reads your trade history with it. Backtests and charts run in your browser (Python with Pyodide), because the free plan gives the server only a few milliseconds per request. Candles come straight from Binance to your browser.
+**In short:** the page and the Lab are static files. Everything that needs your account goes through the Worker, which only ever reads your own rows in D1 and your own Lab files in KV. Your CoinDCX key is stored encrypted and only the Worker can decrypt it, and Medusa only reads your trade history with it. Backtests and charts run in your browser (Python with Pyodide), because the free plan gives the server only a few milliseconds per request. Candles come straight from Binance to your browser. Markets works the same way: live prices reach your browser directly, the lakehouse's daily numbers arrive through the Worker, and the page calculates every number by SQL on your device. Page loads never wake Databricks; only saving a definition does.
 
 ## What it does
 
@@ -82,7 +124,7 @@ A one-page trading journal that imports your closed CoinDCX futures trades: net 
 - **Leverage calculator** (the calculator button, or **Leverage what-if** on a trade): what the same move would make at another leverage.
 - **(i)** next to each number says what it means. The greeting uses the name you gave when signing up (change it in **⋯ → Your name**).
 - **Accounts:** anyone with the link can create their own private account (name, email and password), then connects their own CoinDCX key. Each account only ever sees its own trades, notes and CoinDCX key. Optional two-step login with an authenticator app, and a recovery code for a forgotten password.
-- **Markets** (in the menu): a live scanner of every Binance USDⓈ-M perpetual quoted in USDT: crypto coins and tokens, and the TradFi perpetuals on stocks, commodities, a currency and indices, each labelled with its type (filter by All, Crypto, Stocks, Commodities or Other). Each market's move today is compared with its own normal from the market data lakehouse (`lakehouse/`): how many of its usual daily moves (σ) it has moved (z). **Today** lists the markets that have moved at least 3 of them, with what similar moves did over the next 1, 4 and 24 hours since 2020, checked on years held back from the choice and after costs (tap one for the details in words), plus the market's breadth, the day's movers, and every market with search and sorting. **Patterns** shows every kind of move and its verdict. **Insights** draws graphs that look for an edge in every unusual move since 2020: year by year, the spread of outcomes, by the hour of the move, by size and liquidity, the whole market by hour of the day (2020–2024 against 2025 on), every kind of move at a glance, and every market right now (today's move against its volume, live); choose up or down moves and the next 1, 4 or 24 hours, and click a bar, cell or point to open the moves behind it in a window of its own. Every number and graph is **calculated by SQL** in a small SQLite database inside your browser, which holds MEDUSA's copies of the lakehouse tables and the live prices. The queries themselves are kept, with every version, in the lakehouse (`market.semantic.metric_definitions`) and arrive with the daily data; each number can show **how**: the query exactly as it ran and which version of its definition, its parameters and result, where each table comes from, a copy that runs in MEDUSA's D1 or in Databricks and returns the same result, and CSVs of the result and its inputs. In that window the SQL can be **edited**, previewed on your screen, and **saved** back to the lakehouse as a new version (the owner's account changes it for everyone; any other account keeps its own), with every earlier version a click away. Live prices come straight from Binance to your browser while the page is open; the daily numbers come from MEDUSA. Like every page, it needs a signed-in account.
+- **Markets** (in the menu): the live scanner. See [Markets](#markets-the-live-scanner) above.
 - **Menu on the left:** Journal, Markets, the Lab's pages and Dev tools, as small icons with their names; **Collapse**, at the top, shrinks it to icons only (hover an icon for its name) and is remembered on the device. On a phone it is a slim bar of icons; the same button at the top slides the full menu over the page.
 - **About MEDUSA** (in the **⋯** menu, or tap the version under the menu): the version, when it was released, what's new, and how your data is protected.
 - **Market hours:** a strip under the header shows the markets that move crypto most (US stocks, CME Bitcoin futures, London, Frankfurt, India, Shanghai, Hong Kong, Seoul, Tokyo): open now, or when they open next, in your time (regular hours; holidays aren't included). Hover one for its hours.
@@ -93,7 +135,7 @@ A one-page trading journal that imports your closed CoinDCX futures trades: net 
 - **Nothing is saved twice:** repeating an action (the same download, upload, backtest result or strategy file, or a retried log line) finds what is already there instead of making a copy.
 - **MEDUSA Lab** (in the menu): download any coin's history from Binance (into MEDUSA or to your computer), backtest strategies written in Python with a full report, keep every result (exportable as CSV), add your own strategies, and read a Strategy guide that explains every strategy with charts of real trades. See [MEDUSA Lab](#medusa-lab) below.
 
-It runs free on Cloudflare (no credit card needed) and keeps its data in a small SQLite database there, plus Cloudflare's free key-value storage for the Lab's candle files.
+It runs free on Cloudflare (no credit card needed) and keeps its data in a small SQLite database there, plus Cloudflare's free key-value storage for the Lab's candle files and the Markets page's data. The lakehouse is optional: without it the journal and the Lab work as they are, and Markets has no history to compare with.
 
 ## Put it online (free, no credit card)
 
@@ -144,8 +186,8 @@ To publish changes later, run `npx wrangler@4 deploy` again.
 
 **Market data from the lakehouse (optional).** The live scanner reads a daily copy of the market data
 lakehouse's tables (`lakehouse/README.md`). The tables are in `schema.sql`; an older install creates
-them with `npx wrangler@4 d1 execute medusa --remote --file=migrations/003_market.sql` and
-`npx wrangler@4 d1 execute medusa --remote --file=migrations/004_metrics.sql` (the metric definitions). The copy
+them with `npx wrangler@4 d1 execute medusa --remote --file=migrations/003_market.sql`, then
+`004_metrics.sql` (the metric definitions) and `006_missing_days.sql` the same way. The copy
 arrives through `POST /api/market/ingest`, which only accepts requests carrying the
 `MARKET_INGEST_TOKEN` secret and can only replace those tables. Generate a token with
 `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`, save it with
@@ -154,8 +196,9 @@ arrives through `POST /api/market/ingest`, which only accepts requests carrying 
 answers 503 and nothing else changes. The scanner page reads the copy back through
 `GET /api/market/scanner`, which, like the rest of MEDUSA, needs a signed-in account. Its answer is
 the same for every account, so the ingest saves it ready-made in Workers KV after every publish (key
-`market/scanner.json` in the Lab's namespace, 2 writes a day) and page loads read that instead of D1;
-each browser keeps it for 5 minutes.
+`market/scanner.json` in the Lab's namespace) and page loads read that instead of D1; each browser keeps
+it for a minute. The moves since 2020 go separately, as one gzip file through `PUT /api/market/insights`
+with the same token, and only browsers read it.
 
 **MEDUSA's failures in the lakehouse (optional).** The lakehouse's daily run copies the error lines MEDUSA's
 pages reported (the Markets page among them) and the errors its server hit into `ops.logs.app_events`
@@ -278,6 +321,8 @@ The Lab's folders use Workers KV: 1 GB in total, 100,000 reads and 1,000 writes 
 - `src/metrics.js`: saving the Markets definitions to the lakehouse: `GET /api/market/metrics/mine` (the account's own versions), `POST /api/market/metrics/save`, `POST /api/market/metrics/reset`, `GET /api/market/metrics/history` and `POST /api/market/metrics/reload` (the owner only); signs in to Databricks as a service principal and runs parameterized statements through the SQL Statement API
 - `schema.sql`: the database tables (for a new install)
 - `migrations/`: upgrading a single-password database to accounts (`001_accounts.sql`, then `claim.sql`); the Lab's tables (`002_lab.sql`, optional); the market copy for the live scanner (`003_market.sql`), its metric definitions (`004_metrics.sql`), each account's own versions of them (`005_user_metrics.sql`) and the days the lakehouse is missing (`006_missing_days.sql`)
+- `lakehouse/`: the market data lakehouse: ingestion, pipelines, dbt models and tests, SQL definitions, serving and operations, with a document for every build step
+- `.github/workflows/`: the lakehouse's GitHub Actions workflows
 - `wrangler.example.toml`: the Cloudflare settings, without anyone's ids; copy it to `wrangler.toml` (step 4)
 - `CHANGELOG.md`: every release and what changed in it (the current version is in `public/version.json`)
 - `docs/how-the-data-works.md`: from a Binance file to a number on the Markets page: every table and how they relate, a day in the pipeline, a page refresh, the one-second loop, one number followed all the way, and how to trace a problem back upstream

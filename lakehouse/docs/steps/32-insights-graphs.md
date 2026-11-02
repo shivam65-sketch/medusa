@@ -484,13 +484,13 @@ playbook is about 20 ms of that.
 | **Lakehouse transform** runs 13 to 15, on `5a1a859`, `70f15ff` and `de5994d` | Each a success in about 4 min 30 s, publishing the words, the names and the clicks. 38 definitions current |
 | The owner, on the live site | Confirmed the page after run 15 |
 
-## 32.2.3: two ideas tested, neither built
+## 32.2.3: ideas tested before building
 
-Crowded or alone and aggressive buying were tested on the real moves before anything was built, under the
-same rules as the evidence: crypto and `other` markets, days as the unit, the years 2020 to 2024 to choose,
+Crowded or alone, aggressive buying, regime gauges and the risk figure were tested on the real moves before anything was built,
+mostly under the same rules as the evidence: crypto and `other` markets, days as the unit, the years 2020 to 2024 to choose,
 the years from 2025 to check, 0.10% for costs. A negative number means the move turned back, and t says how
-far a result stands from noise: 2 or more, up or down, counts. Neither idea added anything the page doesn't
-already say, so neither is on the page: a graph that finds nothing would only be one more thing to read.
+far a result stands from noise: 2 or more, up or down, counts. None of the ideas added anything the page doesn't
+already say, so none is on the page: a graph that finds nothing would only be one more thing to read.
 
 ### Crowded or alone
 
@@ -549,12 +549,47 @@ needs one file per day. Up to 18 September 2026 that is about 590,000 files for 
 114,000 for the 104 large markets (those averaging 100 million USDT a day or more). The hourly history was
 22,221 files. Loading it would be a job of its own, and nothing shows yet that it would repay the effort.
 
+### Regime gauges
+
+The idea: days differ, so show whether today is normal, a crash or a frenzy, because moves might behave differently on each.
+Two gauges were tested at the hour of each move: breadth (the share of markets above yesterday's close) and Bitcoin's share of the
+day's volume against its own last 30 days, each in thirds fixed on 2020 to 2024. Neither changes what moves do next.
+
+- **Up moves** turned back in every regime, which the page already says.
+- **Bitcoin's share** separates nothing in either direction.
+- **The one difference:** on a crash, with almost no market up, down moves bounced in the next hour: −1.14% (t −4.05, 91 days) in
+  2020 to 2024 and −1.30% (t −2.69) from 2025. It has only 13 days from 2025, under the 20 the test asks for, so it is *too few*,
+  not a pattern. It is the one to look at again when more days have passed.
+
+Breadth and the number of unusual markets are already cards on Today, so no gauge was added.
+
+### A bad day for each market
+
+The risk table was meant to show each market's worst 5% of days, to size a position. The test asked how well a figure from the past
+says what comes next, for 608,106 market-days. A figure that works should be passed about 5% of the time.
+
+| Figure | Every market | Large | Mid | Small |
+|---|---:|---:|---:|---:|
+| The market's last 30 days: average − 1.645 usual daily moves | 4.88% | 4.20% | 4.83% | 5.28% |
+| The worst 5% of its past year, from 2025 | 4.06% | 6.22% | 5.36% | 2.93% |
+
+**The last 30 days do better than a longer history, and the page already holds them.** The figure stayed between 4.5% and 5.5% in
+every year from 2020 to 2026. Since December 2025 it was passed on 4.62% of crypto days, 5.77% of stock days and 6.04% of commodity
+days. A bad day is about 1.65 times the **Usual day** column, so no new table is needed.
+
+Two limits come with it. A bad day isn't the worst day: when the figure was passed, the fall typically reached 1.3 times the figure,
+and 1 time in 20 it reached 2.6 times. And bad days come together: on 6.6% of days, a fifth of all markets or more passed theirs at
+once, so holding several markets doesn't spread that risk.
+
+Markets don't swap places much either: a market's worst 5% in early 2025 and in the months after rank them similarly (rank
+correlation 0.67, 231 markets). Nothing on the page has changed for this yet.
+
 ## Next: 32.2 and 32.3
 
 - **Before them:** [step 32a](32a-missing-days.md), the missing-days check, and filling 28 October
   (October's monthly 1-minute file, expected around 2 November, if it holds that day; otherwise the live
   API).
-- **The rest of 32.2:** regime gauges and a risk table. Open interest and the long/short ratio wait until
+- **The rest of 32.2:** whether to show a market's bad day. Open interest and the long/short ratio wait until
   they have years of history (see above).
 - **32.3, on-chain from the free sources:** DefiLlama (stablecoins, chain TVL, DEX volume, fees),
   CoinMetrics Community (exchange flows, active addresses, MVRV, transactions), mempool.space (Bitcoin

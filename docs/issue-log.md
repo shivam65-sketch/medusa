@@ -16,6 +16,8 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
+| [41](#issue-41) | 2026-11-02 | Docs | GitHub's main page said nothing about the scanner | Bug | Built, waiting to go live |
+| [40](#issue-40) | 2026-11-02 | Markets | The sentence under a clicked number was cut off | Bug | Built, waiting to go live |
 | [39](#issue-39) | 2026-11-01 | Markets | The SQL showed direction = 'up' with Down moves chosen | Explained | Answered |
 | [38](#issue-38) | 2026-11-01 | Markets | A window led with a different number from the one clicked | Bug | Fixed |
 | [37](#issue-37) | 2026-11-01 | Markets | An outage wrote the same errors to the Logs on every retry | Bug | Fixed |
@@ -57,6 +59,37 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 | [1](#issue-1) | 2026-09-27 | Local copy | The app kept loading and never opened | Setup | Closed |
 
 ## Details
+
+<a id="issue-41"></a>
+### 41. GitHub's main page said nothing about the scanner
+
+- **Seen:** the repository's main page still described a journal and a backtesting lab, with no sign of the Markets page.
+- **Why:** the README's opening, its diagram and its screenshots were written before Markets and the lakehouse existed. New
+  features were added lower down, in one long bullet of *What it does* and in the install notes, so the page was correct line by
+  line while its first screen was out of date. The same thing had happened elsewhere: each change updated the pages it touched,
+  and nothing checked the pages that summarise the whole product. The repository's description on GitHub, and Confluence's
+  Product overview (still on 1.6.0) and other overview pages, had fallen behind the same way.
+- **Change:** the README now opens with all four parts, has sections of its own for Markets and the lakehouse, eight real Markets
+  screenshots, and a diagram with the scanner, the lakehouse and the live stream. Stale facts corrected: how long a browser keeps
+  the scanner's answer, the migrations for an older install, and the file list. The lakehouse's README shows steps 32 and 32a as
+  they stand. On Confluence, the nine pages that describe the whole product or Markets were read and brought up to date. Step and
+  release pages are history and stay as they are. Pages about one other part (the Lab's, the journal's, accounts, the import, Dev
+  tools) were listed but not re-read, because this work didn't change them.
+  From now on a change that adds a feature also updates those summaries.
+- **Checked:** the diagram drawn with the real Mermaid library; every link and image path in the README resolved; the screenshots
+  looked at one by one for personal data; all 67 Confluence pages older than 1 November listed by their last edit.
+- **State:** built, waiting to go live.
+
+<a id="issue-40"></a>
+### 40. The sentence under a clicked number was cut off
+
+- **Seen:** found while taking the screenshots for the README, in a window opened from *Kept going*: *2,008 of these 4,762 moves
+  continued over t…*
+- **Why:** a window's leading number uses the same card as the page's small cards, whose second line stays on one line and ends
+  in dots when it doesn't fit. On those cards the line is a few words; here it is the sentence that says what the number means.
+- **Change:** that card is wider, up to 560 pixels, and its sentence wraps. The page's own cards are unchanged.
+- **Checked:** the same window at 1,440 pixels shows the whole sentence.
+- **State:** built, waiting to go live.
 
 <a id="issue-39"></a>
 ### 39. The SQL showed direction = 'up' with Down moves chosen

@@ -1,33 +1,46 @@
 %%{init: {"theme": "neutral"}}%%
-flowchart TB
-  subgraph B["Browser (phone or computer): the page and all heavy computing"]
-    direction LR
+flowchart LR
+  subgraph X1["Sources the browser reaches"]
+    direction TB
+    BL["Binance live stream<br>every market's price"]
+    BN["Binance public data<br>candles, funding, archives"]
+  end
+  subgraph B["Browser"]
+    direction TB
     J["Journal page<br>index.html, app.js, stats.js<br>devtools.js (loaded when opened)"]
+    M["Markets (loaded when opened)<br>markets.js, markets-charts.js<br>markets-metrics.js, markets-window.js"]
+    SQ["markets-sql.js + sql.js<br>SQLite in a background worker<br>every number is a query"]
     LAB["MEDUSA Lab (loaded when opened)<br>main.js, data.js, report.js<br>standalone.js, learn.js<br>chart.js, sim.js, console.js, editor.js"]
     PY["py-worker.js + Pyodide<br>Python 3.14, numpy<br>engine, indicators, strategies<br>network switched off"]
-    J -->|"opens"| LAB
-    LAB -.->|"backtests run here"| PY
+    M -.-> SQ
+    LAB -.-> PY
   end
-  subgraph CF["Cloudflare free plan: storage and the API"]
-    direction LR
+  subgraph CF["Cloudflare free plan"]
+    direction TB
     A["Static files<br>public/: page, Lab, Pyodide"]
-    S["Secrets<br>ENCRYPTION_KEY<br>MARKET_INGEST_TOKEN"]
-    W["Worker: src/worker.js<br>auth, vault, sync, trades<br>coindcx, lab, logs, logos, market"]
-    D[("D1 (SQLite)<br>accounts, orders, trades<br>notes, Lab lists, logs<br>market copy")]
-    K[("Workers KV: LAB<br>downloads/ uploads/ results/")]
-    S -.->|"encryption, ingest token"| W
+    W["Worker: src/worker.js<br>auth, vault, sync, trades<br>coindcx, lab, logs, logos<br>market, metrics, ops"]
+    S["Secrets<br>ENCRYPTION_KEY<br>MARKET_INGEST_TOKEN, OPS_EXPORT_TOKEN<br>the Databricks login"]
+    D[("D1 (SQLite)<br>accounts, orders, trades<br>notes, Lab lists, logs<br>market copy, definitions")]
+    K[("Workers KV: LAB<br>downloads/ uploads/ results/<br>market/: scanner answer, Insights file")]
+    S -.-> W
     W --> D
     W --> K
   end
-  subgraph X["Outside services"]
-    direction LR
+  subgraph X2["Services the Worker talks to"]
+    direction TB
     CD["CoinDCX private API<br>read-only history"]
     CP["CoinDCX public data<br>candles, USDT/INR"]
     LG["Coin logos<br>CoinCap, CoinGecko"]
-    BN["Binance public data<br>candles, funding, archives"]
     PJ["Lakehouse publish job<br>GitHub Actions, daily"]
+    DB["Databricks<br>the definitions, every version"]
   end
-  PJ -->|"POST /api/market/ingest, its own token,<br>can only replace the market tables"| W
-  B ==>|"pages and scripts, /api/* with the session cookie"| CF
-  CF ==>|"import with the decrypted key, trade candles, USDT/INR, logos"| X
-  B ==>|"Lab candles, straight from the browser to Binance"| X
+  BL -->|"live prices"| M
+  BN -->|"candles"| LAB
+  J -->|"/api/*"| W
+  M -->|"/api/market/*"| W
+  LAB -->|"/api/lab/*"| W
+  W -->|"import"| CD
+  W --> CP
+  W --> LG
+  PJ -->|"publish, its own token"| W
+  W -->|"Save a version"| DB

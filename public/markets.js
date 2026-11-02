@@ -1229,6 +1229,8 @@ table.mkt-result td, table.mkt-result th { white-space: nowrap; font-family: ui-
 .mkt-win-h { margin: 16px 0 8px; font-size: 14px; font-weight: 600; color: var(--text-2); }
 .mkt-win .mkt-src { margin: 0; max-height: none; }
 .kpis.mkt-win-card { grid-template-columns: minmax(0, 340px); }
+.kpis.mkt-win-said { grid-template-columns: minmax(0, 560px); }
+.kpis.mkt-win-said .kpi .s { white-space: normal; }   /* the sentence that says what the number means, in full */
 .mkt-win-note { margin-top: 6px; font-size: 13px; }
 .mkt-msg { margin: 6px 0 10px; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; line-height: 1.5; color: #d4d4d8; background: #161616; }
 @media (max-width: 640px) { .mkt-win { padding: 10px 10px 30px; gap: 10px; } .mkt-win .card { padding: 16px 14px; } }
@@ -1867,7 +1869,7 @@ function patternSources() {
 /** A window opened from a number: that number first, in the same words as the table, and what it means. */
 function focusCard(res) {
   const r = objects(res)[0] || {}, p = S.win.picks, hz = S.hz || 4, n = (v) => Number(v || 0).toLocaleString('en-US');
-  const box = (label, value, text) => `<div class="kpis mkt-kpis mkt-win-card"><div class="kpi"><div class="k"><span class="kt">${label}</span></div><div class="v">${value}</div><div class="s">${text}</div></div></div>`;
+  const box = (label, value, text) => `<div class="kpis mkt-kpis mkt-win-card mkt-win-said"><div class="kpi"><div class="k"><span class="kt">${label}</span></div><div class="v">${value}</div><div class="s">${text}</div></div></div>`;
   if (S.win.focus === 'count') return box('Moves', n(r.moves), `on ${n(r.days)} days. Each one is in the list below, newest first.`);
   if (S.win.focus === 'share') return box('Kept going', `${Math.round(r.kept_going_share)}%`, `${n(r.kept_moves)} of these ${n(r.moves)} moves continued over the hours chosen, and the rest reversed. <b>Then</b> below shows each one: + continued, − reversed.`);
   if (S.win.focus === 'cutoff') {

@@ -5,6 +5,8 @@ app's menu and on the sign-in page); each release adds a section here with the s
 
 ## Unreleased
 
+- Markets: the sentence that says what a clicked number means is shown in full. It was cut off at the end of one line.
+- Documentation: the README now opens with the scanner and the lakehouse: all four parts, sections of their own, a diagram with the live stream and the lakehouse, and real screenshots of Markets.
 - Markets: plain words in sentences, graph legends and tooltips: *continued* and *reversed* for *kept going* and *turned back*. Column names stay as they were. The moves list shows *From 2025* instead of `held_back`, and each window's title says whose moves they are.
 - Markets: only an aggregate is clickable, and its window opens with the same number, under the same name, and says what it means: a verdict, a count, a share, or a line like the worst 5%, then the moves behind it. No table row opens anything. The verdict in words is now in the window of its moves.
 - Fixed: when MEDUSA couldn't be reached, an open page wrote the same errors to the Logs on every retry. An outage now writes them once.
