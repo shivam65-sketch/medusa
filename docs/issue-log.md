@@ -16,6 +16,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
+| [42](#issue-42) | 2026-11-02 | Markets | A window's editor showed code that isn't in the query beside it | Bug | Built, waiting to go live |
 | [41](#issue-41) | 2026-11-02 | Docs | GitHub's main page said nothing about the scanner | Bug | Built, waiting to go live |
 | [40](#issue-40) | 2026-11-02 | Markets | The sentence under a clicked number was cut off | Bug | Built, waiting to go live |
 | [39](#issue-39) | 2026-11-01 | Markets | The SQL showed direction = 'up' with Down moves chosen | Explained | Answered |
@@ -59,6 +60,22 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 | [1](#issue-1) | 2026-09-27 | Local copy | The app kept loading and never opened | Setup | Closed |
 
 ## Details
+
+<a id="issue-42"></a>
+### 42. A window's editor showed code that isn't in the query beside it
+
+- **Seen:** after clicking a bar on *By the hour of the move*, the right side showed the query behind *The middle move*, and the left
+  side showed *Spread of outcomes*, *Year by year* and *The moves themselves* as well, while the CTEs the query really uses sat closed.
+- **Why:** the left side opened every number in the window at once, whichever one was being read, and left the CTEs closed. A window
+  with one number looked right. A window with several, like a click on a graph, didn't.
+- **Change:** the left side now shows one number's code: the CTEs in its query, in the order the query on the right runs them, then
+  its final query, and nothing else. It follows the number being read on the right. It doesn't move while text is being typed in it, and
+  changes in a box it leaves are kept. Below 1,100 pixels the editor sits above the results, so moving it would shift the page: there, an
+  **Edit this query** button on each number does it instead. Every window shares this code.
+- **Checked:** all 34 numbers in 23 windows, from Today's cards to the windows a click opens: the left side against the CTEs at the
+  top of the query on the right, in order. 33 matched by name; the other, *Every kind of move at a glance*, writes its three CTEs
+  inside its own query, so they are in its box. Typing held the left side still, and a change survived moving away and back.
+- **State:** built, waiting to go live.
 
 <a id="issue-41"></a>
 ### 41. GitHub's main page said nothing about the scanner

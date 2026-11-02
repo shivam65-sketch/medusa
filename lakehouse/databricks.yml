@@ -190,6 +190,13 @@ resources:
             warehouse_id: ${var.warehouse_id}
             file:
               path: ./sql/seed/012_metric_definitions_aggregates_only.sql
+        - task_key: seed_bad_day
+          depends_on:
+            - task_key: seed_aggregates_only
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/seed/013_metric_definitions_bad_day.sql
 
   # Bronze: loads new landing files into market.bronze. Runs when started, then stops.
   pipelines:

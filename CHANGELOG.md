@@ -5,6 +5,8 @@ app's menu and on the sign-in page); each release adds a section here with the s
 
 ## Unreleased
 
+- Markets: a window's editor now shows only the code of the query beside it: its CTEs in the order they run, then its final query. It follows the number being read on the right, where it used to open every number in the window at once.
+- Markets: a **Bad day** column in *Every market* and in a market's details: how far it fell on 1 day in 20, judged by its last 30 days. A guide for sizing a position, not a limit. Tested on 608,106 market-days since 2020: passed on 4.88% of them, against the 5% it should be.
 - Markets: the sentence that says what a clicked number means is shown in full. It was cut off at the end of one line.
 - Documentation: the README now opens with the scanner and the lakehouse: all four parts, sections of their own, a diagram with the live stream and the lakehouse, and real screenshots of Markets.
 - Markets: plain words in sentences, graph legends and tooltips: *continued* and *reversed* for *kept going* and *turned back*. Column names stay as they were. The moves list shows *From 2025* instead of `held_back`, and each window's title says whose moves they are.

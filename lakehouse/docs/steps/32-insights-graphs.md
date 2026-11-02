@@ -582,15 +582,23 @@ and 1 time in 20 it reached 2.6 times. And bad days come together: on 6.6% of da
 once, so holding several markets doesn't spread that risk.
 
 Markets don't swap places much either: a market's worst 5% in early 2025 and in the months after rank them similarly (rank
-correlation 0.67, 231 markets). Nothing on the page has changed for this yet.
+correlation 0.67, 231 markets).
+
+**Built:** a **Bad day** column in *Every market*, right after *Usual day*, and in a market's details, with a sentence saying what
+it means. `today` works it out, `average − 1.645 × σ`, from 20 days of history like z, and `markets` and `market` show it (seed
+`013_metric_definitions_bad_day.sql`, task `seed_bad_day`). It needs no new table and no migration.
+
+- **Checked on the local page:** the first 50 rows of the table against `gold.coin_baseline`: 49 the same to the cent, 0 different, and
+  1 market too new to have a figure, which shows a dash. Nine queries in 31 ms once the page had loaded. No console or server error.
+- **On the live numbers:** 732 of the 751 trading markets have a figure, from −0.04% to −79.40%, with the middle one at −6.63%. None
+  is above zero. The three largest are young, wild markets, with a usual day above 40%.
 
 ## Next: 32.2 and 32.3
 
 - **Before them:** [step 32a](32a-missing-days.md), the missing-days check, and filling 28 October
   (October's monthly 1-minute file, expected around 2 November, if it holds that day; otherwise the live
   API).
-- **The rest of 32.2:** whether to show a market's bad day. Open interest and the long/short ratio wait until
-  they have years of history (see above).
+- **The rest of 32.2:** open interest and the long/short ratio wait until they have years of history (see above).
 - **32.3, on-chain from the free sources:** DefiLlama (stablecoins, chain TVL, DEX volume, fees),
   CoinMetrics Community (exchange flows, active addresses, MVRV, transactions), mempool.space (Bitcoin
   fees), and the other free APIs surveyed first, loaded by GitHub Actions into landing → bronze → silver

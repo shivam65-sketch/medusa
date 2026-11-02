@@ -24,7 +24,7 @@
 // Each ‹› button opens one number's or graph's calculation in its own window (markets-window.html):
 // the same code with its own data, engine and live prices, running only that window's queries.
 
-import { DEFINITIONS } from './markets-metrics.js?v=12';
+import { DEFINITIONS } from './markets-metrics.js?v=13';
 import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=4';
 
 const RULE = { z: 3 };
@@ -269,7 +269,7 @@ const S = {
   win: null,                                         // in a ‹› window: {panel, ids, symbol}
   // A window's editor: definition id -> the text typed in its box; the ids whose box is open; the
   // edits being previewed (id -> SQL, or null); why a preview didn't start or stopped.
-  edit: { text: new Map(), open: [], live: null, since: 0, note: null, hist: new Map() },
+  edit: { for: null, text: new Map(), open: [], live: null, since: 0, note: null, hist: new Map() },
   painted: 0, paintTimer: 0, html: new Map(),
 };
 
@@ -802,7 +802,7 @@ function editBox(id) {
   const text = S.edit.text.has(id) ? S.edit.text.get(id) : d.sql;
   const rows = Math.min(30, Math.max(6, text.split('\n').length + 1));
   return `<div class="mkt-edit-box${edited(id) ? ' changed' : ''}" data-box="${esc(id)}">
-    <div class="h"><b>${esc(d.name)}</b><code>${esc(id)}</code><span class="faint">${d.kind === 'model' ? 'a shared step' : 'the number\'s own query'}${d.own ? `, your own version ${d.own.version}` : d.version ? `, version ${d.version}` : ''}</span><span class="sp"></span>
+    <div class="h"><b>${esc(d.name)}</b><code>${esc(id)}</code><span class="faint">${d.kind === 'model' ? 'a CTE in the query on the right' : 'the final query on the right'}${d.own ? `, your own version ${d.own.version}` : d.version ? `, version ${d.version}` : ''}</span><span class="sp"></span>
       ${SRC.mine.canSave && d.from === 'lakehouse' ? `<button class="btn btn-sm" type="button" data-mkt="edit-history" data-def="${esc(id)}">History</button>` : ''}
       <button class="btn btn-sm" type="button" data-mkt="edit-undo" data-def="${esc(id)}">Undo my changes</button>
       <button class="btn btn-sm" type="button" data-mkt="edit-close" data-def="${esc(id)}">Close</button></div>
@@ -875,19 +875,50 @@ function paintEditors() {
   if (el) el.innerHTML = S.edit.open.map(editBox).join('');
 }
 
-/** The definitions a window can edit: its numbers' own queries, then the shared steps they read. */
-function editable() {
-  const out = [...S.win.ids];
-  for (const id of S.win.ids) { try { for (const m of modelsOf(DEFS.get(id).sql)) if (!out.includes(m)) out.push(m); } catch { /* shown when previewed */ } }
-  return out;
+/** What the left side shows for a number: the CTEs in its query, in the order the query on the right
+ * runs them, then its final query. Nothing else. */
+function partsOf(id) {
+  const defs = previewDefs() || DEFS;
+  try { return [...modelsOf(defs.get(id).sql, defs), id]; } catch { return [id]; }   // the problem shows when previewed
+}
+
+/** The left side moves to another number on the right. Changes in the boxes it leaves are kept. */
+function editNumber(id) {
+  if (!S.win || id === S.edit.for || !S.win.ids.includes(id)) return;
+  S.edit.for = id;
+  S.edit.open = partsOf(id);
+  paintEditors();
+  paintEditBar();
+  markNumber();
+}
+
+/** With several numbers on the right, the one the left side is showing. */
+function markNumber() {
+  if (S.win.ids.length < 2) return;
+  document.querySelectorAll('[data-win-id]').forEach((c) => c.classList.toggle('mkt-win-cur', c.dataset.winId === S.edit.for));
+}
+
+/** Side by side, the left side follows the number being read on the right. Never while typing, and not
+ * when the editor is above the results, where changing it would move what is being read. */
+function followScroll() {
+  if (!S.win || S.win.ids.length < 2 || S.edit.scrolling || !matchMedia('(min-width: 1100px)').matches) return;
+  S.edit.scrolling = true;
+  requestAnimationFrame(() => {
+    S.edit.scrolling = false;
+    if (document.activeElement && document.activeElement.matches('#mkt-edit-boxes textarea')) return;
+    const line = innerHeight * 0.4;
+    const card = [...document.querySelectorAll('[data-win-id]')].find((c) => { const r = c.getBoundingClientRect(); return r.top <= line && r.bottom > line; });
+    if (card) editNumber(card.dataset.winId);
+  });
 }
 
 function paintEditBar() {
-  const chips = editable().map((id) => {
+  const chips = partsOf(S.edit.for).map((id) => {
     const d = DEFS.get(id), open = S.edit.open.includes(id);
     return `<button class="mkt-chip" type="button" data-mkt="edit-open" data-def="${esc(id)}" aria-pressed="${open}">${esc(d.kind === 'model' ? id : d.name)}${d.own ? ` <span class="faint">own v${d.own.version}</span>` : d.version ? ` <span class="faint">v${d.version}</span>` : ''}${edited(id) ? ' <span class="mkt-dirty" title="Changed">●</span>' : ''}</button>`;
   }).join('');
   put('mkt-edit-pick', `<span class="faint">Open to edit:</span>${chips}`);
+  put('mkt-edit-for', `The code of <b>${esc(DEFS.get(S.edit.for).name)}</b>: the CTEs in its query, in the order they run, then its final query.${S.win.ids.length > 1 ? ' This follows the number you are reading on the right.' : ''}`);
   const live = S.edit.live;
   const note = S.edit.note;
   put('mkt-edit-status', live
@@ -1182,6 +1213,9 @@ table.mkt-result td, table.mkt-result th { white-space: nowrap; font-family: ui-
   .mkt-edit { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; }
 }
 .mkt-edit .card-head { margin-bottom: 10px; }
+.mkt-edit-for { margin: 0 0 8px; font-size: 13.5px; color: var(--text-2); }
+.mkt-win-cur { box-shadow: inset 3px 0 0 var(--green-btn); }
+@media (min-width: 1100px) { .mkt-win-pick { display: none; } }
 .mkt-edit-pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .mkt-chip { height: 30px; padding: 0 11px; border-radius: 99px; border: 1px solid var(--border-2); background: #1f1f1f; color: var(--text-2); font-size: 13px; font-weight: 600; }
 .mkt-chip:hover { color: var(--text); }
@@ -1526,7 +1560,7 @@ function paintAll() {
     vol: (r) => (iVol < 0 ? 0 : num(r[iVol], -1)),
   }[S.sort];
   rows = [...rows].sort((a, b) => key(b) - key(a) || (iSym < 0 ? 0 : String(a[iSym]).localeCompare(String(b[iSym]))));
-  put('mkt-all-sub', `${rows.length} ${KIND_WORD[S.kind]}markets${S.q ? ` matching “${esc(S.q)}”` : ''}; z is today's move in the market's usual daily moves (σ); volume is the last 24 hours against its usual day`);
+  put('mkt-all-sub', `${rows.length} ${KIND_WORD[S.kind]}markets${S.q ? ` matching “${esc(S.q)}”` : ''}; z is today's move in the market's usual daily moves (σ); a bad day is how far it fell on 1 day in 20; volume is the last 24 hours against its usual day`);
   if (!rows.length) { put('mkt-all', '<div class="mkt-empty">No market matches.</div>'); return; }
   const shown = { columns: res.columns, rows: rows.slice(0, S.limit) };
   const table = resultTable(shown, DEFS.get('markets'), {
@@ -1575,6 +1609,7 @@ function marketDetail(sym) {
     html = `<p>${who}: not scored yet${l ? ', yesterday\'s close is missing' : ', no live price yet'}.</p>`;
   } else {
     html = `<p>${who} has moved ${pct(r.today_pct / 100)} since yesterday's close${r.z != null ? `: ${sig(r.z)}, ${Math.abs(r.z).toFixed(1)} times its usual daily move (${Number(r.usual_day_pct).toFixed(2)}%${b ? ` over its last ${b.history_days} days` : ''})` : ''}.${r.direction ? ` Its own group: ${kindPhrase(r.direction, r.z_band, r.liquidity)}${b ? ` (average ${Math.round((b.avg_quote_volume_30d || 0) / 1e6).toLocaleString('en-US')} million USDT a day)` : ''}.` : ''}</p>`;
+    if (r.bad_day_pct != null) html += `<p>A bad day for ${name(sym)} is ${pct(r.bad_day_pct / 100)}: on 1 day in 20 it fell further, judged by its last 30 days. It's a guide for sizing a position, not a limit: days past it typically went 1.3 times as far, and bad days tend to hit many markets at once.</p>`;
     if (r.direction) {
       if (t && !['crypto', 'other'].includes(t.group)) {
         html += `<p class="warn">${name(sym)} is a ${esc(t.group)} perpetual, so this move is <b>not tested</b>. Binance only listed these from December 2025, which leaves no 2020–2024 years to choose a side on, and crypto's patterns can't be assumed to carry over. Insights shows how past moves on these markets went, with the type chosen at the top.</p>`;
@@ -1790,6 +1825,7 @@ function windowShell() {
     <section class="card mkt-edit" aria-label="Edit and preview">
       <div class="card-head"><div><h2>Edit, preview and save</h2><p>Change the SQL, then press <b>Preview</b> (or Ctrl+Enter): your version runs on this screen only, next to the current numbers. <span id="mkt-edit-saves"></span></p></div>
         <button class="btn btn-sm" type="button" data-mkt="defs-reload" hidden title="Read the definitions in use from the lakehouse now, for a change made in Databricks itself">Reload definitions from the lakehouse</button></div>
+      <p class="mkt-edit-for" id="mkt-edit-for"></p>
       <div class="mkt-edit-pick" id="mkt-edit-pick"></div>
       <div id="mkt-edit-boxes"></div>
       <div class="mkt-edit-bar">
@@ -1803,8 +1839,8 @@ function windowShell() {
     </section>
     <div class="mkt-win-out">
       ${ids.map((id, i) => `
-      <section class="card">
-        <div class="card-head"><div>${named ? `<h2 id="mkt-win-name-${i}"></h2>` : ''}<p id="mkt-win-what-${i}"></p></div></div>
+      <section class="card" data-win-id="${esc(id)}">
+        <div class="card-head"><div>${named ? `<h2 id="mkt-win-name-${i}"></h2>` : ''}<p id="mkt-win-what-${i}"></p></div>${ids.length > 1 ? `<button class="btn btn-sm mkt-win-pick" type="button" data-mkt="edit-for" data-def="${esc(id)}">Edit this query</button>` : ''}</div>
         <div id="mkt-win-shown-${i}"></div>
         <h3 class="mkt-win-h">How it is calculated</h3>
         <div class="mkt-src"><div id="mkt-win-head-${i}"></div><div id="mkt-win-live-${i}" class="mkt-hold"></div></div>
@@ -1917,8 +1953,9 @@ function paintWindow() {
   // The editor's boxes are drawn when the definitions arrive (and again if they change, unless the
   // person is typing in one).
   const typing = document.activeElement && document.activeElement.matches('#mkt-edit-boxes textarea');
-  if (S.edit.painted !== S.data.at && !typing) { S.edit.painted = S.data.at; paintEditors(); }
+  if (S.edit.painted !== S.data.at && !typing) { S.edit.painted = S.data.at; S.edit.open = partsOf(S.edit.for); paintEditors(); }
   paintEditBar();
+  markNumber();
   if (panel === 'patterns') put('mkt-win-pat', patternSources());
   ids.forEach((id, i) => {
     const key = winKey(id), d = DEFS.get(id), extra = id === 'market' ? { symbol } : {};
@@ -2205,6 +2242,7 @@ function onEdit(act, id, el) {
   if (act === 'defs-reload') { reloadDefs(); return; }
   if (!DEFS.has(id)) return;
   if (act === 'edit-giveup') { giveUp(id); return; }
+  if (act === 'edit-for') { editNumber(id); document.getElementById('mkt-edit-for').scrollIntoView({ block: 'center' }); return; }
   if (act === 'edit-history') { loadHistory(id); return; }
   if (act === 'edit-hist-close') { S.edit.hist.delete(id); paintHist(id); return; }
   if (act === 'edit-reuse') { reuseVersion(id, el.dataset.scope, Number(el.dataset.v)); return; }
@@ -2342,7 +2380,9 @@ export function renderWindow(el, appApi, { panel, symbol = null, kind = 'all', p
   S.kind = validKind(kind);
   S.dir = validDir(params.dir);
   S.hz = validHz(params.hz);
-  S.edit.open = [...S.win.ids];   // the number's own query is ready to edit
+  S.edit.for = S.win.ids[0];
+  S.edit.open = partsOf(S.edit.for);   // the code of the number on the right is ready to edit
+  addEventListener('scroll', followScroll, { passive: true });
   attach(el);
   // Closing the window, or reloading it, asks first while there are changes (nothing is saved).
   addEventListener('beforeunload', (e) => { if ([...S.edit.text.keys()].some(edited)) { e.preventDefault(); e.returnValue = ''; } });

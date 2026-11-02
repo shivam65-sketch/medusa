@@ -48,6 +48,7 @@
 
 const Z_TIP = "How many times bigger today's move is than this market's usual daily move (σ). 3σ or more is unusual.";
 const LIQ_TIP = 'Average daily volume over 30 days: large ≥ 100 million USDT, mid ≥ 10 million, small below';
+const BAD_TIP = "How far this market fell on 1 day in 20, judged by its last 30 days. A guide for sizing a position, not a limit: days past it typically went 1.3 times as far.";
 
 const COL = {
   market: { name: 'market', label: 'Market', format: 'market' },
@@ -55,6 +56,7 @@ const COL = {
   today: { name: 'today_pct', label: 'Today', format: 'pct' },
   z: { name: 'z', label: 'z (σ)', format: 'z', title: Z_TIP },
   liquidity: { name: 'liquidity', label: 'Liquidity', format: 'liquidity', title: LIQ_TIP },
+  badDay: { name: 'bad_day_pct', label: 'Bad day', format: 'pct', title: BAD_TIP },
 };
 // A click on an aggregate opens the moves behind it. `fixed` holds what the row doesn't (a column's hours, and
 // `focus`: which number the window leads with, so it opens with the number clicked), `set` adds what it does.
@@ -93,7 +95,7 @@ WHERE b.status <> 'not trading'`,
     id: 'today',
     kind: 'model',
     name: "Today's moves",
-    description: "Every market's move today, its z (the move in its usual daily moves) and its liquidity.",
+    description: "Every market's move today, its z (the move in its usual daily moves), its bad day and its liquidity.",
     sql: `SELECT symbol,
        market_type,
        price,
@@ -102,6 +104,9 @@ WHERE b.status <> 'not trading'`,
             THEN (price / prev_close - 1 - avg_return_30d) / sd_return_30d
        END AS z,                                            -- the move in usual daily moves (σ)
        sd_return_30d,
+       CASE WHEN history_days >= 20 AND sd_return_30d > 0
+            THEN avg_return_30d - 1.645 * sd_return_30d
+       END AS bad_day,                                      -- 1 day in 20 fell further than this
        quote_volume_24h / NULLIF(avg_quote_volume_30d, 0) AS volume_x,   -- the last 24 hours ÷ a usual day
        CASE WHEN avg_quote_volume_30d >= 100000000 THEN 'large'
             WHEN avg_quote_volume_30d >= 10000000 THEN 'mid'
@@ -268,6 +273,7 @@ LIMIT 8`,
     description: 'Today against each market\'s normal. The table\'s search, sort buttons and pages work on this result.',
     columns: [COL.market, COL.price, COL.today, COL.z,
       { name: 'usual_day_pct', label: 'Usual day', format: 'pct_plain', title: "The market's usual daily move (σ) over its last 30 days" },
+      COL.badDay,
       { name: 'volume_x', label: 'Volume', format: 'times', title: 'USDT traded in the last 24 hours ÷ its usual day' },
       COL.liquidity, { name: 'unusual', format: 'hidden' }],
     sql: `SELECT t.symbol AS market,
@@ -275,6 +281,7 @@ LIMIT 8`,
        ROUND(100 * t.move, 2) AS today_pct,
        ROUND(t.z, 1) AS z,
        ROUND(100 * t.sd_return_30d, 2) AS usual_day_pct,  -- its usual daily move (σ)
+       ROUND(100 * t.bad_day, 2) AS bad_day_pct,          -- 1 day in 20 fell further than this
        ROUND(t.volume_x, 1) AS volume_x,
        t.liquidity,
        CASE WHEN f.symbol IS NULL THEN 0 ELSE 1 END AS unusual   -- highlighted when unusual
@@ -288,7 +295,7 @@ WHERE :kind IN ('all', t.market_type)`,
     name: 'One market',
     description: 'Every number in one market\'s row, and its kind of move with the verdicts when it is unusual.',
     columns: [COL.market, COL.price, COL.today, COL.z,
-      { name: 'usual_day_pct', label: 'Usual day', format: 'pct_plain' }, { name: 'volume_x', label: 'Volume', format: 'times' },
+      { name: 'usual_day_pct', label: 'Usual day', format: 'pct_plain' }, COL.badDay, { name: 'volume_x', label: 'Volume', format: 'times' },
       COL.liquidity, { name: 'direction', label: 'Direction' }, { name: 'z_band', label: 'Size band' },
       ...verdictCols.filter((c) => c.format === 'verdict').map(({ sub, ...c }) => ({ ...c, drill: kindDrill({ horizon: c.hours, focus: 'verdict' }) }))],
     sql: `SELECT t.symbol AS market,
@@ -296,6 +303,7 @@ WHERE :kind IN ('all', t.market_type)`,
        ROUND(100 * t.move, 2) AS today_pct,
        ROUND(t.z, 1) AS z,
        ROUND(100 * t.sd_return_30d, 2) AS usual_day_pct,
+       ROUND(100 * t.bad_day, 2) AS bad_day_pct,
        ROUND(t.volume_x, 1) AS volume_x,
        t.liquidity,
        f.direction,                                  -- its kind of move, when unusual
