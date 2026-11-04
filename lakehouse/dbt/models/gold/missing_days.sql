@@ -8,7 +8,8 @@
 -- status says who is dealing with the day:
 --   waiting    yesterday: the daily load hasn't had its turn yet, which is normal until it runs
 --   retrying   2 to 8 days old: the daily load tries it again every day (lakehouse-daily.yml)
---   manual     older than that: nothing tries it any more, so it has to be loaded by hand
+--   manual     older than that: nothing tries it any more. Load it by hand, or, if Binance never
+--              published it, repair it with the Lakehouse repair day workflow (step 32b)
 
 with loaded as (
     select distinct trade_date

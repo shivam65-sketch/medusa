@@ -981,3 +981,48 @@ runs its live queries every second, and this one reads the live prices, so it ca
 
 **Consequences:** The playbook costs the page about 20 ms a second. To change the 5% you edit a dbt model, not a query in a
 window. A publish before this table exists still works: MEDUSA accepts the file and the page says the numbers are coming.
+
+## ADR-039: A day Binance never published is repaired by hand, from the month's file or its trades, after a check
+
+**Status:** Accepted, 2026-11-04 (step 32b).
+
+**Context:** Binance never published the candles of 2026-10-28. The fill from October's monthly file,
+added in step 32a, failed on 4 November: the monthly 1-minute and 1-hour files skip that day as well, for
+every coin (43,200 rows instead of 44,640). Binance's archive does hold that day's metrics and its raw
+trades. The fill was a checkbox on the daily load, and when it found nothing it said Binance hadn't
+finished publishing, which wasn't true.
+
+**Decision:**
+- **One workflow for repairs, started by hand only.** *Lakehouse repair day* takes a date and a method,
+  and never runs on a schedule, so each repair is a deliberate run that is easy to follow. The checkbox
+  on the daily load went.
+- **Three sources, in order.** For each coin: Binance's daily file if it has appeared since, else the
+  day cut out of the month's file, else the day rebuilt from Binance's trades (`auto`). `monthly` waits
+  for Binance's own file; `trades` uses only the trades.
+- **Rebuilt the way Binance builds candles.** First and last trade price, highest and lowest, quantities
+  and USDT values added up, the number of trades, and the same for trades where the buyer took the price.
+  A minute with no trades stays at the last close with zero volume.
+- **Check before anything is saved.** The run first rebuilds a day Binance did publish from its trades
+  and compares it with Binance's candles on 16 coins, every number of every minute. Any difference stops
+  the repair before anything is written.
+- **Say how each file was made.** The day's manifest marks each candle file `saved`, `cut_from_month` or
+  `rebuilt_from_trades`, with no fingerprint. If Binance publishes the real daily file later, the
+  recheck loads it under a new name and it replaces the repair.
+- **Same names, same path.** Repaired files land under the usual names, so bronze, silver and gold treat
+  the day like any other, and the run ends with the usual transform and log.
+
+**Alternatives:**
+- *Run the repair inside the daily load.* The owner wants repairs started by hand, for ease and for
+  troubleshooting; a repair that ran itself could also quietly change what a loaded day means.
+- *Binance's live API.* It answers with candles directly, but Binance refuses requests from the US, where
+  GitHub's servers mostly are, and it has no checksum. The archive's trades have one.
+- *Aggregate trades (`aggTrades`).* Binance didn't publish them for 28 October either, and they merge
+  trades, so a candle's trade count can't be rebuilt from them.
+- *Leave the hole.* Every market's 30-day normal and the history would miss a day for good when the data
+  to fill it exists.
+
+**Consequences:** A missing day can be filled with candles that match Binance's own, number for number,
+as long as Binance published the day's trades. The trades files are much bigger than candles (BTC 19 MB,
+PEPE 41 MB for one day), so a repair of every coin downloads a few GB and takes longer than a daily load;
+the job's limit is 150 minutes. A day with no trades file either can't be repaired, and stays on the
+Markets page as missing.

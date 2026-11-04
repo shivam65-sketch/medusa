@@ -121,9 +121,7 @@ Each of these reports, with its cause and fix, is in the [issue log](../../../do
 
 ## Next
 
-- **Fill 28 October.** The daily file may never come. Binance's monthly 1-minute file for October is
-  expected around 2 November, and the daily load can now cut a day out of a monthly file
-  (`--from-monthly`). On 2026-09-15, 6 coins and 8,640 rows cut that way matched Binance's daily files line
-  for line, and with no monthly file yet the run for the 28th stops with *NOT READY* and uploads nothing.
-  The live API stays the last resort.
+- **Fill 28 October.** Done differently in [step 32b](32b-repair-a-day.md): October's monthly file skips
+  the 28th too, so the day is rebuilt from Binance's trades, by hand, with **Lakehouse repair day**. The
+  checkbox on the daily load went.
 - **32.2:** see [step 32](32-insights-graphs.md#next-322-and-323).

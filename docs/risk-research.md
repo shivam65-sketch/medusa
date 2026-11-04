@@ -106,6 +106,15 @@ Momentum, low volatility, reversal, skewness, basis momentum, open interest and 
 and short portfolios, all failed. The turn of the month made money in 14 of 19 years, and holding on every other
 day lost money in both periods.
 
+**The recent years are weaker than the table shows.** "From 2020" includes strong years. On its own, the turn of
+the month lost money in both 2025 (−3.5%) and 2026 (−5.4%), and the index trend rule made +8.9%, then lost 5.8%.
+
+**Held together.** Crypto trend, Indian index trend, turn of month and Indian stock trend barely move together
+(correlation under 0.1 between crypto and India). Held at equal risk, Sharpe was 1.64 to 2024 and 1.27 on the
+whole period, higher than any one of them. But from 2025 the mix made about nothing: t −0.1, with only crypto
+trend still positive. The rules were picked after seeing their results, so this shows the size of the effect,
+not proof. Doubling the size doubled the falls and added nothing from 2025.
+
 **Size following a pattern** helped here, the only place it did in both periods. In an uptrend, half size
 normally and full size at the turn of the month gave t 1.7 and 1.9 against 1.4 and 1.7 for plain trend, and worst
 falls of 22% and 9% against 41% and 17%. It needs a pattern that repeats, and months don't: correlation −0.01.

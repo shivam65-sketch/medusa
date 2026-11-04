@@ -17,6 +17,10 @@ every file that changed or appeared since:
   3. writes the day's updated manifest.
 The workflow then uploads data/landing as usual. A file that disappeared is only reported.
 
+A day mended by repair_day.py has files marked cut_from_month or rebuilt_from_trades, with no
+fingerprint. If Binance publishes the real daily file later, it is loaded under a new name in the
+same way, so Binance's own file replaces the repair.
+
 Standard library only.
 
   python recheck_binance.py                          (manifests in ../data/manifests)
@@ -31,6 +35,7 @@ import sys
 import download_binance as db
 
 DEFAULT_MANIFESTS = pathlib.Path(__file__).resolve().parent.parent / "data" / "manifests"
+REPAIRED = ("cut_from_month", "rebuilt_from_trades")   # how repair_day.py records the files it made
 
 
 def current_sha256(dataset, symbol, period):
@@ -42,8 +47,9 @@ def current_sha256(dataset, symbol, period):
 
 def recheck_day(period, rows, workers):
     """Compare one day's manifest with Binance. Returns (changes, failures, updated rows)."""
-    # Rows whose fingerprint isn't known (a file the load skipped) can't be compared.
-    known = [r for r in rows if r["status"] in ("saved", "missing")]
+    # Rows whose fingerprint isn't known (a file the load skipped) can't be compared. A repaired file
+    # (repair_day.py) has none either, but any fingerprint Binance shows for it now is its real file.
+    known = [r for r in rows if r["status"] in ("saved", "missing", *REPAIRED)]
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         now = list(pool.map(lambda r: current_sha256(r["dataset"], r["symbol"], period), known))
 
@@ -55,8 +61,9 @@ def recheck_day(period, rows, workers):
         if before and not sha_now:
             changes.append(("removed", row))                  # reported only
             continue
-        kind = "changed" if before else "new"
+        kind = "changed" if before or row["status"] in REPAIRED else "new"
         # A changed file gets a new name so Auto Loader loads it; a new one keeps the usual name.
+        # A repaired file already has the usual name, so Binance's real one comes in as a change.
         suffix = f".r{sha_now[:8]}" if kind == "changed" else ""
         try:
             result, sha256, file_name = db.download_one(row["dataset"], row["symbol"], period, suffix)

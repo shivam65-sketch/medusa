@@ -314,3 +314,13 @@ on every run, dbt warns, and the top of the Markets page says which days are mis
 tries each of the last 7 days again, so a day that comes late fills itself and repairs what was built on
 it, the next day's return included. A day older than that needs loading by hand, and the page says so
 ([step 32a](steps/32a-missing-days.md), [ADR-036](decisions.md#adr-036-a-missing-day-is-found-against-the-calendar-shown-on-the-page-and-tried-again-for-a-week)).
+
+## What if Binance never publishes a day at all?
+
+It happened on 2026-10-28: no daily candles, and October's monthly file skips the day too. Binance still
+published that day's trades, and a 1-minute candle is just a summary of the trades in that minute. So the
+day can be rebuilt with **Lakehouse repair day**, started by hand: it first rebuilds a day Binance did
+publish and checks it matches Binance's candles exactly, then fills the missing day from the best source
+it finds, and marks in the day's manifest how each coin was filled. It never runs by itself, so every
+repair is a deliberate run you can follow ([step 32b](steps/32b-repair-a-day.md),
+[ADR-039](decisions.md#adr-039-a-day-binance-never-published-is-repaired-by-hand-from-the-months-file-or-its-trades-after-a-check)).

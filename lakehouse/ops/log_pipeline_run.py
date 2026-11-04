@@ -39,9 +39,9 @@ import urllib.request
 from databricks_sql import run as run_sql, warehouse_id
 
 SCHEMA = "ops.logs"
-WORKFLOWS = {"lakehouse-daily.yml", "lakehouse-backfill.yml", "lakehouse-history.yml", "lakehouse-transform.yml"}
+WORKFLOWS = {"lakehouse-daily.yml", "lakehouse-backfill.yml", "lakehouse-history.yml", "lakehouse-transform.yml", "lakehouse-repair-day.yml"}
 LABEL = {"Lakehouse daily load": "Daily load", "Lakehouse backfill": "Backfill", "Lakehouse history": "History load",
-         "Lakehouse transform": "Transform"}
+         "Lakehouse transform": "Transform", "Lakehouse repair day": "Repair"}
 DBT_STEPS = {"freshness": "Check bronze is fresh", "build": "Build and test silver and gold"}
 HOUSEKEEPING = ("Set up job", "Complete job")
 DAY = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")

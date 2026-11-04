@@ -73,9 +73,9 @@ daily dataset of the day's load.
 |---|---|
 | `dataset` | `klines_1m` or `metrics` |
 | `symbol` | Binance symbol |
-| `status` | `saved` or `missing` (Binance had no file) |
+| `status` | `saved` (Binance's file) or `missing` (Binance had no file). A repaired day ([step 32b](steps/32b-repair-a-day.md)) also has `cut_from_month` (cut out of the month's file) and `rebuilt_from_trades` (rebuilt from Binance's trades) |
 | `file` | The file's name in the landing folder |
-| `sha256` | Binance's SHA-256 fingerprint of the zip; empty when missing |
+| `sha256` | Binance's SHA-256 fingerprint of the zip; empty when missing or repaired |
 
 On 2026-10-21: 1,814 rows (907 coins × 2 datasets), 1,624 saved, 190 missing.
 

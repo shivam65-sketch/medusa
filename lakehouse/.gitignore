@@ -14,3 +14,5 @@ target/
 logs/
 dbt_packages/
 .user.yml
+# Python's compiled cache, made when a script runs
+__pycache__/

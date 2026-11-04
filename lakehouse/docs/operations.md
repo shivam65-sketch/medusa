@@ -94,26 +94,42 @@ The Markets page says **Not in the lakehouse: …**, or dbt warns `assert_no_mis
 |---|---|
 | `waiting` | Nothing: it is yesterday, and the daily load hasn't run yet |
 | `retrying` | Usually nothing: every daily load tries it again, and it leaves the table when it arrives. Look at the `recheck` job's **Load recent days that never finished** for *NOT READY*, which says what Binance is missing |
-| `manual` | The catch-up has stopped trying. If Binance has the day: Actions → **Lakehouse daily load** → Run workflow → the date. If its daily files never came, see below |
+| `manual` | The catch-up has stopped trying. If Binance has the day now: Actions → **Lakehouse daily load** → Run workflow → the date. If it never came, repair it (below) |
 
 **To load a day by hand:** the workflow takes one date and stops if the day isn't complete at Binance. A
 late day repairs everything above it by itself: silver takes its files as new rows, `coin_daily` rebuilds
 that day and the day after it, and the other gold tables are rebuilt in full.
 
-**When Binance never publishes the daily files.** Use its monthly archive: monthly 1-minute files appear
-around the 2nd of the next month at about 09:40 UTC.
+### Repairing a day Binance never published
 
-1. Check the month's file is there (this should print `200`), for example for October 2026:
-   `curl.exe -s -o NUL -w "%{http_code}" https://data.binance.vision/data/futures/um/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2026-10.zip`
-2. Actions → **Lakehouse daily load** → Run workflow → the date, and tick **Cut the 1-minute candles out of
-   the month's file**. The metrics still come from the day's own files.
-3. Each coin's day is cut out and saved as that day's usual file, so everything after it works as on any
-   other day, the transform included. If the month's file doesn't hold the day either, the run stops with
-   *NOT READY* and uploads nothing. Then `SELECT * FROM market.gold.missing_days` should no longer list it.
+Binance sometimes never publishes a day's candles. 2026-10-28 is missing from the daily archive and from
+October's monthly file too, for every coin, but its trades are there. **Lakehouse repair day** fills the day
+from the first source that has it ([step 32b](steps/32b-repair-a-day.md), [ADR-039](decisions.md#adr-039-a-day-binance-never-published-is-repaired-by-hand-from-the-months-file-or-its-trades-after-a-check)).
+It only ever runs when started by hand.
 
-A cut day matches Binance's daily files line for line (checked on 2026-09-15, 6 coins, 8,640 rows). The
-live API is the last resort: compare it with a day we have first, and run it from a computer that Binance
-accepts.
+1. **See what Binance has.** Each of these prints `200` if the file is there and `404` if not, for example
+   for BTC on 28 October:
+   - the day's own file: `curl.exe -s -o NUL -w "%{http_code}" https://data.binance.vision/data/futures/um/daily/klines/BTCUSDT/1m/BTCUSDT-1m-2026-10-28.zip`
+   - the month's file (from about the 2nd of the next month): `curl.exe -s -o NUL -w "%{http_code}" https://data.binance.vision/data/futures/um/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2026-10.zip`
+   - the day's trades: `curl.exe -s -o NUL -w "%{http_code}" https://data.binance.vision/data/futures/um/daily/trades/BTCUSDT/BTCUSDT-trades-2026-10-28.zip`
+   A month's file can be there and still skip the day: the run reports that, and loads nothing.
+2. **Check first (optional).** Actions → **Lakehouse repair day** → Run workflow → the date, and tick
+   **Only run the comparison**. It rebuilds the day before from its trades and compares it with Binance's
+   own candles on 16 coins, every number of every minute.
+3. **Repair.** The same, without the tick. **Method**:
+   - `auto` (the usual choice): for each coin, Binance's daily file if it has appeared, else the month's
+     file, else the trades;
+   - `monthly`: only the month's file, for when you'd rather wait for Binance's own data;
+   - `trades`: only the trades.
+   The check runs first, and any difference stops the run before anything is saved. Then the files are
+   uploaded and the transform runs, as after a daily load.
+4. **Confirm.** `SELECT * FROM market.gold.missing_days` no longer lists the day, and the day's manifest
+   (`manifests/date=…/manifest.csv` in the landing volume) says how each coin was filled: `saved`,
+   `cut_from_month` or `rebuilt_from_trades`.
+
+If the day before is missing too, pick another **check date** that Binance did publish. If Binance ever
+publishes the real daily file later, the daily recheck loads it under a new name within a week of the day,
+and it replaces the repair.
 
 ## When the daily run fails
 

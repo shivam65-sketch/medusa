@@ -1,0 +1,103 @@
+# MEDUSA lakehouse: repair a day.
+# For a day Binance's daily archive left out (step 32b, ADR-039). Started by hand only, from GitHub's
+# Actions tab, never on a schedule, so each repair is a deliberate run that is easy to follow.
+# Fills each coin's 1-minute candles from Binance's daily file if it has appeared, the month's file,
+# or Binance's trades rebuilt minute by minute (repair_day.py), after checking that a rebuilt day
+# matches Binance's own candles. Then uploads the files and runs the transform, like a daily load.
+name: Lakehouse repair day
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Day to repair, YYYY-MM-DD (UTC)"
+        required: true
+      method:
+        description: "Where the candles come from: auto (daily file, then the month's file, then trades), monthly, or trades"
+        type: choice
+        options: [auto, monthly, trades]
+        default: auto
+      check_date:
+        description: "A day Binance did publish, rebuilt from trades and compared first (empty for the day before)"
+        required: false
+        default: ""
+      check_only:
+        description: "Only run the comparison; repair and load nothing"
+        type: boolean
+        default: false
+
+# The jobs only read the repository (and the log job this run's jobs); they never write to GitHub.
+permissions:
+  contents: read
+  actions: read
+
+# The daily load's group: a repair and a daily load never run at the same time.
+concurrency:
+  group: lakehouse-daily-load
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    defaults:
+      run:
+        working-directory: lakehouse/ingest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      # What was typed goes through environment variables, not straight into the command,
+      # so nothing typed in a box can be run as a command.
+      - name: Check, then repair the day
+        env:
+          DAY: ${{ inputs.date }}
+          METHOD: ${{ inputs.method }}
+          CHECK_DAY: ${{ inputs.check_date }}
+          CHECK_ONLY: ${{ inputs.check_only && '1' || '' }}
+        run: python repair_day.py --date "$DAY" --method "$METHOD" ${CHECK_DAY:+--check "$CHECK_DAY"} ${CHECK_ONLY:+--check-only}
+
+      - name: Install the Databricks CLI
+        if: ${{ !inputs.check_only }}
+        uses: databricks/setup-cli@v1.21.0
+
+      # The same upload as a daily load, retried twice if Databricks turns it away.
+      - name: Upload to the landing volume
+        if: ${{ !inputs.check_only }}
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          for attempt in 1 2 3; do
+            if databricks fs cp -r ../data/landing dbfs:/Volumes/market/landing/binance --overwrite --concurrency 16; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Upload attempt $attempt failed; trying again in $((attempt * 30)) seconds."
+              sleep $((attempt * 30))
+            fi
+          done
+          echo "Upload failed 3 times."
+          exit 1
+
+  # Only after a repair that uploaded: bronze, then dbt (silver and gold), then MEDUSA's copy.
+  transform:
+    needs: repair
+    if: ${{ !cancelled() && needs.repair.result == 'success' && !inputs.check_only }}
+    uses: ./.github/workflows/lakehouse-transform.yml
+    secrets: inherit
+
+  # Last, whatever happened: this run into the ETL log tables, with what was typed.
+  log:
+    needs: [repair, transform]
+    if: ${{ always() }}
+    uses: ./.github/workflows/lakehouse-log-run.yml
+    with:
+      data_date: ${{ inputs.date }}
+      run_inputs: ${{ toJSON(inputs) }}
+    secrets: inherit

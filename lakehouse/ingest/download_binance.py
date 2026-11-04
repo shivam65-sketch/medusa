@@ -17,15 +17,14 @@ With --symbols ALL, the list of coins comes from Binance's archive itself: every
 perpetual it has ever published (coins delisted long ago simply come back as missing).
 A daily run over every coin also checks that Binance has finished publishing the day, and fails
 if it hasn't, so a half-published day is never loaded.
-For a day Binance's daily archive left out, --from-monthly cuts the 1-minute candles out of the
-month's file instead, and saves them as that day's usual files.
+A day Binance's daily archive left out is mended by repair_day.py, started by hand (the Lakehouse
+repair day workflow): from the month's file (cut_from_month, below) or from Binance's trades.
 
 Standard library only: nothing to install.
 
   python download_binance.py --symbols BTCUSDT --date 2026-10-19
   python download_binance.py --symbols ALL                  (date defaults to yesterday, UTC)
   python download_binance.py --symbols ALL --months 2020-01..2020-12
-  python download_binance.py --symbols ALL --date 2026-10-28 --from-monthly
 """
 import argparse
 import concurrent.futures
@@ -240,8 +239,6 @@ def main():
     parser.add_argument("--date", help="day to download, YYYY-MM-DD in UTC (default: yesterday)")
     parser.add_argument("--months", help="monthly files instead: one month or a range, e.g. 2020-01..2020-12")
     parser.add_argument("--datasets", help="default: the daily datasets, or the monthly ones with --months")
-    parser.add_argument("--from-monthly", action="store_true",
-                        help="with --date: cut the 1-minute candles out of the month's file (a day the daily archive left out)")
     parser.add_argument("--workers", type=int, default=16, help="downloads at the same time (default: 16)")
     args = parser.parse_args()
     # Print each line as it happens, so the log keeps messages and errors in order.
@@ -249,8 +246,6 @@ def main():
 
     if args.months and args.date:
         parser.error("use --date or --months, not both")
-    if args.from_monthly and not args.date:
-        parser.error("--from-monthly needs --date")
     kind = "monthly" if args.months else "daily"
     if args.months:
         try:
@@ -279,8 +274,7 @@ def main():
     found = set()  # (dataset, symbol, period) of every file Binance has published
     manifest = {p: [] for p in periods}  # each day's rows: dataset, symbol, status, file, sha256
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = {(pool.submit(cut_from_month, s, p) if args.from_monthly and d == "klines_1m"
-                    else pool.submit(download_one, d, s, p)): (d, s, p) for d, s, p in jobs}
+        futures = {pool.submit(download_one, d, s, p): (d, s, p) for d, s, p in jobs}
         for future in concurrent.futures.as_completed(futures):
             dataset, symbol, period = futures[future]
             try:
@@ -306,7 +300,8 @@ def main():
         print(f"NOT READY {problem}", file=sys.stderr)
     if problems:
         print("Binance hasn't finished publishing this day, so nothing is uploaded. "
-              "Run the load again later.", file=sys.stderr)
+              "Run the load again later. A day still missing after a few days may never come: "
+              "repair it by hand with the Lakehouse repair day workflow.", file=sys.stderr)
     if counts["failed"] or problems:
         return 1
 
