@@ -5,6 +5,7 @@ app's menu and on the sign-in page); each release adds a section here with the s
 
 ## Unreleased
 
+- Markets: a verdict now needs 30 days in 2020–2024 and 30 from 2025, else it says *too few*. With 20, up 6σ or more on small markets read *no pattern* from 26 days. 6 of the 60 verdicts change, all to *too few*; none that held up or did not hold.
 - **Risk**, a new page: BTC's and ETH's place against their 50-day average right now, the history of that trend rule, when it works and when it doesn't, four tools (position size with a Bad day warning, break-even win rate after fees and funding, daily loss limit, Kelly from your own numbers) and the ideas tested that failed. The tests are in `docs/risk-research.md`.
 - Markets: Patterns now says that its verdicts count trading costs but not funding. With funding counted and every trade the same size, shorting after up moves stopped holding up.
 - Market hours now show on the Markets page only.

@@ -269,6 +269,14 @@ end of the hours, so a stop can be hit sooner. Only the **Verdict** has passed a
 before costs. A click on an aggregate opens that number and the moves behind it
 ([step 32.2.2](steps/32-insights-graphs.md#3222-the-playbook)).
 
+## A coin listed in 2025 shows a verdict tested on 2020–2024. How?
+
+The verdict is about the kind of move, not the coin: its direction, its size and the market's liquidity, pooled
+over every crypto market since 2020. The coin's own moves are only in **Its own past**. A kind of move needs 30 days
+in 2020–2024 and 30 from 2025 for a verdict, else it says *too few*. Up 6σ or more on small markets had 26 days
+before 2025, so it is *too few*, though from 2025 it has more than 200
+([ADR-040](decisions.md#adr-040-a-verdict-needs-30-days-in-each-period)).
+
 ## Where do Past moves and its days come from? Is it a backtest?
 
 They are counts, and nobody chose them. On every daily run the lakehouse goes through every market's hourly candles since

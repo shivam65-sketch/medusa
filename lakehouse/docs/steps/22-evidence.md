@@ -72,7 +72,7 @@ stats as (                                 -- averages and t-statistics over day
 )
 ```
 
-The verdict: *too few* (under 20 days in either period), *no pattern* (in-sample |t| under 2),
+The verdict: *too few* (under 20 days in either period; 30 since [ADR-040](../decisions.md#adr-040-a-verdict-needs-30-days-in-each-period)), *no pattern* (in-sample |t| under 2),
 *held up* (the in-sample side has t ≥ 2 in the held-back years and beats the 0.10% cost in both
 periods), otherwise *did not hold*.
 

@@ -56,7 +56,7 @@ vars:
   event_z: 3                     # a move is unusual at |z| >= 3, as in unusual_moves
   round_trip_cost: 0.001         # fees and slippage to enter and leave once: 0.10%
   held_back_from: "2025-01-01"   # events from this day on play no part in choosing a side
-  evidence_min_days: 20          # fewer days than this in either period: 'too few'
+  evidence_min_days: 30          # fewer days than this in either period: 'too few' (ADR-040)
   evidence_min_t: 2              # |t| needed in-sample, and on the chosen side when held back
 
 # Don't send dbt Labs anonymous usage statistics.

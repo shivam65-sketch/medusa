@@ -401,7 +401,8 @@ good by luck. A pattern also has to pay for trading.
   t-statistic are taken over days.
 - 2020–2024 chooses the side (follow or fade); 2025 onward only checks it. *Held up* needs
   in-sample |t| ≥ 2, held-back t ≥ 2 on the same side, and a profit after a 0.10% round trip in both
-  periods. Fewer than 20 days in either period is *too few*.
+  periods. Fewer than 20 days in either period is *too few* (30 since
+  [ADR-040](#adr-040-a-verdict-needs-30-days-in-each-period)).
 - The thresholds and the cost are dbt variables, and the evidence table shows every number behind
   each verdict, not just the verdict.
 
@@ -964,7 +965,8 @@ runs its live queries every second, and this one reads the live prices, so it ca
   scanner's answer don't change.
 - **The page's query only joins finished numbers to the live markets** and stays a definition: versioned, editable and
   runnable in Databricks. What the playbook shows is decided on the page. What a percentile is, is decided in gold.
-- **The rule for how much evidence is enough stays in the query** (20 days, as in the verdicts). Gold keeps the facts.
+- **The rule for how much evidence is enough stays in the query** (20 days, as in the verdicts then; a verdict needs 30
+  since [ADR-040](#adr-040-a-verdict-needs-30-days-in-each-period)). Gold keeps the facts.
 - **Moves, not days, are the unit here,** unlike `event_evidence`. How far one trade can go is a question about moves. So
   the table carries `days` beside `moves`, and the page shows both.
 - **A market is compared with its own type.** `event_evidence` pools crypto and other. This table describes rather than
@@ -1028,3 +1030,34 @@ as long as Binance published the day's trades. The trades files are much bigger 
 PEPE 41 MB for one day), so a repair of every coin downloads a few GB and takes longer than a daily load;
 the job's limit is 150 minutes. A day with no trades file either can't be repaired, and stays on the
 Markets page as missing.
+
+## ADR-040: A verdict needs 30 days in each period
+
+**Status:** Accepted, 2026-11-05 (issue 46). Changes the day rule of
+[ADR-022](#adr-022-judge-the-evidence-by-days-and-on-held-back-years).
+
+**Context:** The playbook showed CLANKER, listed in November 2025, beside *no pattern* for its group: up 6σ or
+more on small markets. The verdict is about the group, pooled over every market since 2020, and 2020–2024 had
+only 28 such moves, on 26 days. That passed the 20-day rule, so the group read *no pattern*, as if the years
+had been looked at and nothing found, when they hardly had the moves to say anything. From 2025 the same group
+has 313 moves on 218 days. Moves this big have fat tails: with a couple of dozen days, one or two extreme days
+can decide the average.
+
+**Decision:**
+- **`evidence_min_days` is 30.** A kind of move with fewer than 30 days in 2020–2024 or from 2025 is *too few*:
+  no side is chosen and nothing is checked. 30 is the usual rule of thumb before trusting an average.
+- **The playbook's own numbers keep 20.** Its medians and worst 5% describe what happened, and are not a test.
+  Its description now says the two rules apart (seed 014).
+- **The other rules stay:** |t| ≥ 2, the 0.10% cost and the 2025 split are unchanged, and nothing was tuned on
+  the result. The change moves verdicts only from *no pattern* to *too few*.
+
+**Alternatives:**
+- *Count moves instead of days.* Days are the unit of the test (ADR-022), because markets move together.
+- *Move the split to a later year, so new kinds of move get in-sample years.* It would change every verdict,
+  after looking at them. That is a new test, to be decided on its own.
+- *Leave it.* *No pattern* would keep saying the years were judged when they hardly had the moves.
+
+**Consequences:** 6 of the 60 verdicts change, all from *no pattern* to *too few*: up 6σ or more on small
+markets (26 days in 2020–2024) and down 4–6σ on small markets (22 days), each at 1, 4 and 24 hours. The 5
+*held up* and 5 *did not hold* stay. Counts on 2026-11-05, before the change: 35 *no pattern*, 15 *too few*;
+after: 29 and 21.

@@ -1584,7 +1584,7 @@ function evWords(e, h) {
     'held up': `2020–2024 chose to ${side} (t ${tval(e.in_sample_t)}). From 2025 it still worked: ${pct(e.held_back_net_after_cost)} a trade after ${size(e.round_trip_cost)} costs (t ${tval(e.held_back_t)} over ${e.held_back_days} days). <b>Held up.</b>`,
     'did not hold': `2020–2024 pointed to ${side} (t ${tval(e.in_sample_t)}), but from 2025 it didn't pay after ${size(e.round_trip_cost)} costs (${pct(e.held_back_net_after_cost)}, t ${tval(e.held_back_t)}). <b>Did not hold.</b>`,
     'no pattern': `In 2020–2024 alone, where the side is chosen, there was no clear pattern (t ${tval(e.in_sample_t)}), so there is no side to take. <b>No pattern.</b>`,
-    'too few': `Too few days to judge (${e.in_sample_days ?? 0} in 2020–2024, ${e.held_back_days ?? 0} from 2025; 20 needed in each). <b>Too few.</b>`,
+    'too few': `Too few days to judge (${e.in_sample_days ?? 0} in 2020–2024, ${e.held_back_days ?? 0} from 2025; 30 needed in each). <b>Too few.</b>`,
   }[e.verdict] || esc(e.verdict);
   return `<p>${head} ${verdict}</p>`;
 }
@@ -1698,7 +1698,7 @@ function paintPatterns() {
         <li><b>t</b> measures how clearly the moves continued (positive) or reversed (negative), given how much they vary from day to day; beyond ±2 is unlikely to be chance.</li>
         <li><b>The side is chosen on 2020–2024 only.</b> If moves continued there with t ≥ 2, the side is <b>follow</b>; if they reversed with t ≤ −2, it is <b>fade</b>; otherwise there is <b>no pattern</b>.</li>
         <li><b>It is then checked on 2025 onwards</b>, which played no part in the choice. <b>Held up</b> needs the moves to behave the same way there (t ≥ 2 for follow, t ≤ −2 for fade) and a profit after ${cost} round-trip costs in both periods; otherwise it <b>did not hold</b>.</li>
-        <li><b>Too few</b>: fewer than 20 days in either period.</li>
+        <li><b>Too few</b>: fewer than 30 days in either period. With fewer, one or two extreme days can decide the average, so no side is chosen.</li>
         <li><b>Funding isn't counted.</b> A short pays funding when a market squeezes: after up moves on large and mid markets that averaged 0.27% a trade over 24 hours, far more than the cost counted here, and a few squeezes cost much more. Averaging each day's moves also assumes you know how many moves a day will bring. With funding counted and every trade the same size, shorting after up moves stopped holding up, so read a fade's figure here as the most it could have made. The Risk page has the test.</li>
         <li>With ${n(sum.kinds)} groups tested, a few can pass by luck, which is why the held-back check matters and why the rules aren't tuned after looking at it (ADR-022). Costs are optimistic for small markets, funding isn't counted, and almost all the history is crypto. This is research, not trading advice.</li>
       </ul>

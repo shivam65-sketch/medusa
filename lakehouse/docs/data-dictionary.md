@@ -515,12 +515,15 @@ spreads and t-statistics are over days, not events: each day's events are averag
 | `held_back_events`, `held_back_days`, `held_back_avg_continuation`, `held_back_t`, `held_back_hit_rate` | The same for 2025 on |
 | `side` | `follow` or `fade`: the sign of the in-sample average |
 | `in_sample_net_after_cost`, `held_back_net_after_cost` | The chosen side's average return minus `round_trip_cost` |
-| `verdict` | `too few`, `no pattern`, `did not hold` or `held up` |
+| `verdict` | `too few` (under `evidence_min_days`, 30, in either period), `no pattern`, `did not hold` or `held up` |
 | `round_trip_cost` | The cost used (0.001 = 0.10%) |
 
 **What the data looks like (2026-10-22):** 35 *no pattern*, 15 *too few*, 6 *did not hold*, 4 *held
 up*, all fades: down 4–6σ on mid-sized coins over 1 hour (held back: +4.11% after cost), up 6σ+ on
 mid-sized coins over 24 hours (+12.20%), and every up move over 1 hour (+0.23%) and 4 hours (+0.66%).
+
+**On 2026-11-05,** with 30 days needed in each period ([ADR-040](decisions.md#adr-040-a-verdict-needs-30-days-in-each-period)):
+29 *no pattern*, 21 *too few*, 5 *did not hold*, 5 *held up*.
 
 ## Semantic: `market.semantic.metric_definitions`
 

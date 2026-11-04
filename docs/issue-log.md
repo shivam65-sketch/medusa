@@ -16,8 +16,9 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
+| [46](#issue-46) | 2026-11-05 | Markets | A verdict said *no pattern* about years that hardly had the moves | Bug | Built, waiting to go live |
 | [44](#issue-44) | 2026-11-02 | Markets | Patterns showed fades as held up without counting funding | Bug | Fixed |
-| [43](#issue-43) | 2026-11-02 | Lakehouse | Five markets with non-Latin names were never loaded | Bug | Built, waiting to go live |
+| [43](#issue-43) | 2026-11-02 | Lakehouse | Five markets with non-Latin names were never loaded | Bug | Fixed |
 | [42](#issue-42) | 2026-11-02 | Markets | A window's editor showed code that isn't in the query beside it | Bug | Fixed |
 | [41](#issue-41) | 2026-11-02 | Docs | GitHub's main page said nothing about the scanner | Bug | Fixed |
 | [40](#issue-40) | 2026-11-02 | Markets | The sentence under a clicked number was cut off | Bug | Fixed |
@@ -63,6 +64,25 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 ## Details
 
+<a id="issue-46"></a>
+### 46. A verdict said *no pattern* about years that hardly had the moves
+
+- **Seen:** the playbook showed CLANKER, up 6σ or more, with *no pattern* "tested on 2020–2024", though CLANKER was
+  listed in November 2025.
+- **Why:** the verdict is about the kind of move (up, 6σ or more, small market), pooled over every crypto market, and
+  CLANKER's own moves are only in *Its own past*. That group had 28 moves on 26 days in 2020–2024, against 313 on 218 days
+  from 2025, because moves that big on small coins mostly began in 2025. 26 days passed the 20-day rule, so the group read
+  *no pattern*, as if the years had been judged.
+- **Change:** a verdict now needs 30 days in each period, else it is *too few*
+  ([ADR-040](../lakehouse/docs/decisions.md#adr-040-a-verdict-needs-30-days-in-each-period)). 6 of the 60 verdicts move
+  from *no pattern* to *too few*: up 6σ or more and down 4–6σ, both on small markets, at each horizon. *How a verdict is
+  decided* and a verdict's window say 30. The playbook's own numbers still need 20, because they describe and don't test;
+  its description says so (seed 014). The FAQ explains that a verdict is about the group, not the coin.
+- **Checked:** the verdicts with fewer than 40 days in either period, read before the change: exactly those 6 rows fall
+  under 30, and no *held up* or *did not hold* row is among them. The seed parses in Databricks (`EXPLAIN`). Not yet
+  checked: the live page after the transform.
+- **State:** built, waiting to go live.
+
 <a id="issue-44"></a>
 ### 44. Patterns showed fades as held up without counting funding
 
@@ -83,9 +103,10 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
   the file name, in case Databricks hands it over encoded. The page's check on a market's name accepts any letters or digits. A market
   appears after its first daily load, and shows z and a bad day once it has 20 days of history.
 - **Checked:** the archive's 1,080 folders under both rules: exactly these 5 are added, and USDC, BUSD and settled contracts stay out.
-  A real day of 牛来 downloaded through the real checks: 1,440 rows, checksum matched. Not yet checked: the upload and bronze on Databricks,
-  which the first daily run after this change will show.
-- **State:** built, waiting to go live.
+  A real day of 牛来 downloaded through the real checks: 1,440 rows, checksum matched. Live, read on 2026-11-05: all five are in
+  the hourly history with 72 hours each, 28 October (the repair) and 1 and 2 November. Their days before that, 29–31 October
+  included, were loaded under the old rule, so they need a backfill, which is separate.
+- **State:** fixed.
 
 <a id="issue-42"></a>
 ### 42. A window's editor showed code that isn't in the query beside it
