@@ -125,7 +125,7 @@ It only ever runs when started by hand.
    uploaded and the transform runs, as after a daily load.
 4. **Confirm.** `SELECT * FROM market.gold.missing_days` no longer lists the day, and the day's manifest
    (`manifests/date=…/manifest.csv` in the landing volume) says how each coin was filled: `saved`,
-   `cut_from_month` or `rebuilt_from_trades`.
+   `cut_from_month`, `rebuilt_from_trades` or `flat_no_trades` (a dead contract with no trades that day).
 
 If the day before is missing too, pick another **check date** that Binance did publish. If Binance ever
 publishes the real daily file later, the daily recheck loads it under a new name within a week of the day,

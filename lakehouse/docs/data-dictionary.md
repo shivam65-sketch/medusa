@@ -73,7 +73,7 @@ daily dataset of the day's load.
 |---|---|
 | `dataset` | `klines_1m` or `metrics` |
 | `symbol` | Binance symbol |
-| `status` | `saved` (Binance's file) or `missing` (Binance had no file). A repaired day ([step 32b](steps/32b-repair-a-day.md)) also has `cut_from_month` (cut out of the month's file) and `rebuilt_from_trades` (rebuilt from Binance's trades) |
+| `status` | `saved` (Binance's file) or `missing` (Binance had no file). A repaired day ([step 32b](steps/32b-repair-a-day.md)) also has `cut_from_month` (cut out of the month's file), `rebuilt_from_trades` (rebuilt from Binance's trades) and `flat_no_trades` (a coin with no trades that day, written flat at its last price as Binance does) |
 | `file` | The file's name in the landing folder |
 | `sha256` | Binance's SHA-256 fingerprint of the zip; empty when missing or repaired |
 

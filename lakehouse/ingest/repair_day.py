@@ -19,7 +19,7 @@ Any difference stops the repair, and nothing is written.
 
 The files are saved under their usual names in data/landing, so bronze loads them like any other
 day, and the day's manifest says how each file was made: saved (Binance's daily file),
-cut_from_month or rebuilt_from_trades. A repaired file has no fingerprint, so if Binance ever
+cut_from_month, rebuilt_from_trades or flat_no_trades. A repaired file has no fingerprint, so if Binance ever
 publishes the real daily file, the daily recheck loads it under a new name and it replaces the
 repair (recheck_binance.py).
 
@@ -33,6 +33,11 @@ How a candle is rebuilt, the way Binance builds its own:
 The day starts at 00:00 if the coin traded the day before (its last close from Binance's daily file),
 or at its first trade if it was listed that day. It runs to 23:59 if the coin trades the next day,
 or ends at its last trade if it was delisted.
+
+A coin with no trades all day, such as a delisted contract, still gets a file from Binance on a normal
+day: 1,440 flat minutes at its last price, every volume 0. When such a coin has Binance's candles the
+day before and the day after, the repair writes the same flat day (flat_no_trades). The check compares
+it with a dead contract's real file too.
 
 Standard library only.
 
@@ -158,15 +163,38 @@ def candles_from_trades(symbol, day):
     return out
 
 
+def flat_day(symbol, day, need_next=True):
+    """The day as Binance publishes it for a coin with no trades: 1,440 minutes at its last close, every
+    volume 0. None unless Binance has the coin's candles the day before and (need_next) the day after."""
+    previous = last_close(symbol, shift(day, -1))
+    if previous is None or (need_next and not exists(klines_url(symbol, shift(day, 1)))):
+        return None
+    start = day_start(day)
+    return [HEADER] + [b",".join([str(t).encode(), previous, previous, previous, previous, b"0", str(t + MINUTE_MS - 1).encode(),
+                                  b"0", b"0", b"0", b"0", b"0"]) for t in range(start, start + DAY_MS, MINUTE_MS)]
+
+
+def rebuild(symbol, day, need_next=True):
+    """(lines, how) for the day: from its trades, or the flat day if it had none; (None, '') if neither."""
+    lines = candles_from_trades(symbol, day)
+    if lines is not None and len(lines) > 1:
+        return lines, "rebuilt_from_trades"
+    lines = flat_day(symbol, day, need_next)
+    return (lines, "flat_no_trades") if lines else (None, "")
+
+
 def compare(symbol, day):
     """Rebuild a day Binance did publish and compare it with Binance's candles. Returns
-    (symbol, minutes compared, list of differences); None if Binance has no candles or trades for it."""
+    (symbol, minutes compared, list of differences, how it was rebuilt); None if Binance has no
+    candles for it, or it can't be rebuilt."""
     data = db.fetch(klines_url(symbol, day))
     if data is None:
         return None
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         real = z.read(z.namelist()[0]).splitlines()
-    rebuilt = candles_from_trades(symbol, day)
+    # The day after the check day can be the very day being repaired, so the flat rule isn't asked
+    # for it here: what is compared is the content.
+    rebuilt, how = rebuild(symbol, day, need_next=False)
     if rebuilt is None:
         return None
     real_rows = {r.split(b",")[0]: r.split(b",") for r in real[1:] if r}
@@ -180,7 +208,7 @@ def compare(symbol, day):
         for name, x, y in zip(FIELDS, a, b):
             if Decimal(x.decode()) != Decimal(y.decode()):
                 problems.append(f"minute {int(t)} {name}: Binance {x.decode()}, rebuilt {y.decode()}")
-    return symbol, len(real_rows), problems
+    return symbol, len(real_rows), problems, how
 
 
 def repair_one(symbol, day, methods):
@@ -196,10 +224,10 @@ def repair_one(symbol, day, methods):
             if result in ("saved", "skipped"):
                 return symbol, "cut_from_month", name, "", None
         elif method == "trades":
-            lines = candles_from_trades(symbol, day)
-            if lines is not None and len(lines) > 1:
+            lines, how = rebuild(symbol, day)
+            if lines is not None:
                 db.save_gz(out_file, b"\n".join(lines) + b"\n")
-                return symbol, "rebuilt_from_trades", out_file.name, "", len(lines) - 1
+                return symbol, how, out_file.name, "", len(lines) - 1
     return symbol, "missing", "", "", None
 
 
@@ -208,17 +236,32 @@ def check(day, symbols, workers):
     rest = [s for s in symbols if s not in CHECK_ALWAYS]
     sample = [s for s in CHECK_ALWAYS if s in symbols] + rest[:: max(1, len(rest) // 12)][:12]
     print(f"Check: rebuilding {day} from trades for {len(sample)} coins and comparing with Binance's candles")
-    ok, compared = True, 0
-    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
-        for result in pool.map(compare, sample, [day] * len(sample)):
+    ok, compared, flat = True, 0, 0
+
+    def show(results):
+        nonlocal ok, compared, flat
+        for result in results:
             if result is None:
                 continue
-            symbol, minutes, problems = result
+            symbol, minutes, problems, how = result
             compared += 1
-            print(f"  {symbol:<16} {minutes} minutes, {'all match' if not problems else f'{len(problems)} differences'}")
+            flat += how == "flat_no_trades"
+            label = "flat, no trades" if how == "flat_no_trades" else "from trades"
+            print(f"  {symbol:<16} {label:<16} {minutes} minutes, {'all match' if not problems else f'{len(problems)} differences'}")
             for p in problems[:5]:
                 print(f"      {p}")
             ok = ok and not problems
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
+        show(pool.map(compare, sample, [day] * len(sample)))
+        if not flat:
+            # The flat rule needs a coin with no trades that day: look for two among the rest.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=16) as look:
+                quiet = [s for s, t in zip(rest, look.map(lambda s: exists(trades_url(s, day)), rest)) if not t]
+                dead = [s for s, k in zip(quiet, look.map(lambda s: exists(klines_url(s, day)), quiet)) if k][:2]
+            show(pool.map(compare, dead, [day] * len(dead)))
+            if not flat:
+                print("  No coin without trades on the check day, so the flat rule wasn't compared.")
     if not compared:
         print("Nothing could be compared: Binance has no candles and trades for the check day.", file=sys.stderr)
         return False
@@ -252,9 +295,12 @@ def main():
 
     rows, counts = [], {}
     methods = METHODS[args.method]
+    started = dt.datetime.now()
     with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers) as pool:
         futures = {pool.submit(repair_one, s, day, methods): s for s in symbols}
-        for future in concurrent.futures.as_completed(futures):
+        for done, future in enumerate(concurrent.futures.as_completed(futures), 1):
+            if done % 100 == 0 or done == len(futures):               # so a long run never looks stuck
+                print(f"  {done} of {len(futures)} coins done, {(dt.datetime.now() - started).seconds // 60} min")
             try:
                 symbol, status, name, sha256, _ = future.result()
             except Exception as e:
@@ -273,7 +319,7 @@ def main():
     if counts.get("failed"):
         print("Some coins failed, so the manifest isn't written and nothing should be uploaded. Run it again.", file=sys.stderr)
         return 1
-    filled = sum(n for k, n in counts.items() if k in ("saved", "cut_from_month", "rebuilt_from_trades"))
+    filled = sum(n for k, n in counts.items() if k in ("saved", "cut_from_month", "rebuilt_from_trades", "flat_no_trades"))
     if not filled:
         hint = {"monthly": " The month's file isn't published yet (about the 2nd of the next month), or it skips this day too: try method trades.",
                 "daily": " Binance still has no daily file for it: try method monthly or trades."}.get(args.method, "")

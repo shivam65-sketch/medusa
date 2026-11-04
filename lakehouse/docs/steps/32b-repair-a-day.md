@@ -60,6 +60,11 @@ How a candle is rebuilt matches Binance's own:
 The day starts at 00:00 if the coin had candles the day before, or at its first trade if it was listed that
 day. It ends at 23:59 if the coin trades the next day, or at its last trade if it was delisted.
 
+**A coin with no trades all day.** Binance keeps publishing a file for a delisted contract that no longer
+trades: 1,440 flat minutes at its last price, every volume 0. Such a coin has no trades file, so there is
+nothing to rebuild from. When it has Binance's candles the day before and the day after, the repair writes
+the same flat day (`flat_no_trades`), and the check compares this rule with a dead contract's real file too.
+
 **`lakehouse-repair-day.yml`**, Actions → **Lakehouse repair day** → Run workflow, with four boxes:
 
 | Box | |
@@ -90,6 +95,9 @@ with what was typed.
 | 27 October rebuilt from trades and compared with Binance's candles, BTC and POWR (23 minutes with no trades) | Every number of every minute matched |
 | The workflow's check on the real coin list, 27 October | 14 coins with data that day, 20,160 minutes: all matched |
 | A repair of 28 October for POWR, DOGE and XRP, run locally into a scratch folder | 3 days rebuilt, 1,440 minutes each from 00:00 UTC; 3 metrics files; manifest marks them `rebuilt_from_trades` |
+| **The first real run**, 28 October, method `trades` (run 41810015217, 9 min 53 s) | 751 coins rebuilt, 1,081,440 rows (751 × 1,440); 751 coins and 18,024 hours in the hourly history; BTC's day joins its neighbours (opens at the 27th's close, closes at the 29th's open); `missing_days` empty but for yesterday; no warnings |
+| The 135 markets on the 27th and 29th but not the 28th | All dead contracts: zero trades and zero volume on both days, so no trades file. `data_health` marked the 28th *check*. This led to the flat day |
+| The flat day, 27 October, AGIX, AMB and ALPACA | Matches Binance's own flat files, every number of every minute |
 | `cut_from_month` for 28 October | Correctly finds no rows, because October's file skips the day |
 | The three workflow files | Valid YAML, inputs as expected |
 
@@ -98,13 +106,21 @@ with what was typed.
 - **The month's file skips the day too.** The 32a fill assumed the monthly file holds every day. For
   28 October it doesn't, and the fill said Binance hadn't finished publishing, which sent the owner to wait for
   something that would never come. Counting the rows per day in the monthly file found it.
+- **751 isn't a normal day any more.** The first real run filled every market that traded, but the days
+  either side have 881 and 887. The 135 missing were dead contracts with Binance's flat placeholder files, so
+  the repair now writes the same flat day for them.
+- **A check that skipped without a word.** The flat rule asks for the coin's candles the day after, and when
+  the check day is the 27th, the day after is the missing 28th. The dead contracts in the sample couldn't be
+  compared and were left out silently. The check now compares the content without that condition, looks for
+  two dead contracts if the sample has none, and says so if it can't find any.
 - **A test that would have written into the repo.** The repair uses separate processes, and on Windows each
   one starts from the module's own settings, so pointing the landing folder elsewhere from a test script
   wouldn't reach them. The local tests ran on a copy of the scripts in a scratch folder instead.
 
 ## Next
 
-- **Repair 28 October:** Lakehouse repair day, date `2026-10-28`, method `auto`. Then `market.gold.missing_days`
-  should be empty, and issue 15 is closed.
+- **Run 28 October again** with the flat day, method `trades`: the 135 dead contracts get their flat files,
+  and the coins already loaded are written under the same names, which bronze doesn't load twice. Then
+  `data_health` for the 28th should match its neighbours, and issue 15 is closed.
 - **The five markets with non-Latin names** (issue 43) have data only from 1 November. Their history before
   that is a separate backfill, not a repair.

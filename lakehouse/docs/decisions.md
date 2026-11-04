@@ -1001,12 +1001,14 @@ finished publishing, which wasn't true.
   for Binance's own file; `trades` uses only the trades.
 - **Rebuilt the way Binance builds candles.** First and last trade price, highest and lowest, quantities
   and USDT values added up, the number of trades, and the same for trades where the buyer took the price.
-  A minute with no trades stays at the last close with zero volume.
+  A minute with no trades stays at the last close with zero volume. A coin with no trades all day, a
+  delisted contract Binance still publishes, gets the flat day Binance itself writes for it: 1,440
+  minutes at its last price, every volume 0.
 - **Check before anything is saved.** The run first rebuilds a day Binance did publish from its trades
   and compares it with Binance's candles on 16 coins, every number of every minute. Any difference stops
   the repair before anything is written.
-- **Say how each file was made.** The day's manifest marks each candle file `saved`, `cut_from_month` or
-  `rebuilt_from_trades`, with no fingerprint. If Binance publishes the real daily file later, the
+- **Say how each file was made.** The day's manifest marks each candle file `saved`, `cut_from_month`,
+  `rebuilt_from_trades` or `flat_no_trades`, with no fingerprint. If Binance publishes the real daily file later, the
   recheck loads it under a new name and it replaces the repair.
 - **Same names, same path.** Repaired files land under the usual names, so bronze, silver and gold treat
   the day like any other, and the run ends with the usual transform and log.

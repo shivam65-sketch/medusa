@@ -17,7 +17,7 @@ every file that changed or appeared since:
   3. writes the day's updated manifest.
 The workflow then uploads data/landing as usual. A file that disappeared is only reported.
 
-A day mended by repair_day.py has files marked cut_from_month or rebuilt_from_trades, with no
+A day mended by repair_day.py has files marked cut_from_month, rebuilt_from_trades or flat_no_trades, with no
 fingerprint. If Binance publishes the real daily file later, it is loaded under a new name in the
 same way, so Binance's own file replaces the repair.
 
@@ -35,7 +35,7 @@ import sys
 import download_binance as db
 
 DEFAULT_MANIFESTS = pathlib.Path(__file__).resolve().parent.parent / "data" / "manifests"
-REPAIRED = ("cut_from_month", "rebuilt_from_trades")   # how repair_day.py records the files it made
+REPAIRED = ("cut_from_month", "rebuilt_from_trades", "flat_no_trades")   # how repair_day.py records the files it made
 
 
 def current_sha256(dataset, symbol, period):
