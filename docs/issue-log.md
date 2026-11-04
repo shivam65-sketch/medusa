@@ -45,7 +45,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 | [18](#issue-18) | 2026-10-30 | Lab data | *Download to this computer* refused | Limit | Closed |
 | [17](#issue-17) | 2026-10-29 | Journal | The CoinDCX key expired, and a new one asks for an IP | Limit | **Open**, parked by the owner |
 | [16](#issue-16) | 2026-10-29 | Markets | Insights graphs were empty | Explained | Closed |
-| [15](#issue-15) | 2026-10-29 | Lakehouse | The daily load failed twice | Source data | Waiting for Binance |
+| [15](#issue-15) | 2026-10-29 | Lakehouse | The daily load failed twice | Source data | Fixed |
 | [14](#issue-14) | 2026-10-25 | Lakehouse | A Databricks login test failed | Setup | Closed |
 | [13](#issue-13) | 2026-10-25 | Markets | A definition deleted in Databricks stayed on the page | Bug | Fixed |
 | [12](#issue-12) | 2026-10-25 | Markets | A query couldn't be edited | Request | Built |
@@ -486,9 +486,17 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 - **Seen:** the runs of 29 October failed, the second one by hand.
 - **Why:** Binance's archive has no 1-minute candles for 2026-10-28, on any coin, and its download check
   stops a day that isn't complete, as designed.
-- **State:** waiting for Binance. The live API has the candles, and October's monthly file is due around 2
-  November. The daily load can now cut a day out of a monthly file, tested against September's daily files.
+- **State:** waiting for Binance, until 4 November. October's monthly file came out but skips the 28th too,
+  so the fill from it found nothing and said Binance hadn't finished publishing, which wasn't true.
   See [19](#issue-19) for what changed around it.
+- **Change:** a repair started by hand, **Lakehouse repair day** (lakehouse step 32b). It rebuilds each
+  coin's day from Binance's trades for that day, which Binance did publish, and writes a dead contract with no
+  trades as the flat day Binance itself publishes for it. Before anything is saved it rebuilds the 27th the same
+  way and compares it with Binance's own candles.
+- **Checked:** the check matched Binance on 16 coins, every number of every minute, two of them dead
+  contracts. After two runs on 4 November, 28 October has 886 markets, each with 1,440 minutes and no
+  duplicates, the same as its neighbours (881 and 887): 751 rebuilt from trades and 135 flat. `data_health`
+  says *complete*, and `missing_days` no longer lists it.
 
 <a id="issue-14"></a>
 ### 14. A Databricks login test failed

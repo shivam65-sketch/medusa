@@ -5,6 +5,7 @@
 | | |
 |---|---|
 | **Built** | 2026-11-04, after 32a |
+| **Commits** | `226c0a0` (the repair), `98c20d1` (flat days for dead contracts, a stricter check, progress lines) |
 | **Files** | [`ingest/repair_day.py`](../../ingest/repair_day.py), [`.github/workflows/lakehouse-repair-day.yml`](../../../.github/workflows/lakehouse-repair-day.yml); changed: [`ingest/recheck_binance.py`](../../ingest/recheck_binance.py), [`ingest/download_binance.py`](../../ingest/download_binance.py), the daily load and load-one-day workflows |
 | **Decisions** | [ADR-039](../decisions.md#adr-039-a-day-binance-never-published-is-repaired-by-hand-from-the-months-file-or-its-trades-after-a-check) |
 | **Runbook** | [Repairing a day Binance never published](../operations.md#repairing-a-day-binance-never-published) |
@@ -98,6 +99,8 @@ with what was typed.
 | **The first real run**, 28 October, method `trades` (run 41810015217, 9 min 53 s) | 751 coins rebuilt, 1,081,440 rows (751 × 1,440); 751 coins and 18,024 hours in the hourly history; BTC's day joins its neighbours (opens at the 27th's close, closes at the 29th's open); `missing_days` empty but for yesterday; no warnings |
 | The 135 markets on the 27th and 29th but not the 28th | All dead contracts: zero trades and zero volume on both days, so no trades file. `data_health` marked the 28th *check*. This led to the flat day |
 | The flat day, 27 October, AGIX, AMB and ALPACA | Matches Binance's own flat files, every number of every minute |
+| The check on the real coin list with the flat rule | 16 of 16 coins compared and matched: 14 from trades, 2 dead contracts flat (PERP, UXLINK) |
+| **The second real run**, 28 October, method `trades` (run 41812103936, 10 min 24 s) | 886 markets, 1,275,840 rows (886 × 1,440), one file each, no duplicates; 886 in the hourly history; `data_health` *complete*, as on the 27th; no warnings |
 | `cut_from_month` for 28 October | Correctly finds no rows, because October's file skips the day |
 | The three workflow files | Valid YAML, inputs as expected |
 
@@ -113,14 +116,17 @@ with what was typed.
   the check day is the 27th, the day after is the missing 28th. The dead contracts in the sample couldn't be
   compared and were left out silently. The check now compares the content without that condition, looks for
   two dead contracts if the sample has none, and says so if it can't find any.
+- **A run that looked stuck.** The first version printed nothing between the check and the summary; it now
+  prints a line every 100 coins.
+- **A commit that would have carried compiled files.** Local runs left Python's `__pycache__` in the
+  repository; checking what Git would send caught it, and the folder is now ignored.
 - **A test that would have written into the repo.** The repair uses separate processes, and on Windows each
   one starts from the module's own settings, so pointing the landing folder elsewhere from a test script
   wouldn't reach them. The local tests ran on a copy of the scripts in a scratch folder instead.
 
 ## Next
 
-- **Run 28 October again** with the flat day, method `trades`: the 135 dead contracts get their flat files,
-  and the coins already loaded are written under the same names, which bronze doesn't load twice. Then
-  `data_health` for the 28th should match its neighbours, and issue 15 is closed.
+- **28 October is complete** (second run): issue 15 is closed. The 29th's *check* in `data_health` comes from
+  6 markets listed that day with part of a day each, not from the repair.
 - **The five markets with non-Latin names** (issue 43) have data only from 1 November. Their history before
   that is a separate backfill, not a repair.
