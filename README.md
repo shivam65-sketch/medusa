@@ -11,7 +11,7 @@ Version in <a href="public/version.json"><code>public/version.json</code></a> ·
 
 | Part | What it does | Runs on |
 |---|---|---|
-| **[Markets](#markets-the-live-scanner)** | A live scanner of every Binance USDT perpetual, about 750 markets. It flags what is unusual right now and shows what similar moves did next, tested on years held back. Every number is SQL you can read and edit | Your browser, with live prices from Binance and the history from the lakehouse |
+| **[Markets](#markets-the-live-scanner)** | A live scanner of every Binance USDT perpetual, about 750 markets. It flags what is unusual right now and what is breaking out of its range, and shows what similar moves did next, tested on years held back. Every number is SQL you can read and edit | Your browser, with live prices from Binance and the history from the lakehouse |
 | **[Risk](#risk)** | What has held up, when it works and how much to trade: the trend rule's state right now, position size, break-even, daily loss limit and Kelly, and the ideas tested that failed | Your browser, and Binance's public prices |
 | **[Journal](#what-it-does)** | Imports your closed CoinDCX futures trades: net P&L, win rate, drawdown, a trading calendar, P&L by coin, notes on each trade | Cloudflare |
 | **[MEDUSA Lab](#medusa-lab)** | Downloads any Binance coin's history and backtests Python strategies with costs, full reports, charts and a candle-by-candle replay | Your browser (Python with Pyodide) |
@@ -46,7 +46,7 @@ Each market's move today is compared with its own normal, its last 30 days from 
 
 **What similar moves did next is tested, not assumed.** The lakehouse records every unusual move since January 2020 and what the price did over the next 1, 4 and 24 hours, about 21,000 moves, delisted coins included. Each kind of move (direction, size, liquidity) gets a side chosen on 2020 to 2024 only, then checked on the years from 2025, which played no part in the choice, after 0.10% costs and counting days, not moves, because markets move together. On 1 November 2026, 5 of the 60 kinds of move and horizon held up. Everything else says *no pattern*, *did not hold* or *too few*, and stocks and commodities say *not tested*, because they have no 2020 to 2024 years.
 
-- **Today:** breadth, the median move, the markets unusual now with each one's verdict for the next 1, 4 and 24 hours, the day's movers, and every market with search and sorting. Each market shows its usual day and a **bad day**: how far it fell on 1 day in 20, judged by its last 30 days, a guide for sizing a position.
+- **Today:** breadth, the median move, the markets unusual now with each one's verdict for the next 1, 4 and 24 hours, a **Breakout watch** (markets in a quiet 3-day range with the price near its top, and markets above their range now), the day's movers, and every market with search and sorting. Each market shows its usual day and a **bad day**: how far it fell on 1 day in 20, judged by its last 30 days, a guide for sizing a position.
 - **Patterns:** every kind of move and its verdict, the patterns that held up, and which markets are in each group right now.
 - **Insights:** graphs that look for an edge, and the **playbook**: for each market unusual now, how many similar moves there were, the middle result over the next 1, 4 and 24 hours, how often they kept going, how far the worst 5% went either way, and the market's own past. The graphs show every market right now, every kind of move at a glance, year by year, the spread of outcomes, by the hour of the move, by size and liquidity, and the whole market by hour of the day.
 - **Choices at the top reach every graph and table they can:** the type of market, up or down moves, and the next 1, 4 or 24 hours. A second click removes a choice, and a line under each graph says which choices it follows.
@@ -201,7 +201,7 @@ To publish changes later, run `npx wrangler@4 deploy` again.
 **Market data from the lakehouse (optional).** The live scanner reads a daily copy of the market data
 lakehouse's tables (`lakehouse/README.md`). The tables are in `schema.sql`; an older install creates
 them with `npx wrangler@4 d1 execute medusa --remote --file=migrations/003_market.sql`, then
-`004_metrics.sql` (the metric definitions) and `006_missing_days.sql` the same way. The copy
+`004_metrics.sql` (the metric definitions), `006_missing_days.sql` and `007_breakout_range.sql` the same way. The copy
 arrives through `POST /api/market/ingest`, which only accepts requests carrying the
 `MARKET_INGEST_TOKEN` secret and can only replace those tables. Generate a token with
 `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`, save it with
@@ -335,7 +335,7 @@ The Lab's folders use Workers KV: 1 GB in total, 100,000 reads and 1,000 writes 
 - `src/ops.js`: MEDUSA's own failures for the lakehouse's operations logs: errors the server hits (`server_events`, no account), and `GET /api/ops/events`, read-only with its own token, which the lakehouse's daily run reads (the pages' error lines and the server events, emails replaced)
 - `src/metrics.js`: saving the Markets definitions to the lakehouse: `GET /api/market/metrics/mine` (the account's own versions), `POST /api/market/metrics/save`, `POST /api/market/metrics/reset`, `GET /api/market/metrics/history` and `POST /api/market/metrics/reload` (the owner only); signs in to Databricks as a service principal and runs parameterized statements through the SQL Statement API
 - `schema.sql`: the database tables (for a new install)
-- `migrations/`: upgrading a single-password database to accounts (`001_accounts.sql`, then `claim.sql`); the Lab's tables (`002_lab.sql`, optional); the market copy for the live scanner (`003_market.sql`), its metric definitions (`004_metrics.sql`), each account's own versions of them (`005_user_metrics.sql`) and the days the lakehouse is missing (`006_missing_days.sql`)
+- `migrations/`: upgrading a single-password database to accounts (`001_accounts.sql`, then `claim.sql`); the Lab's tables (`002_lab.sql`, optional); the market copy for the live scanner (`003_market.sql`), its metric definitions (`004_metrics.sql`), each account's own versions of them (`005_user_metrics.sql`) the days the lakehouse is missing (`006_missing_days.sql`) and each market's range for the Breakout watch (`007_breakout_range.sql`)
 - `lakehouse/`: the market data lakehouse: ingestion, pipelines, dbt models and tests, SQL definitions, serving and operations, with a document for every build step
 - `.github/workflows/`: the lakehouse's GitHub Actions workflows
 - `wrangler.example.toml`: the Cloudflare settings, without anyone's ids; copy it to `wrangler.toml` (step 4)

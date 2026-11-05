@@ -462,6 +462,9 @@ Today's move = live price / `last_close` − 1. Today's z-score = (today's move 
 | `avg_volatility_30d`, `sd_volatility_30d` | Average and spread of daily realised volatility |
 | `avg_quote_volume_30d`, `avg_log_volume_30d`, `sd_log_volume_30d` | USDT traded per day, and the average and spread of its logarithm |
 | `avg_abs_hour_return_30d` | Typical size of a one-hour move on the same days, to compare with a round trip's fees |
+| `high_3d`, `low_3d` | Highest high and lowest low of the last 3 days with trades, up to `as_of_date`: the range on the Breakout watch |
+| `high_2d`, `low_2d` | The same over the last 2 days; the page adds yesterday from Binance while `as_of_date` is the day before |
+| `avg_range_3d_30d` | The usual 3-day range: the average of (3-day high ÷ 3-day low − 1) over the window, full 3-day ranges only |
 
 **What the data looks like (2026-10-19):** 744 coins (740 trading); 731 with at least 20 days of
 history. Bitcoin: daily spread 1.70%, typical hour move 0.23%. Median trading coin: typical hour move
@@ -728,7 +731,7 @@ also writes the new version straight into `market_metrics` or `market_user_metri
 
 | D1 table | Key | From | Columns |
 |---|---|---|---|
-| `market_baseline` | `symbol` | `gold.coin_baseline` | `symbol`, `base_asset`, `status`, `as_of_date`, `last_close`, `history_days`, `avg_return_30d`, `sd_return_30d`, `avg_abs_return_30d`, `avg_quote_volume_30d`, `avg_log_volume_30d`, `sd_log_volume_30d`, `avg_abs_hour_return_30d` |
+| `market_baseline` | `symbol` | `gold.coin_baseline` | `symbol`, `base_asset`, `status`, `as_of_date`, `last_close`, `history_days`, `avg_return_30d`, `sd_return_30d`, `avg_abs_return_30d`, `avg_quote_volume_30d`, `avg_log_volume_30d`, `sd_log_volume_30d`, `avg_abs_hour_return_30d`, `high_3d`, `low_3d`, `high_2d`, `low_2d`, `avg_range_3d_30d` |
 | `market_evidence` | `direction`, `z_band`, `liquidity`, `horizon_hours` | `gold.event_evidence` | The key, `events`, `days`, `avg_continuation`, `median_continuation`, `hit_rate`, `in_sample_days`, `in_sample_avg_continuation`, `in_sample_t`, `held_back_days`, `held_back_avg_continuation`, `held_back_t`, `held_back_hit_rate`, `side`, `held_back_net_after_cost`, `verdict`, `round_trip_cost` |
 | `market_missing_days` | `trade_date` | `gold.missing_days` | `trade_date`, `status`. Usually empty. The page's warning (`waiting` left out) |
 | `market_metrics` | `metric_id` | `semantic.metric_definitions`, current versions only | `metric_id`, `version`, `kind`, `name`, `description`, `sql_text`, `display`, `valid_from` (`YYYY-MM-DD HH:MM:SS` text, UTC), `changed_by`, `change_note` |
@@ -785,7 +788,7 @@ anywhere: closing the tab deletes it.
 | Table | Key | Filled by | Columns |
 |---|---|---|---|
 | `live_prices` | `symbol` | Binance's live stream, upserted about once a second (and one price snapshot when the page opens) | `symbol`, `price` (last price), `quote_volume_24h` (USDT traded in the last 24 hours; empty until the market's first stream message) |
-| `binance_markets` | `symbol` | Binance's contract list (once a day) and Binance's daily candles | `symbol`, `market_type` (`crypto`, `stock`, `commodity` or `other`), `yesterday_close` (only while the lakehouse doesn't have yesterday) |
+| `binance_markets` | `symbol` | Binance's contract list (once a day) and Binance's daily candles | `symbol`, `market_type` (`crypto`, `stock`, `commodity` or `other`), `yesterday_close`, `yesterday_high`, `yesterday_low` (only while the lakehouse doesn't have yesterday) |
 | `market_events` | `symbol`, `event_date` | The Insights file, when Insights or a graph's window opens | `gold.intraday_events`' columns: `symbol`, `event_date`, `event_hour` (`YYYY-MM-DD HH:MM:SS`, UTC), `hour_of_day`, `direction`, `z` (3 decimals), `z_band`, `liquidity`, `move_so_far`, `fwd_return_1h`, `fwd_return_4h`, `fwd_return_24h` (6 decimals), `period`, `market_type` |
 | `market_hours` | `year`, `period`, `utc_hour`, `liquidity`, `market_type` | The same file | Every column of `gold.hour_drift`, dates as text. `market_type` is `all` if the file is older than that column |
 | `market_outcomes` | `market_type`, `direction`, `z_band`, `liquidity`, `horizon_hours`, `period` | The same file | Every column of `gold.move_outcomes`. Empty if the file is older than this table, and the playbook then says so |

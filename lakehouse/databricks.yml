@@ -204,6 +204,13 @@ resources:
             warehouse_id: ${var.warehouse_id}
             file:
               path: ./sql/seed/014_metric_definitions_verdict_days.sql
+        - task_key: seed_breakout_watch
+          depends_on:
+            - task_key: seed_verdict_days
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./sql/seed/015_metric_definitions_breakout_watch.sql
 
   # Bronze: loads new landing files into market.bronze. Runs when started, then stops.
   pipelines:

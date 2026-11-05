@@ -1,5 +1,6 @@
 -- Every coin dim_coin calls trading has a baseline, its baseline is from the latest few days, and
--- its numbers are possible (a positive price, 0 to 30 days of history, no negative spreads).
+-- its numbers are possible (a positive price, 0 to 30 days of history, no negative spreads, and a range
+-- that holds the last close, with the 3 days around the 2).
 -- Any row returned breaks one of those rules.
 with latest as (
     select max(trade_date) as latest_date from {{ ref('coin_daily') }}
@@ -27,3 +28,8 @@ where b.last_close <= 0
    or b.sd_return_30d < 0
    or b.sd_log_volume_30d < 0
    or (b.status = 'trading' and b.as_of_date < date_sub(l.latest_date, 2))
+   or b.low_2d <= 0
+   or b.last_close not between b.low_2d and b.high_2d
+   or b.high_3d < b.high_2d
+   or b.low_3d > b.low_2d
+   or b.avg_range_3d_30d < 0

@@ -287,7 +287,7 @@ time, and only browsers read them. The publish job checks them itself and sends 
 ### 3.7 Inside the browser: from tables to what you see
 
 Two tables exist only in the browser: `live_prices` (Binance's stream) and `binance_markets` (each market's
-type, and yesterday's close while the lakehouse is behind).
+type, and yesterday's close, high and low while the lakehouse is behind).
 
 ![From the browser's tables to the page](images/diagrams/browser-models.png)
 
@@ -439,7 +439,7 @@ One snapshot fills every price at the start.
 | Stream `!miniTicker@arr` | Binance | Stays open | All the time | Only in the tab's memory |
 | `GET /fapi/v1/ticker/price` | Binance | Every price | Page load | Tab's memory |
 | `GET /fapi/v1/exchangeInfo` | Binance | About 1 MB | Once a day per browser | Local storage, a short type per market |
-| `GET /fapi/v1/klines` | Binance | One small request per market | Once a day, only while the lakehouse is behind | Local storage |
+| `GET /fapi/v1/klines` | Binance | One small request per market | Once a day, only while the lakehouse is behind: yesterday's close, high and low | Local storage |
 
 The Binance requests go straight from your browser to Binance. MEDUSA's server is not involved, and doesn't
 know your prices. That is why a network that blocks Binance shows a *refused* stream even though the page
@@ -471,6 +471,10 @@ END AS prev_close
 For those hours the page fetches each market's daily candle from Binance, 6 at a time, and keeps them in
 local storage. The normal (`avg_return_30d`, `sd_return_30d`) stays a day older, which barely moves it. When
 the publish lands, `as_of_date` catches up and the page goes back to the lakehouse's own close.
+
+The Breakout watch's range works the same way. `ranges` takes the lakehouse's last 3 days (`high_3d`, `low_3d`) once it
+has yesterday. Until then it takes its last 2 days (`high_2d`, `low_2d`) and the high and low of the same daily candle
+from Binance, so the range is always the 3 days before today.
 
 ---
 

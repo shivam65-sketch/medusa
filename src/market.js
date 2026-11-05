@@ -31,6 +31,8 @@ export const TABLES = {
       symbol: TEXT, base_asset: TEXT, status: TEXT, as_of_date: DATE, last_close: NUM, history_days: INT,
       avg_return_30d: NUM, sd_return_30d: NUM, avg_abs_return_30d: NUM, avg_quote_volume_30d: NUM,
       avg_log_volume_30d: NUM, sd_log_volume_30d: NUM, avg_abs_hour_return_30d: NUM,
+      // The range, for the Breakout watch (migrations/007_breakout_range.sql).
+      high_3d: NUM, low_3d: NUM, high_2d: NUM, low_2d: NUM, avg_range_3d_30d: NUM,
     },
   },
   market_evidence: {

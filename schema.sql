@@ -205,7 +205,12 @@ CREATE TABLE IF NOT EXISTS market_baseline (
   avg_quote_volume_30d REAL,         -- USDT a day; also decides the liquidity band
   avg_log_volume_30d REAL,
   sd_log_volume_30d REAL,
-  avg_abs_hour_return_30d REAL
+  avg_abs_hour_return_30d REAL,
+  high_3d REAL,                      -- the range for the Breakout watch: highest high and lowest low of the
+  low_3d REAL,                       --   last 3 days with trades,
+  high_2d REAL,                      --   and of the last 2
+  low_2d REAL,
+  avg_range_3d_30d REAL              -- the usual 3-day range (high / low - 1) over 30 days
 );
 
 -- What moves like today's did next (from gold.event_evidence): one row per kind of move and horizon.

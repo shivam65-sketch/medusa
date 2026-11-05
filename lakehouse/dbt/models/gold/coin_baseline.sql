@@ -10,13 +10,21 @@
 -- The window is the coin's last 30 trading days up to and including as_of_date: for "today" that is
 -- the 30 days before today, the same baseline unusual_moves uses. Only days with trades count, so
 -- contracts Binance has delisted (flat, zero-volume candles) get no baseline.
+--
+-- The range, for the page's Breakout watch (ADR-041): the highest high and lowest low of the coin's last
+-- 3 days with trades, and of its last 2 (the page adds yesterday from Binance when the lakehouse doesn't
+-- have it yet), and its usual 3-day range: the average of (3-day high / 3-day low - 1) over the same 30 days.
 
 with traded_days as (
     select
         *,
-        row_number() over (partition by symbol order by trade_date desc) as days_back
+        row_number() over (partition by symbol order by trade_date desc) as days_back,
+        -- Each day with the 2 days with trades before it: a 3-day range ending that day.
+        max(high) over three_days / nullif(min(low) over three_days, 0) - 1 as range_3d,
+        count(*) over three_days                                           as days_in_range
     from {{ ref('coin_daily') }}
     where trades > 0
+    window three_days as (partition by symbol order by trade_date rows between 2 preceding and current row)
 ),
 
 last_30 as (
@@ -40,7 +48,12 @@ daily as (
         avg(quote_volume)                  as avg_quote_volume_30d,
         -- Volume on a log scale, as in unusual_moves: a doubling counts the same for every coin.
         avg(ln(quote_volume))              as avg_log_volume_30d,
-        stddev(ln(quote_volume))           as sd_log_volume_30d
+        stddev(ln(quote_volume))           as sd_log_volume_30d,
+        max(case when days_back <= 3 then high end) as high_3d,
+        min(case when days_back <= 3 then low end)  as low_3d,
+        max(case when days_back <= 2 then high end) as high_2d,
+        min(case when days_back <= 2 then low end)  as low_2d,
+        avg(case when days_in_range = 3 then range_3d end) as avg_range_3d_30d
     from last_30
     group by symbol
 ),
@@ -82,7 +95,12 @@ select
     d.avg_quote_volume_30d,
     d.avg_log_volume_30d,
     d.sd_log_volume_30d,
-    h.avg_abs_hour_return_30d
+    h.avg_abs_hour_return_30d,
+    d.high_3d,
+    d.low_3d,
+    d.high_2d,
+    d.low_2d,
+    d.avg_range_3d_30d
 from daily d
 left join coins c on c.symbol = d.symbol
 left join hourly h on h.symbol = d.symbol

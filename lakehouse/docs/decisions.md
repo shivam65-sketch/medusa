@@ -1059,5 +1059,38 @@ can decide the average.
 
 **Consequences:** 6 of the 60 verdicts change, all from *no pattern* to *too few*: up 6σ or more on small
 markets (26 days in 2020–2024) and down 4–6σ on small markets (22 days), each at 1, 4 and 24 hours. The 5
-*held up* and 5 *did not hold* stay. Counts on 2026-11-05, before the change: 35 *no pattern*, 15 *too few*;
-after: 29 and 21.
+*held up* and 5 *did not hold* stay. Counts before the change: 35 *no pattern*, 15 *too few*; after, live from
+transform run 17 on 2026-11-04: 29 and 21.
+
+## ADR-041: The Breakout watch joins a daily range from the lakehouse with the live price
+
+**Status:** Accepted, 2026-11-05 (step 32.4).
+
+**Context:** The owner wants to see a market as it starts to break out, like CLANKER on 3 November 2026, and decide
+for themselves whether to trade it. A breakout is the price leaving a range, so the page needs each market's range and
+its usual width. The live stream gives only the last 24 hours. Asking Binance for every market's hourly candles would be
+about 750 requests a page load. A test of buying such breakouts found no edge, so this is a description, not a signal.
+
+**Decision:**
+- **The range is the last 3 days with trades,** in UTC days: the highest high and lowest low. `gold.coin_baseline` keeps
+  them, the same over the last 2 days, and the usual width, the average 3-day range over its 30 days. They reach MEDUSA
+  with the rest of the baseline (migration 007).
+- **Yesterday comes from Binance until the lakehouse has it.** For most of the day the lakehouse's newest day is the day
+  before yesterday. The page already fetches yesterday's daily candle from Binance for its close, so it keeps the high and
+  low too, and the range is the lakehouse's last 2 days and that candle.
+- **Two lists, two rules.** *Setting up*: a range at most half as wide as usual, with the price within 3% under its top.
+  *Breaking out*: the price above the top, the ones just above it first. A market needs 20 days of history for a usual
+  width. Both lists show how wide the range is against usual and the last 24 hours' volume against a usual day.
+- **Queries like every other number:** a shared step, `ranges`, and the two lists, versioned in the lakehouse (seed 015)
+  and editable on the page, so the 3% and the half can be changed without a deploy.
+
+**Alternatives:**
+- *Hourly candles from Binance for every market.* An exact 72-hour range, but about 750 requests a load, the kind of
+  load Binance answers by blocking the browser for a while.
+- *Today's move and z only.* They exist already, but a large move isn't a breakout: a market can move 3σ inside a wide
+  range, or break a quiet range on a small move.
+- *An alert.* A browser notification only works while the tab is open, and phones often block it. The list comes first.
+
+**Consequences:** The lists update every second with the price, and the range once a day. A range is in whole UTC days,
+so a breakout that started late yesterday is in yesterday's range. If the lakehouse is two or more days behind, the
+range is its last 2 days and yesterday, without the days between. Nothing here says what happens next.

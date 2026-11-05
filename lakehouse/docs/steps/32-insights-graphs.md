@@ -4,10 +4,10 @@
 
 | | |
 |---|---|
-| **Built** | 32.1: 2026-10-26 to 30 · 32.2.1 and 32.2.2: 2026-11-01 · the rest of 32.2 and 32.3: next |
+| **Built** | 32.1: 2026-10-26 to 30 · 32.2.1 and 32.2.2: 2026-11-01 · 32.2.3 and 32.3: 2026-11-02 · 32.4: 2026-11-05 · the rest of 32.2: when open interest has years of history |
 | **Commits** | 32.1: `26a06bb` (the graph engine, the Insights view and these docs) · the live results · 32.2.1: `5ba4cbe`, `82339e1`, `cedf351`, `0f8faeb`, `849876a`, `d35f7f8` |
 | **Files** | [`dbt/models/gold/hour_drift.sql`](../../dbt/models/gold/hour_drift.sql) (the market by hour, every year) and its test · [`serving/publish_to_medusa.py`](../../serving/publish_to_medusa.py) (the Insights file) · [`sql/seed/003_metric_definitions_insights.sql`](../../sql/seed/003_metric_definitions_insights.sql) (version 1 of the 16 definitions) · `databricks.yml` (the seed task) · MEDUSA: [`public/markets-charts.js`](../../../public/markets-charts.js) (the graphs), `public/markets.js`, `public/markets-metrics.js`, `public/markets-sql.js`, `public/markets-window.js`, `src/market.js`, `src/metrics.js`, `src/worker.js` · [`dbt/models/gold/move_outcomes.sql`](../../dbt/models/gold/move_outcomes.sql) (how moves turned out) and its test |
-| **Decisions** | [ADR-034](../decisions.md#adr-034-the-insights-history-goes-to-medusa-as-one-gzip-file-kept-as-it-is) · [ADR-035](../decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page) · [ADR-037](../decisions.md#adr-037-market-type-comes-from-a-reference-list-and-only-tested-markets-get-a-verdict) · [ADR-038](../decisions.md#adr-038-how-far-moves-went-is-a-gold-table-not-a-query-on-the-page) |
+| **Decisions** | [ADR-041](../decisions.md#adr-041-the-breakout-watch-joins-a-daily-range-from-the-lakehouse-with-the-live-price) (32.4) · [ADR-034](../decisions.md#adr-034-the-insights-history-goes-to-medusa-as-one-gzip-file-kept-as-it-is) · [ADR-035](../decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page) · [ADR-037](../decisions.md#adr-037-market-type-comes-from-a-reference-list-and-only-tested-markets-get-a-verdict) · [ADR-038](../decisions.md#adr-038-how-far-moves-went-is-a-gold-table-not-a-query-on-the-page) |
 
 ## Goal
 
@@ -624,6 +624,47 @@ ETH MVRV shows −4.91% (t −3.0) from 2025 with nothing at all in the chosen y
 **Limits.** The market test covers the next 7 days only. Free data is Bitcoin, Ethereum and market-wide, so nothing here tests a single coin's own on-chain activity, and daily data can't speak to the next hour. Several signals have few weeks in a third from 2025 (stablecoin supply has 2), because
 their 2020 to 2024 cuts rarely apply now, so the held-back test is weak for them. The market index is the average daily move of
 every market. It says these series don't help time the next week. It doesn't say they are useless as a picture of the market.
+
+## 32.4: the Breakout watch
+
+**The request (5 November 2026).** The owner showed CLANKER's run from 11.43 to 23.85 on 3 and 4 November and asked
+for an indication that a market is about to break out, the decision to trade staying theirs. A test of buying such
+breakouts on every crypto perpetual since 2020 lost after costs in 2020 to 2024 (−0.53% a trade, t −2.8) and was flat
+from 2025, so the card describes and doesn't advise.
+
+**What it shows.** A card on Today, under *Unusual right now*, with two lists:
+
+| List | A market is in it when | Order |
+|---|---|---|
+| **Setting up** | Its range is at most half as wide as its usual 3-day range, and the price is within 3% under the top | Closest to the top first |
+| **Breaking out** | The price is above the top of its range | The ones just above it first |
+
+Columns: the market, the price, the top of the range, how far under or over it the price is, the range against usual
+(×0.5 is half as wide) and the last 24 hours' volume against a usual day.
+
+**How it works.** The range is the highest high and lowest low of the last 3 days with trades (UTC). The lakehouse adds
+them to `gold.coin_baseline` with the last 2 days' and `avg_range_3d_30d`, the average 3-day range over the same 30 days.
+They reach MEDUSA in the baseline's publish, so D1 needs 5 more columns (`migrations/007_breakout_range.sql`). Until the
+lakehouse has yesterday (for most of the day, since it publishes in the evening), the page uses its last 2 days and
+yesterday's daily candle from Binance, which it already fetched for the close and now keeps with its high and low
+([ADR-041](../decisions.md#adr-041-the-breakout-watch-joins-a-daily-range-from-the-lakehouse-with-the-live-price)). Three
+definitions: the shared step `ranges` and the lists `setting_up` and `breaking_out` (seed `015_metric_definitions_breakout_watch.sql`,
+task `seed_breakout_watch`).
+
+**Checked:**
+- The new `coin_baseline` query on the real `coin_daily`, read-only: 764 markets, none breaking the test's new rules (the last
+  close inside the 2-day range, the 3 days around the 2, no negative width). CLANKER's range on 2 November was 11.22 to
+  12.30, the top it crossed at 12.93 on 3 November at 19:00 UTC, 0.71 of its usual width. 104 markets were quiet.
+- The three queries on SQLite with made-up markets: a quiet one near its top in *Setting up*; one whose top came from
+  yesterday's Binance candle because the lakehouse was a day behind; one from the lakehouse's own 3 days; one too new and one
+  not trading in neither list; the type filter.
+- The local page with the real baseline and live prices: 33 setting up and 105 breaking out, the range from the lakehouse's
+  1 and 2 November and Binance's 3 November, no page errors, the ‹› window opens, the page fits a phone.
+- The migration on SQLite: the 5 columns added, and a second run stops at the first line without changing anything.
+- Both seeds parse in Databricks (`EXPLAIN`).
+
+**Limits.** Whole UTC days, so a breakout that began late yesterday sits inside yesterday's range. The volume is the last
+24 hours, not the last hour, so a sudden burst shows slowly. On a strong day, many markets break their 3-day high together.
 
 ## Next: 32.2 and 32.3
 

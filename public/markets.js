@@ -24,7 +24,7 @@
 // Each ‹› button opens one number's or graph's calculation in its own window (markets-window.html):
 // the same code with its own data, engine and live prices, running only that window's queries.
 
-import { DEFINITIONS } from './markets-metrics.js?v=13';
+import { DEFINITIONS } from './markets-metrics.js?v=14';
 import { chartHtml, chartColumns, drillAttrs } from './markets-charts.js?v=4';
 
 const RULE = { z: 3 };
@@ -32,7 +32,7 @@ const RULE = { z: 3 };
 const PUBLISHED_BY = 'usually by 20:00 UTC';
 const STREAM ='wss://fstream.binance.com/market/ws/!miniTicker@arr';
 const REST = 'https://fapi.binance.com/fapi/v1';
-const ENGINE = '/markets-sql.js?v=6';
+const ENGINE = '/markets-sql.js?v=7';
 const DAY = 86_400_000;
 const CHECK_EVERY = 5 * 60_000;   // how often an open page asks whether the lakehouse has published
 const HORIZONS = [1, 4, 24];
@@ -101,7 +101,7 @@ const SRC = { shared: [], mine: { rows: [], canSave: false, saves: 'own', name: 
 const rebuildDefs = () => { DEFS = ownOver(definitionsFrom(SRC.shared), SRC.mine.rows); };
 const BROWSER_TABLES = {   // column -> type, for an empty value in the first row of VALUES
   live_prices: { symbol: 'STRING', price: 'DOUBLE', quote_volume_24h: 'DOUBLE' },
-  binance_markets: { symbol: 'STRING', market_type: 'STRING', yesterday_close: 'DOUBLE' },
+  binance_markets: { symbol: 'STRING', market_type: 'STRING', yesterday_close: 'DOUBLE', yesterday_high: 'DOUBLE', yesterday_low: 'DOUBLE' },
 };
 
 const noComments = (sql) => sql.replace(/--[^\n]*/g, '');
@@ -441,11 +441,11 @@ function restartEngine() {
   startEngine();
 }
 
-/** binance_markets: each market's type, and yesterday's close where it came from Binance. */
+/** binance_markets: each market's type, and yesterday's close, high and low where they came from Binance. */
 function marketRows() {
   const bin = (S.ref && S.ref.binance) || new Map();
   const syms = new Set([...S.types.keys(), ...bin.keys()]);
-  return [...syms].map((s) => [s, (S.types.get(s) || {}).group || null, bin.get(s) ?? null]);
+  return [...syms].map((s) => [s, (S.types.get(s) || {}).group || null, ...(bin.get(s) || [null, null, null])]);
 }
 
 /** The queries to run now, for the view on screen. In a window, a preview runs each number that the
@@ -473,7 +473,7 @@ function jobs(preview = true) {
   if (S.view === 'patterns') out.push(...['patterns_summary', 'patterns_held', 'patterns_grid'].map((id) => job(id)));
   if (S.view === 'insights') out.push(...INSIGHTS.filter((g) => ready(g.id)).map((g) => job(g.id)));
   if (S.view === 'today') {
-    out.push(...['breadth', 'median_move', 'unusual_count', 'bitcoin', 'unusual', 'gainers', 'losers', 'markets'].map((id) => job(id)));
+    out.push(...['breadth', 'median_move', 'unusual_count', 'bitcoin', 'unusual', 'setting_up', 'breaking_out', 'gainers', 'losers', 'markets'].map((id) => job(id)));
     for (const sym of new Set([S.open, S.openAll])) if (sym) out.push(job('market', `market:${sym}`, { symbol: sym }));
   }
   return out;
@@ -566,8 +566,8 @@ const csvCell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"
 let PENDING = [];
 const SOURCES = {
   live_prices: () => `Binance's live prices, kept up to date from the stream while this ${S.win ? 'window' : 'page'} is open (last message ${clockS(S.lastMsg)}). Only in this browser.`,
-  binance_markets: () => `Each market's type from Binance's contract list (once a day), and yesterday's close from Binance's daily candle until the lakehouse publishes yesterday (${PUBLISHED_BY}). Only in this browser.`,
-  market_baseline: () => `Each market's normal (last close, average daily return, σ, days of history, average volume): MEDUSA's copy of the lakehouse's <code>gold.coin_baseline</code>, built by ${ghLink('coin_baseline.sql')}. Lakehouse day ${shortDay((S.data.published.market_baseline || {}).as_of)}.`,
+  binance_markets: () => `Each market's type from Binance's contract list (once a day), and yesterday's close, high and low from Binance's daily candle until the lakehouse publishes yesterday (${PUBLISHED_BY}). Only in this browser.`,
+  market_baseline: () => `Each market's normal (last close, average daily return, σ, days of history, average volume, its last days' highs and lows and its usual 3-day range): MEDUSA's copy of the lakehouse's <code>gold.coin_baseline</code>, built by ${ghLink('coin_baseline.sql')}. Lakehouse day ${shortDay((S.data.published.market_baseline || {}).as_of)}.`,
   market_evidence: () => `What similar moves did next: MEDUSA's copy of the lakehouse's <code>gold.event_evidence</code>, built by ${ghLink('event_evidence.sql')}. Lakehouse day ${shortDay((S.data.published.market_evidence || {}).as_of)}.`,
   market_events: () => `Every unusual move since 2020 and the price 1, 4 and 24 hours later: MEDUSA's copy of the lakehouse's <code>gold.intraday_events</code>, built by ${ghLink('intraday_events.sql')}${insDay()}. It reaches this browser in one file when a graph needs it, and isn't in D1.`,
   market_hours: () => `The whole market's move in each UTC hour, by year and liquidity: MEDUSA's copy of the lakehouse's <code>gold.hour_drift</code>, built by ${ghLink('hour_drift.sql')}${insDay()}. In the same file.`,
@@ -634,7 +634,7 @@ function queryLive(id, key = id) {
 /** What each ‹› button opens in its own window: the numbers whose calculation it shows. */
 const WINDOWS = {
   breadth: ['breadth'], median_move: ['median_move'], unusual_count: ['unusual_count'], bitcoin: ['bitcoin'],
-  unusual: ['unusual'], movers: ['gainers', 'losers'], markets: ['markets'], market: ['market'],
+  unusual: ['unusual'], breakouts: ['setting_up', 'breaking_out'], movers: ['gainers', 'losers'], markets: ['markets'], market: ['market'],
   patterns: ['patterns_summary', 'patterns_held', 'patterns_grid', 'unusual_all_types'],
   // Insights (lakehouse step 32): each graph's calculation, and the windows a click on a graph opens.
   ins_live: ['insight_live_map'], ins_patterns: ['insight_patterns_map'], ins_year: ['insight_by_year'],
@@ -1157,6 +1157,9 @@ table.mkt-table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 .mkt-movers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .mkt-movers h3 { font-size: 15px; margin: 0 0 6px; color: var(--text-2); }
 @media (max-width: 760px) { .mkt-movers { grid-template-columns: minmax(0, 1fr); } }
+.mkt-bo + .mkt-bo { margin-top: 18px; }
+.mkt-bo h3 { font-size: 15px; margin: 0 0 6px; color: var(--text-2); }
+.mkt-bo .scroll-x { max-height: 380px; overflow: auto; }
 .mkt-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; max-width: 100%; }
 .mkt-tools .input { width: 170px; height: 38px; }
 @media (max-width: 640px) {
@@ -1322,6 +1325,10 @@ function shell() {
       <div id="mkt-unusual"></div>
     </section>
     <section class="card">
+      <div class="card-head"><div><h2>Breakout watch</h2><p>Each market's <b>range</b> is the high and low of its last 3 days (UTC). <b>Setting up</b>: a quiet range, at most half as wide as its usual 3-day range, with the price within 3% under its top. <b>Breaking out</b>: the price is above the top now, earliest first. They describe the chart; they aren't a tested signal.</p></div>${srcBtn('breakouts')}</div>
+      <div id="mkt-breakouts"></div>
+    </section>
+    <section class="card">
       <div class="card-head"><div><h2>Movers today</h2><p>The biggest moves since yesterday's close (UTC)</p></div>${srcBtn('movers')}</div>
       <div id="mkt-movers"></div>
     </section>
@@ -1348,6 +1355,7 @@ function shell() {
         <li><b>Each market's normal</b> comes from MEDUSA's market data lakehouse: the average and spread (σ) of its daily moves over its last 30 days with trades, built from Binance's checked daily files and published once a day (${PUBLISHED_BY}). If a day didn't arrive, the top of this page says so and the daily load tries it again for a week.</li>
         <li><b>Live prices</b> come straight from Binance to this browser, about once a second. MEDUSA's server never sees them.</li>
         <li><b>Every number here is calculated by SQL</b>, in a small SQLite database inside this browser that holds the lakehouse's tables and the live prices. The queries are kept in the lakehouse too, with every version, and published to MEDUSA with the data. They run about once a second; each <b>‹›</b> button opens one in its own window, live: the query exactly as it runs, which version it is, its result, and a copy that runs in MEDUSA's database or in Databricks.</li>
+        <li><b>Breakout watch</b> compares the live price with each market's range, the high and low of its last 3 days with trades: the lakehouse's days, and yesterday's from Binance's daily candle until the lakehouse has it. Its usual range is the average 3-day range over its last 30 days.</li>
         <li><b>Today's move</b> is measured from yesterday's close (UTC). Its size (z) is that move in the market's usual daily moves; ${RULE.z} or more either way is flagged as unusual: the same rule the lakehouse applies to every hour since 2020.</li>
         <li><b>The evidence</b> shows what similar moves (same direction, size and liquidity) did over the next 1, 4 and 24 hours since 2020. Each side (follow the move or fade it) was chosen on 2020–2024 and checked on 2025 onwards, which played no part in choosing it, after 0.10% trading costs. Most kinds of move show no pattern that held; the Patterns view lists them all. Stocks and commodities show <b>not tested</b>: Binance only listed them from December 2025, so they have no 2020–2024 years to test, and their moves aren't in the evidence.</li>
         <li><b>Live numbers are unchecked</b> until the next day's batch run. History is no promise: costs differ by market and funding isn't counted. This is research, not trading advice.</li>
@@ -1455,6 +1463,7 @@ function draw() {
   if (S.view === 'insights') { paintInsights(); return; }
   paintKpis();
   paintUnusual();
+  paintBreakouts();
   paintMovers();
   paintAll();
 }
@@ -1533,6 +1542,16 @@ function paintUnusual() {
   // The chosen market's details sit under the table (not in it), so the text always fits the screen.
   const open = S.open && objects(res).some((o) => o.market === S.open) ? marketDetail(S.open) : '';
   put('mkt-unusual', `${table}${KEY}${open}`);
+}
+
+/** Breakout watch: two lists, one under the other, each scrolling on its own when it is long. */
+function paintBreakouts() {
+  const part = (id, none) => {
+    const res = S.res.get(id), d = DEFS.get(id);
+    const body = !res ? pending() : res.error ? failed(res) : !res.rows.length ? `<div class="mkt-empty">${S.live.size ? none : 'Waiting for prices…'}</div>` : resultTable(res, d);
+    return `<div class="mkt-bo"><h3>${esc(d.name)}${res && res.rows && res.rows.length ? ` <span class="faint">${FMT.int(res.rows.length)}</span>` : ''}</h3>${body}</div>`;
+  };
+  put('mkt-breakouts', `<div>${part('setting_up', `No ${KIND_WORD[S.kind]}market has a quiet range with the price near its top.`)}${part('breaking_out', `No ${KIND_WORD[S.kind]}market is above its 3-day range.`)}</div>`);
 }
 
 function paintMovers() {
@@ -2055,9 +2074,11 @@ async function ensureRef() {
   }
   let src = 'lakehouse', missing = 0;
   if (need.length) {
-    const cached = api.store.get(`mkt.close.${day}`, {}) || {};
-    const todo = need.filter((s) => !(cached[s] > 0));
-    need.forEach((s) => { if (cached[s] > 0) { close.set(s, cached[s]); binance.set(s, cached[s]); } });
+    // Each market's [close, high, low] from yesterday's daily candle, kept for the day.
+    const cached = api.store.get(`mkt.day.${day}`, {}) || {};
+    const kept = (s) => Array.isArray(cached[s]) && cached[s][0] > 0;
+    const todo = need.filter((s) => !kept(s));
+    need.forEach((s) => { if (kept(s)) { close.set(s, cached[s][0]); binance.set(s, cached[s]); } });
     S.refTotal = need.length; S.refDone = need.length - todo.length;
     schedule();
     const start = Date.parse(`${day}T00:00:00Z`);
@@ -2069,8 +2090,8 @@ async function ensureRef() {
         if (r.status === 418 || r.status === 429) { stop = true; return; }   // Binance asks us to slow down: stop here
         const k = r.ok ? await r.json() : null;
         if (Array.isArray(k) && k[0] && k[0][0] === start && Number(k[0][4]) > 0) {
-          const c = Number(k[0][4]);
-          close.set(sym, c); binance.set(sym, c); cached[sym] = c;
+          const day3 = [Number(k[0][4]), Number(k[0][2]), Number(k[0][3])];   // close, high, low
+          close.set(sym, day3[0]); binance.set(sym, day3); cached[sym] = day3;
         }
       } catch { /* this market stays unscored */ }
       S.refDone++;
@@ -2079,8 +2100,8 @@ async function ensureRef() {
     const queue = [...todo];
     await Promise.all(Array.from({ length: 6 }, async () => { while (queue.length) await one(queue.shift()); }));
     if (todo.length) {
-      try { for (let i = localStorage.length - 1; i >= 0; i--) { const k = localStorage.key(i); if (k && k.startsWith('j.mkt.close.') && k !== `j.mkt.close.${day}`) localStorage.removeItem(k); } } catch { /* storage blocked */ }
-      api.store.set(`mkt.close.${day}`, cached);
+      try { for (let i = localStorage.length - 1; i >= 0; i--) { const k = localStorage.key(i); if (k && (k.startsWith('j.mkt.close.') || (k.startsWith('j.mkt.day.') && k !== `j.mkt.day.${day}`))) localStorage.removeItem(k); } } catch { /* storage blocked */ }
+      api.store.set(`mkt.day.${day}`, cached);
     }
     missing = need.filter((s) => !close.has(s)).length;
     src = missing === need.length ? 'none' : 'binance';

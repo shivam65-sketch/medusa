@@ -41,7 +41,7 @@ TABLES = {
     "market_baseline": """
         select symbol, base_asset, status, cast(as_of_date as string) as as_of_date, last_close, history_days,
                avg_return_30d, sd_return_30d, avg_abs_return_30d, avg_quote_volume_30d, avg_log_volume_30d,
-               sd_log_volume_30d, avg_abs_hour_return_30d
+               sd_log_volume_30d, avg_abs_hour_return_30d, high_3d, low_3d, high_2d, low_2d, avg_range_3d_30d
         from market.gold.coin_baseline""",
     "market_evidence": """
         select direction, z_band, liquidity, horizon_hours, events, days, avg_continuation, median_continuation,

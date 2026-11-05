@@ -48,6 +48,9 @@
 
 const Z_TIP = "How many times bigger today's move is than this market's usual daily move (σ). 3σ or more is unusual.";
 const LIQ_TIP = 'Average daily volume over 30 days: large ≥ 100 million USDT, mid ≥ 10 million, small below';
+const RANGE_TOP = { name: 'range_top', label: 'Range top', format: 'price', title: 'The highest price of its last 3 days (UTC)' };
+const RANGE_X = { name: 'range_x', label: 'Range vs usual', format: 'times', title: 'How wide its 3-day range is against its usual 3-day range over 30 days: ×0.5 is half as wide' };
+const VOLUME_X = { name: 'volume_x', label: 'Volume', format: 'times', title: 'USDT traded in the last 24 hours ÷ its usual day' };
 const BAD_TIP = "How far this market fell on 1 day in 20, judged by its last 30 days. A guide for sizing a position, not a limit: days past it typically went 1.3 times as far.";
 
 const COL = {
@@ -128,6 +131,29 @@ FROM market_now`,
        CASE WHEN market_type IN ('crypto', 'other') THEN 1 ELSE 0 END AS tested   -- stocks and commodities have no 2020-2024 years to test
 FROM today
 WHERE ABS(z) >= 3                                           -- unusual: 3 or more usual daily moves`,
+  },
+  {
+    id: 'ranges',
+    kind: 'model',
+    name: "Each market's range",
+    description: "Each trading market's range, the high and low of its last 3 days with trades, against its usual 3-day range and the live price.",
+    sql: `SELECT n.symbol,
+       n.market_type,
+       n.price,                                         -- the live price (Binance's stream)
+       CASE WHEN b.as_of_date >= :yesterday OR m.yesterday_high IS NULL THEN b.high_3d   -- the lakehouse's last 3 days
+            WHEN m.yesterday_high > b.high_2d THEN m.yesterday_high   -- else its last 2 and yesterday from Binance's daily candle
+            ELSE b.high_2d
+       END AS range_top,
+       CASE WHEN b.as_of_date >= :yesterday OR m.yesterday_low IS NULL THEN b.low_3d
+            WHEN m.yesterday_low < b.low_2d THEN m.yesterday_low
+            ELSE b.low_2d
+       END AS range_bottom,
+       b.avg_range_3d_30d AS usual_range,               -- its average 3-day range over 30 days (top ÷ bottom − 1)
+       n.quote_volume_24h / NULLIF(n.avg_quote_volume_30d, 0) AS volume_x,   -- the last 24 hours ÷ a usual day
+       n.history_days
+FROM market_now n
+JOIN market_baseline b ON b.symbol = n.symbol
+LEFT JOIN binance_markets m ON m.symbol = n.symbol`,
   },
   {
     id: 'verdicts',
@@ -233,6 +259,49 @@ LEFT JOIN verdicts v ON v.direction = f.direction AND v.z_band = f.z_band AND v.
 LEFT JOIN verdicts w ON w.direction = f.direction AND w.z_band = 'all' AND w.liquidity = 'all'
 WHERE :kind IN ('all', f.market_type)
 ORDER BY ABS(f.z) DESC`,
+  },
+  {
+    id: 'setting_up',
+    kind: 'metric',
+    name: 'Setting up',
+    description: 'Markets in a quiet range, at most half as wide as their usual 3-day range, with the price within 3% under its top. Closest to the top first.',
+    columns: [COL.market, COL.price, RANGE_TOP,
+      { name: 'below_top_pct', label: 'Below top', format: 'pct_plain', title: 'How far the price is under the top of its range' },
+      RANGE_X, VOLUME_X],
+    sql: `SELECT symbol AS market,
+       price,
+       range_top,
+       ROUND(100 * (1 - price / range_top), 2) AS below_top_pct,           -- how far under the top
+       ROUND((range_top / range_bottom - 1) / usual_range, 2) AS range_x,  -- its range ÷ its usual 3-day range
+       ROUND(volume_x, 1) AS volume_x
+FROM ranges
+WHERE history_days >= 20                                -- a usual range from 20 days or more
+  AND usual_range > 0
+  AND range_top / range_bottom - 1 <= 0.5 * usual_range  -- quiet: at most half its usual range
+  AND price <= range_top AND price >= 0.97 * range_top   -- within 3% under the top
+  AND :kind IN ('all', market_type)
+ORDER BY price / range_top DESC`,
+  },
+  {
+    id: 'breaking_out',
+    kind: 'metric',
+    name: 'Breaking out',
+    description: 'Markets whose price is above the top of their 3-day range now, the ones just above it first.',
+    columns: [COL.market, COL.price, RANGE_TOP,
+      { name: 'above_top_pct', label: 'Above top', format: 'pct', title: 'How far the price is over the top of its range' },
+      RANGE_X, VOLUME_X],
+    sql: `SELECT symbol AS market,
+       price,
+       range_top,
+       ROUND(100 * (price / range_top - 1), 2) AS above_top_pct,           -- how far over the top
+       ROUND((range_top / range_bottom - 1) / usual_range, 2) AS range_x,  -- its range ÷ its usual 3-day range
+       ROUND(volume_x, 1) AS volume_x
+FROM ranges
+WHERE history_days >= 20
+  AND usual_range > 0
+  AND price > range_top                                  -- above its last 3 days
+  AND :kind IN ('all', market_type)
+ORDER BY price / range_top ASC`,
   },
   {
     id: 'gainers',

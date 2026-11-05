@@ -16,7 +16,8 @@ const SCHEMA = `
 CREATE TABLE market_baseline (
   symbol TEXT PRIMARY KEY, base_asset TEXT, status TEXT, as_of_date TEXT NOT NULL, last_close REAL NOT NULL,
   history_days INTEGER, avg_return_30d REAL, sd_return_30d REAL, avg_abs_return_30d REAL,
-  avg_quote_volume_30d REAL, avg_log_volume_30d REAL, sd_log_volume_30d REAL, avg_abs_hour_return_30d REAL
+  avg_quote_volume_30d REAL, avg_log_volume_30d REAL, sd_log_volume_30d REAL, avg_abs_hour_return_30d REAL,
+  high_3d REAL, low_3d REAL, high_2d REAL, low_2d REAL, avg_range_3d_30d REAL
 );
 CREATE TABLE market_evidence (
   direction TEXT NOT NULL, z_band TEXT NOT NULL, liquidity TEXT NOT NULL, horizon_hours INTEGER NOT NULL,
@@ -27,7 +28,7 @@ CREATE TABLE market_evidence (
   PRIMARY KEY (direction, z_band, liquidity, horizon_hours)
 );
 CREATE TABLE live_prices (symbol TEXT PRIMARY KEY, price REAL, quote_volume_24h REAL);
-CREATE TABLE binance_markets (symbol TEXT PRIMARY KEY, market_type TEXT, yesterday_close REAL);
+CREATE TABLE binance_markets (symbol TEXT PRIMARY KEY, market_type TEXT, yesterday_close REAL, yesterday_high REAL, yesterday_low REAL);
 -- The Insights data (lakehouse step 32), with the lakehouse's own column names, so a query runs in
 -- Databricks too: every unusual move since 2020 (gold.intraday_events) and the market's move in each
 -- UTC hour, by year (gold.hour_drift). Loaded when Insights opens, from one gzip file.
@@ -145,7 +146,7 @@ onmessage = async (e) => {
     if (op === 'run') {
       const loaded = insights ? await loadInsights(insights) : null;
       if (load) { replace('market_baseline', load.market_baseline); replace('market_evidence', load.market_evidence); }
-      if (markets) replace('binance_markets', { columns: ['symbol', 'market_type', 'yesterday_close'], rows: markets });
+      if (markets) replace('binance_markets', { columns: ['symbol', 'market_type', 'yesterday_close', 'yesterday_high', 'yesterday_low'], rows: markets });
       if (prices && prices.length) upsertPrices(prices);
       postMessage({ id, ok: true, result: runAll(jobs || []), insights: loaded });
     } else {

@@ -14,6 +14,7 @@ The data engineering terms used in this project, in plain words.
 | **Audit log** | A record of what happened that is never changed afterwards, so it can be trusted | `ops.logs.etl_runs` and the tables under it |
 | **Auto Loader** | Databricks' incremental file loader: it remembers which files it has loaded and reads only new ones | Bronze pipeline |
 | **Backfill** | Running the pipeline for past dates to load history | `lakehouse-backfill.yml` |
+| **Breakout (Breakout watch)** | The price leaving its range, the high and low of a market's last 3 days. *Setting up*: a range at most half as wide as usual with the price within 3% under its top. *Breaking out*: the price above the top. A description of the chart, not a tested signal | `ranges`, the Breakout watch on Today ([step 32.4](steps/32-insights-graphs.md#324-the-breakout-watch)) |
 | **Bad day** | How far a market fell on 1 day in 20, judged by its last 30 days: its average daily return − 1.645 × σ. A guide for sizing a position, not a limit: days past it typically went 1.3 times as far | `today`, the *Bad day* column |
 | **Basis point (bp)** | One hundredth of a percent: 0.01%, or 0.0001 as a fraction | The market by hour of the day, in Insights |
 | **Bitemporal** | Tracking both when something was true in the world and when the warehouse knew it | `dim_coin` after the backfill |

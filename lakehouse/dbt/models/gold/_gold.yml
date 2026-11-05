@@ -404,6 +404,16 @@ models:
         description: Standard deviation of ln(USDT traded per day).
       - name: avg_abs_hour_return_30d
         description: Average size of a one-hour move on the same days, to compare with a round trip's fees.
+      - name: high_3d
+        description: Highest high of the coin's last 3 days with trades, up to and including as_of_date. The top of its range on the Breakout watch.
+      - name: low_3d
+        description: Lowest low of the same 3 days.
+      - name: high_2d
+        description: Highest high of the last 2 days with trades. The page adds yesterday from Binance when as_of_date is the day before.
+      - name: low_2d
+        description: Lowest low of the last 2 days with trades.
+      - name: avg_range_3d_30d
+        description: The usual 3-day range, the average of (3-day high / 3-day low - 1) over the window, counting only full 3-day ranges.
 
   - name: intraday_events
     description: >

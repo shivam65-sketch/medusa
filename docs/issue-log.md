@@ -16,7 +16,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
-| [46](#issue-46) | 2026-11-05 | Markets | A verdict said *no pattern* about years that hardly had the moves | Bug | Built, waiting to go live |
+| [46](#issue-46) | 2026-11-05 | Markets | A verdict said *no pattern* about years that hardly had the moves | Bug | Fixed |
 | [44](#issue-44) | 2026-11-02 | Markets | Patterns showed fades as held up without counting funding | Bug | Fixed |
 | [43](#issue-43) | 2026-11-02 | Lakehouse | Five markets with non-Latin names were never loaded | Bug | Fixed |
 | [42](#issue-42) | 2026-11-02 | Markets | A window's editor showed code that isn't in the query beside it | Bug | Fixed |
@@ -79,9 +79,10 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
   decided* and a verdict's window say 30. The playbook's own numbers still need 20, because they describe and don't test;
   its description says so (seed 014). The FAQ explains that a verdict is about the group, not the coin.
 - **Checked:** the verdicts with fewer than 40 days in either period, read before the change: exactly those 6 rows fall
-  under 30, and no *held up* or *did not hold* row is among them. The seed parses in Databricks (`EXPLAIN`). Not yet
-  checked: the live page after the transform.
-- **State:** built, waiting to go live.
+  under 30, and no *held up* or *did not hold* row is among them. The seed parses in Databricks (`EXPLAIN`). Live: commit
+  `ce4b32c`, the seed at 19:39 UTC on 4 November (`past_kinds` v2), **Lakehouse transform** run 17 in 3 min 58 s. The verdicts
+  now read 21 *too few*, 29 *no pattern*, 5 *did not hold* and 5 *held up*, as expected.
+- **State:** fixed.
 
 <a id="issue-44"></a>
 ### 44. Patterns showed fades as held up without counting funding

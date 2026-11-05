@@ -269,6 +269,16 @@ end of the hours, so a stop can be hit sooner. Only the **Verdict** has passed a
 before costs. A click on an aggregate opens that number and the moves behind it
 ([step 32.2.2](steps/32-insights-graphs.md#3222-the-playbook)).
 
+## What is the Breakout watch, and should I trade it?
+
+A card on Today that compares each market's live price with its range, the high and low of its last 3 days. *Setting
+up* lists quiet ranges, at most half as wide as usual, with the price within 3% under the top: a market that may be
+about to break out. *Breaking out* lists markets above their range now, the ones that have just crossed first, so
+*Above top* shows how early it still is and *Volume* whether the market is joining in. It is a description: buying
+every such breakout since 2020 lost money after costs before 2025 and broke even after. The 3% and the half are in
+the query, so a saved version of `setting_up` can use others
+([ADR-041](decisions.md#adr-041-the-breakout-watch-joins-a-daily-range-from-the-lakehouse-with-the-live-price)).
+
 ## A coin listed in 2025 shows a verdict tested on 2020–2024. How?
 
 The verdict is about the kind of move, not the coin: its direction, its size and the market's liquidity, pooled

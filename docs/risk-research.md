@@ -62,6 +62,25 @@ A search of 3,360 mixes found 15 that passed, where luck would give about 1. The
 
 This matters for the Patterns view: its verdicts count trading costs but not funding, and it now says so.
 
+### Buying breakouts from a range
+
+Asked on 5 November 2026 after CLANKER's run from 11.43 to 23.85. Every crypto perpetual's hourly candles since 2020,
+delisted coins included. The signal: an hour closes above the last 72 hours' high on 3 times their average hourly
+volume; buy at the next hour's open, one trade per coin a week, 0.16% round trip, funding not counted.
+
+| Rule | 2020–2024 | From 2025 |
+|---|---|---|
+| A: the 72 hours at most half as wide as usual. Stop at the last 24 hours' low, up to 7 days | −0.89% a trade, t −3.6 (4,007) | +0.37%, t +0.3 (5,241) |
+| A, sold after 24 hours | −0.84%, t −3.6 | −1.00%, t −3.8 |
+| B: any 72-hour range (chosen after seeing CLANKER, so a second look). Same stop | −0.53%, t −2.8 (12,902) | −0.06%, t −0.1 (15,619) |
+| B, sold after 24 hours | −0.10%, t −0.5 | −0.56%, t −2.3 |
+
+About 1 in 5 breakouts ran 20% within a week, and another 1 in 5 never got 3% above the entry; 7 in 10 trades lost.
+From 2025, A's small gain comes from three trades (RAVE +5,456% in April 2026, MYX twice about +1,000%); without the
+best 0.5% it is −1.8% a trade. Breakouts bought within 2% of the range did best, but still lost in 2020–2024. Rule B
+bought CLANKER at 12.94 on 3 November and was +84% a day later; it also fired 28,527 times. The Markets page's
+Breakout watch shows these setups as a description, not as a signal.
+
 ### Scalping
 
 22 methods on 1-minute candles for BTC, ETH, SOL, XRP, BNB and DOGE, 2021 to September 2026: 132 tests.
