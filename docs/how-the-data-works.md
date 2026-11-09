@@ -843,6 +843,7 @@ day. What it did about that is in the
 | For | See |
 |---|---|
 | Every column of every table | [Data dictionary](../lakehouse/docs/data-dictionary.md) |
+| How each column is made, with its SQL | [Lineage and transformations](../lakehouse/docs/lineage/README.md) |
 | Where each part runs, and the free-plan limits | [Architecture](../lakehouse/docs/architecture.md) |
 | What to do when something fails | [Operations](../lakehouse/docs/operations.md) |
 | How each piece was built, step by step | [Lakehouse home](../lakehouse/README.md) |

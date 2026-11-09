@@ -51,6 +51,7 @@ drillable into the moves behind it ([step 32](docs/steps/32-insights-graphs.md))
 | Page | What's in it |
 |---|---|
 | [How the data works](../docs/how-the-data-works.md) | The whole journey in detail: every table and how they relate, a day in the pipeline, a page refresh, one number followed from Binance to the screen, tracing a problem upstream |
+| [Lineage and transformations](docs/lineage/README.md) | How every column of every table is made: its upstream columns, the SQL and the tests that check it, from Binance's files to the Markets page |
 | [Questions and answers](docs/faq.md) | How the daily pipeline works, in short: workflows, schedule, what is re-read, where data is kept |
 | [Architecture](docs/architecture.md) | Components, data flow, where each part runs, free-plan limits |
 | [Decisions](docs/decisions.md) | Why each tool and design was chosen (and what was left out) |

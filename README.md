@@ -83,7 +83,7 @@ The history behind the scanner, built as a data engineering project in [`lakehou
 
 Built with Databricks Free Edition (Unity Catalog, Delta, Lakeflow pipelines, a SQL warehouse, Asset Bundles), dbt Core and GitHub Actions.
 
-**Where to read more:** [`lakehouse/README.md`](lakehouse/README.md) for the layers and every build step, and [`docs/how-the-data-works.md`](docs/how-the-data-works.md) for one number followed from a Binance file to the screen. Every problem reported, with its cause and fix, is in [`docs/issue-log.md`](docs/issue-log.md).
+**Where to read more:** [`lakehouse/README.md`](lakehouse/README.md) for the layers and every build step, [`docs/how-the-data-works.md`](docs/how-the-data-works.md) for one number followed from a Binance file to the screen, and [`lakehouse/docs/lineage/`](lakehouse/docs/lineage/README.md) for how every column of every table is made. Every problem reported, with its cause and fix, is in [`docs/issue-log.md`](docs/issue-log.md).
 
 ## How it fits together
 
@@ -342,6 +342,7 @@ The Lab's folders use Workers KV: 1 GB in total, 100,000 reads and 1,000 writes 
 - `wrangler.example.toml`: the Cloudflare settings, without anyone's ids; copy it to `wrangler.toml` (step 4)
 - `CHANGELOG.md`: every release and what changed in it (the current version is in `public/version.json`)
 - `docs/how-the-data-works.md`: from a Binance file to a number on the Markets page: every table and how they relate, a day in the pipeline, a page refresh, the one-second loop, one number followed all the way, and how to trace a problem back upstream
+- `lakehouse/docs/lineage/`: lineage and transformations: how every column of every table is made, from Binance's files to the Markets page, with the SQL and the tests that check it
 - `docs/risk-research.md`: the tests behind the Risk page, on crypto, Indian futures and other markets
 - `docs/issue-log.md`: every problem reported on MEDUSA: what was seen, why it happened, what changed and how it was checked
 - `docs/images/`: the screenshots in this README

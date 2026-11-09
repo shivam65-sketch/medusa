@@ -4,6 +4,7 @@
 
 Every dataset and table, with what the data really looks like. Numbers come from the loads of
 2026-10-18 and 2026-10-19.
+How each column is made, with the SQL behind it, is in [Lineage and transformations](lineage/README.md).
 
 ## Catalogs, descriptions and tags
 
