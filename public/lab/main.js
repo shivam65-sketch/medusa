@@ -283,7 +283,6 @@ function paintFreeNote() { $$('[data-free]').forEach((x) => { x.textContent = fr
 
 const findDs = (id) => S.datasets.find((d) => d.id === id);
 const findStrat = (key) => S.catalog.strategies.find((s) => s.key === key);
-const findRun = (id) => S.runs.find((r) => r.id === id);
 
 /** Two taps to delete: the first changes the button, the second does it. */
 function confirmThen(btn, fn, text = 'Tap again to delete') {

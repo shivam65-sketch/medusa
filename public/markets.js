@@ -36,7 +36,6 @@ const ENGINE = '/markets-sql.js?v=7';
 const DAY = 86_400_000;
 const CHECK_EVERY = 5 * 60_000;   // how often an open page asks whether the lakehouse has published
 const HORIZONS = [1, 4, 24];
-const BANDS = ['3-4', '4-6', '6+'], LIQS = ['large', 'mid', 'small'];
 
 export const utcDay = (ms) => new Date(ms).toISOString().slice(0, 10);
 export const evKey = (direction, band, liq, hours) => `${direction}|${band}|${liq}|${hours}`;

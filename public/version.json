@@ -1,9 +1,11 @@
 {
-  "version": "1.8.0",
-  "date": "2026-10-25",
+  "version": "1.9.0",
+  "date": "2026-11-10",
   "changes": [
-    "Journal: under Net PnL, the same trades before fees and funding",
-    "The menu's Collapse button is now at the top, where it is easy to find: the menu shrinks to a strip of icons and stays that way on this device",
-    "Opening a page or address that isn't there, or one that needs you to sign in, now shows a proper MEDUSA page with a way back, instead of a bare error"
+    "Markets: Insights, graphs of every unusual move since 2020 and what came next, and a playbook for the markets unusual right now",
+    "Markets: a Breakout watch on Today, and a Bad day for each market: how far it fell on 1 day in 20",
+    "Risk, a new page: the trend rule now and in history, position sizing tools, and a rule sized for a small account with a record of every day from 10 November",
+    "Markets: click a number to see the moves behind it; the choices at the top reach every graph; stocks and commodities say not tested",
+    "Fixes: tables keep their scroll while numbers change, and big files stay quick on the Lab's chart"
   ]
 }

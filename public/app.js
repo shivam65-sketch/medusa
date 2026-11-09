@@ -1827,7 +1827,7 @@
     $('#side-toggle').dataset.tip = collapsed ? 'Expand the menu' : 'Collapse the menu';
     store.set('side', collapsed);
   }
-  const LAB_JS = '/lab/main.js?v=8', LAB_CSS = '/lab/lab.css?v=11';
+  const LAB_JS = '/lab/main.js?v=9', LAB_CSS = '/lab/lab.css?v=12';
   function openLab(tab) {
     if (labLoad) { labLoad.then((m) => { if (m) m.goTab(tab); }); return; }
     const css = document.createElement('link');
@@ -1853,7 +1853,7 @@
     const host = $('#markets');
     if (!mktLoad) {
       host.innerHTML = '<div class="loading">Opening Markets…</div>';
-      mktLoad = import('/markets.js?v=28').catch((e) => {
+      mktLoad = import('/markets.js?v=29').catch((e) => {
         mktLoad = null;
         log('markets', `Markets couldn't be opened: ${e.message}`, null, 'error');
         host.innerHTML = `<div class="banner"><div><b>Markets couldn’t be opened.</b> ${esc(e.message)} Reload the page to try again.</div></div>`;
