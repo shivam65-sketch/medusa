@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Built** | 32.1: 2026-10-26 to 30 · 32.2.1 and 32.2.2: 2026-11-01 · 32.2.3 and 32.3: 2026-11-02 · 32.4: 2026-11-05 · the rest of 32.2: when open interest has years of history |
-| **Commits** | 32.1: `26a06bb` (the graph engine, the Insights view and these docs) · the live results · 32.2.1: `5ba4cbe`, `82339e1`, `cedf351`, `0f8faeb`, `849876a`, `d35f7f8` |
+| **Commits** | 32.4: `fe97191` · 32.1: `26a06bb` (the graph engine, the Insights view and these docs) · the live results · 32.2.1: `5ba4cbe`, `82339e1`, `cedf351`, `0f8faeb`, `849876a`, `d35f7f8` |
 | **Files** | [`dbt/models/gold/hour_drift.sql`](../../dbt/models/gold/hour_drift.sql) (the market by hour, every year) and its test · [`serving/publish_to_medusa.py`](../../serving/publish_to_medusa.py) (the Insights file) · [`sql/seed/003_metric_definitions_insights.sql`](../../sql/seed/003_metric_definitions_insights.sql) (version 1 of the 16 definitions) · `databricks.yml` (the seed task) · MEDUSA: [`public/markets-charts.js`](../../../public/markets-charts.js) (the graphs), `public/markets.js`, `public/markets-metrics.js`, `public/markets-sql.js`, `public/markets-window.js`, `src/market.js`, `src/metrics.js`, `src/worker.js` · [`dbt/models/gold/move_outcomes.sql`](../../dbt/models/gold/move_outcomes.sql) (how moves turned out) and its test |
 | **Decisions** | [ADR-041](../decisions.md#adr-041-the-breakout-watch-joins-a-daily-range-from-the-lakehouse-with-the-live-price) (32.4) · [ADR-034](../decisions.md#adr-034-the-insights-history-goes-to-medusa-as-one-gzip-file-kept-as-it-is) · [ADR-035](../decisions.md#adr-035-a-graph-is-a-definition-sql-plus-a-chart-spec-drawn-as-svg-by-the-page) · [ADR-037](../decisions.md#adr-037-market-type-comes-from-a-reference-list-and-only-tested-markets-get-a-verdict) · [ADR-038](../decisions.md#adr-038-how-far-moves-went-is-a-gold-table-not-a-query-on-the-page) |
 
@@ -662,6 +662,9 @@ task `seed_breakout_watch`).
   1 and 2 November and Binance's 3 November, no page errors, the ‹› window opens, the page fits a phone.
 - The migration on SQLite: the 5 columns added, and a second run stops at the first line without changing anything.
 - Both seeds parse in Databricks (`EXPLAIN`).
+- **Live:** commit `fe97191`, migration 007 on MEDUSA's database, the seed at 02:17 UTC on 5 November (`ranges`,
+  `setting_up` and `breaking_out` v1), **Lakehouse transform** run 18: a success in 3 min 17 s, 19 built, 170 tests passed,
+  0 warned, 0 failed, then the publish. All 756 trading markets have a range, as of 3 November; 96 of them are quiet.
 
 **Limits.** Whole UTC days, so a breakout that began late yesterday sits inside yesterday's range. The volume is the last
 24 hours, not the last hour, so a sudden burst shows slowly. On a strong day, many markets break their 3-day high together.

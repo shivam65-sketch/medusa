@@ -12,7 +12,7 @@ Version in <a href="public/version.json"><code>public/version.json</code></a> ·
 | Part | What it does | Runs on |
 |---|---|---|
 | **[Markets](#markets-the-live-scanner)** | A live scanner of every Binance USDT perpetual, about 750 markets. It flags what is unusual right now and what is breaking out of its range, and shows what similar moves did next, tested on years held back. Every number is SQL you can read and edit | Your browser, with live prices from Binance and the history from the lakehouse |
-| **[Risk](#risk)** | What has held up, when it works and how much to trade: the trend rule's state right now, position size, break-even, daily loss limit and Kelly, and the ideas tested that failed | Your browser, and Binance's public prices |
+| **[Risk](#risk)** | What has held up, when it works and how much to trade: the trend rule's state right now, a version sized for a ₹5,000 account with a record of every day since 10 November 2026, position size, break-even, daily loss limit and Kelly, and the ideas tested that failed | Your browser, and Binance's public prices |
 | **[Journal](#what-it-does)** | Imports your closed CoinDCX futures trades: net P&L, win rate, drawdown, a trading calendar, P&L by coin, notes on each trade | Cloudflare |
 | **[MEDUSA Lab](#medusa-lab)** | Downloads any Binance coin's history and backtests Python strategies with costs, full reports, charts and a candle-by-candle replay | Your browser (Python with Pyodide) |
 | **[Market data lakehouse](#market-data-lakehouse)** | Loads every market daily through landing, bronze, silver, gold and semantic layers, with 170 data tests, and publishes what the scanner needs | Databricks Free Edition, dbt Core, GitHub Actions |
@@ -63,6 +63,7 @@ Live prices come straight from Binance to your browser while the page is open; t
 The answer from the tests is that risk management changes how far an account falls, but doesn't create an edge. So the page shows what held up and what didn't, and then helps you size what you trade:
 
 - **The trend rule.** Half BTC, half ETH, each held only above its 50-day average, with today's state from Binance. Since July 2020 it grew money 12.6 times against 4.9 for holding, with a worst fall of 56% against 77%. It isn't proven: t is 2.5 to 2024 and 1.4 from 2025.
+- **The rule for a small account.** The same rule on ETH, SOL, XRP, BNB and DOGE, because BTC's smallest order on CoinDCX is more than a ₹5,000 account can hold. Each coin's state, the orders for your account in rupees at your leverage with CoinDCX's smallest orders, and a record of every day from 10 November 2026, worked out in your browser from Binance's closes and funding. That record is the test it hasn't had: days the rule never saw.
 - **When does it work?** Months and wild markets, 2020–2024 beside 2025 on. Neither repeated.
 - **How much to trade.** Position size with a warning when a stop is closer than the market's Bad day, the win rate needed after fees and funding, a daily loss limit, and Kelly from your own numbers or your Journal.
 - **Tested and failed.** Seasons, Turtle, shorting after up moves, scalping, memecoins and more, with their numbers.

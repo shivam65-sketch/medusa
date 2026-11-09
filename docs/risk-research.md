@@ -34,6 +34,7 @@ nothing seasonal held up. One simple trend rule came close, and it is what the R
 | 28-day momentum, top 30 coins, long only | +33% a year | −67% a year | Fails |
 | Turtle breakout, 30 futures | +663R, t 3.2 | −109R, t −1.1 | Fails from 2025 |
 | Memecoins above their 50-day average | +61% a year, t 1.3 | −4% a year, t 0.2 | Fails; cuts the losses of holding |
+| ETH, SOL, XRP, BNB and DOGE above their 50-day average, sized for ₹5,000 | +120% a year, t 3.3 | +21% a year, t 0.9 | Not proven; on the Risk page with a forward record |
 
 From July 2020 the trend rule grew money 12.6 times against 4.9 for holding, and its worst fall was 56%
 against 77%. It trails holding in strong years and loses less in bad ones. It trades about 10 round trips a
@@ -41,6 +42,32 @@ year per coin. It hasn't passed, because from 2025 there are only 22 months.
 
 **The memecoin list** is Binance's own Meme tag (55 coins, including some delisted) and three delisted
 memecoins the tag misses. The trend rule cut holding's loss of 48% a year to 4%, but made no profit.
+
+### The trend rule for a small account
+
+On CoinDCX, BTC's smallest order is more than a ₹5,000 account (about $50) can hold without leverage. ETH's
+is $24, and SOL, XRP, BNB and DOGE take $6. So the same rule was tested on ETH at 48% of the account and SOL,
+XRP, BNB and DOGE at 13% each, picked for their order sizes and long history before any result was seen. Costs
+were 0.16% a round trip, CoinDCX's 0.059% fee a side plus a little slippage, and real funding.
+
+| Leverage | A year, to 2024 | A year, from 2025 | Worst fall | ₹5,000 from 1 Jan 2025 became | Worst day |
+|---|---|---|---|---|---|
+| 1x | +120%, t 3.3 | +21%, t 0.9 | −51% | ₹7,047 | −26% |
+| 2x | +250% | +29% | −80% | ₹7,939 | −53% |
+| 3x | +283% | +22% | −97% | ₹7,188 | −79% |
+| 5x | +28% | −24% | −100% | ₹3,059 | −131%, wiped out |
+| Holding all five | +131%, t 2.9 | −24%, t −0.1 | −79% | ₹3,028 | −31% |
+
+- **Not proven.** t is 0.9 from 2025, and 2021 alone made +909%. The five are coins that are still big today,
+  which flatters the past.
+- **Leverage multiplies the falls faster than the gains.** 5x was wiped out on 19 May 2021, the worst day for
+  every row. Falls are measured on daily closes, so inside a day an account sees worse and liquidation comes
+  sooner.
+- **The forward record.** The Risk page counts the rule on every day from 10 November 2026, in the browser,
+  from Binance's daily closes and funding with 0.08% a side, the way the test did. The rule was fixed on
+  9 November 2026, so those days are ones it has never seen. The page's arithmetic was checked against an
+  independent calculation on 1 September to 8 November 2026: the same +0.2% at 1x, −14.1% for holding all five,
+  and the same 14 buys and sells.
 
 ### Seasons and months
 
@@ -80,6 +107,119 @@ From 2025, A's small gain comes from three trades (RAVE +5,456% in April 2026, M
 best 0.5% it is −1.8% a trade. Breakouts bought within 2% of the range did best, but still lost in 2020–2024. Rule B
 bought CLANKER at 12.94 on 3 November and was +84% a day later; it also fired 28,527 times. The Markets page's
 Breakout watch shows these setups as a description, not as a signal.
+
+### Pairs trading
+
+Two coins that moved together, bought and sold against each other when they drift apart, betting the gap
+closes. Each month, from the 30 most traded coins with a year of history, the 10 closest pairs of the last
+180 days; 0.1% a side and each leg's real funding; every trade one day after its signal. Rules fixed before
+the run (`backtest/xs_pairs.py`).
+
+| Method | 2021–2024 | From 2025 |
+|---|---|---|
+| A: distance (prices that tracked each other most closely) | −33.1% a year, t −3.0 | +0.5%, t 0.1 |
+| B: cointegration (a gap that kept returning to its average) | −13.7% a year, t −1.4 | −17.8%, t −1.5 |
+
+Both fail. In crypto, coins that moved together usually drift further apart: a listing, a hack or a rally
+moves one and not the other, and in 2021 method A lost 94%. A check on made-up prices with one pair that
+truly comes back found it and made money, so the losses are the market's, not the code's.
+
+### Open interest and long/short ratios
+
+Binance's daily metrics files: open interest and the long/short ratios of top traders and of all accounts.
+Each week, the 50 most traded coins ranked by one signal; buy one end, sell the other, held 7 days; 0.1% a
+side and real funding. Which end to buy is chosen on the years before 2025, then checked from 2025. Binance
+has these files for very few coins before 2022, so the choosing years are in practice 2022–2024. Rules
+fixed before the run (`backtest/xs_positioning.py`).
+
+| Signal | Before 2025 | From 2025 | Verdict |
+|---|---|---|---|
+| Open interest, 7-day change | +5.3% a year, t 0.3 | −97.7%, t −1.3 | No side |
+| Top traders' long/short ratio | +9.6%, t 0.6 | +53.7%, t 0.8 | No side |
+| All accounts' long/short ratio, buying the coins where most accounts are short | +14.3%, t 1.0 | +110.5%, t 1.6 | No side |
+| Top traders' ratio, 7-day change | −5.9%, t −0.4 | −21.0%, t −0.4 | No side |
+
+None reached t 2 in the choosing years, so none has a side to check. The closest, against the crowd's
+long/short ratio, made almost all of its 2025 result from funding (+100% a year collected, +18% from
+prices): it shorts the coins most accounts are long, which pay the most funding. That is a funding trade,
+and the funding signal itself didn't pass earlier.
+
+### The funding gap between CoinDCX and Binance
+
+On 9 November 2026, CoinDCX's next funding rate equalled Binance's on all 505 markets trading on both, and
+the mark prices matched: CoinDCX follows Binance's funding, so there is no gap to trade. The 40 other markets
+CoinDCX lists are ones Binance has stopped (*settling*), quoted at CoinDCX's own prices.
+
+### Trend on every coin, momentum without Bitcoin, and the weekend
+
+Four more ideas on every crypto perpetual, delisted coins included, with September and October 2026
+added: 61 days that no earlier test had used. 0.1% a side and real funding; rules fixed before the run
+(`backtest/xs_round4.py`). The fresh months are shown but can't prove anything on their own.
+
+| Idea | 2020–2024 | 2025 to Aug 2026 | Sep–Oct 2026 | Result |
+|---|---|---|---|---|
+| Trend ensemble, long only: 5 breakout lengths from 10 to 160 days, sized by volatility, top 20 coins (after Zarattini, Pagani and Barbon 2025) | +15.3% a year, t 2.2 | +2.3%, t 0.2 | −0.1% | Fails |
+| Trend both ways: the sign of the 28, 56 and 112-day returns, top 50 coins | +15.6%, t 1.4 | −1.5%, t −0.1 | −0.9% | Fails |
+| Momentum after removing Bitcoin's moves, 28 days, top 50 | +63.7%, t 2.7 | +7.3%, t 0.2 | −43.1% | Fails |
+| Weekend reversal: buy the coins that fell most from Friday to Sunday, sell those that rose most | −59.4%, t −2.5 | −162.9%, t −2.2 | +47.1% | Fails |
+
+- **Trend worked until 2024 and not since.** That matches the Turtle and the BTC and ETH rule. The long-only
+  ensemble never fell more than 24%, but it made money on only 85 of the 198 coins it held. Trend both ways
+  made money on 189 of 443.
+- **Momentum without Bitcoin** made its 2025 result from funding (+44.5% a year collected, −26.1% from
+  prices), then lost 43% in the fresh months.
+- **The weekend's opposite**, buying the coins that rose over the weekend, was checked afterwards for
+  information only: t 1.2, then 1.7, after paying costs twice. About 20 days made all of it, and it lost
+  52% in September and October.
+
+**The first new days for the earlier candidates.** None of these rules had seen October:
+
+| Rule | September 2026 | October 2026 |
+|---|---|---|
+| TAKER, buying the coins with the most aggressive buying | −16.9% | +17.6% |
+| Half BTC, half ETH above the 50-day average | +7.6% | −5.4% |
+| ETH 48%, SOL, XRP, BNB and DOGE 13% each, above the 50-day average | +10.9% | −8.2% |
+
+Two months is far too short to tell anything apart from luck. They are shown so the record keeps going.
+
+### Shorting coins before their token unlocks
+
+Many tokens release locked supply to their teams and investors on a fixed, published schedule. A study of
+more than 16,000 unlocks found that prices usually fall, often starting about 30 days before. The idea: short
+a coin 30 days before a known unlock and buy it back just after.
+
+Unlock history is sold by data companies, so this test rebuilt it from CoinGecko's free data. Circulating
+supply is market cap divided by price, one value a day, for the last year (10 November 2025 to 31 October
+2026). A rise of 2% or more in one day that stays for at least a week counts as an unlock. 263 of the 393
+coins that were among the 100 most traded perpetuals matched a CoinGecko coin. Most of the others are stock
+and index markets, which have no unlocks. The rules were fixed before any supply data was seen
+(`backtest/xs_unlocks.py`), with 0.1% a side and real funding. Because there is only one year of data, a
+pass needed t 2.5 instead of 2.
+
+| Idea | Trades | Typical trade | Average trade | Against shorting the average coin | Result |
+|---|---|---|---|---|---|
+| Short 30 days before a supply jump, buy back the day after | 321 on 128 coins | +5.0%, 59% won | −10.9% | −12.6% a trade, t −1.3 | Fails |
+| Same, jumps of 2–5% only | 177 | +2.9% | −19.5% | −20.8%, t −1.2 | Fails |
+| Same, jumps over 5% only | 188 | +4.5% | −2.9% | −4.2%, t −1.2 | Fails |
+| Same, entered 14 days before | 443 | +2.6% | −8.1% | −8.7%, t −1.6 | Fails |
+
+The rule was judged on the first row only. The other three were checked for information. Shorting the
+average coin over the same days made +1.7% a trade, so the unlock coins did worse than the market.
+
+- **Most shorts won, but the losers were huge.** 59% of the shorts made money, a typical one about 5%. But
+  13 shorts lost more than the whole stake because the coin more than doubled; RAVE rose about 33 times
+  while it was short. With RAVE left out, or with each loss capped at 100% (a short without borrowing is
+  closed when the price about doubles), the shorts still did worse than shorting the average coin.
+- **Supply growth across coins.** Each week, buying the 20% of the top 50 coins whose supply grew least
+  over 90 days and shorting the 20% that grew most made +116% over 37 weeks: +161% from prices, minus 41%
+  paid in funding. But t 1.2 is far short of the bar, and its 5 best weeks made more than the total. Coins with fast
+  supply growth are often new tokens that many traders are already shorting, so shorts pay funding on them.
+- **Why it probably fails.** Unlock dates are public, so the fall seems to be priced in or the short is
+  crowded. The coins that unlock are mostly new tokens with little supply in circulation, which can squeeze
+  hard. The study measured prices only, not a short that pays funding and can be squeezed.
+- **Limits.** One year only. CoinGecko shows a jump 1 to 12 days after the real unlock, and can't tell team
+  unlocks from ecosystem grants, which usually do less harm. A full test needs paid unlock history; this
+  result doesn't justify paying for it.
 
 ### Scalping
 

@@ -1870,7 +1870,7 @@
     const host = $('#risk');
     if (!riskLoad) {
       host.innerHTML = '<div class="loading">Opening Risk…</div>';
-      riskLoad = import('/risk.js?v=1').catch((e) => {
+      riskLoad = import('/risk.js?v=2').catch((e) => {
         riskLoad = null;
         log('risk', `Risk couldn't be opened: ${e.message}`, null, 'error');
         host.innerHTML = `<div class="banner"><div><b>Risk couldn’t be opened.</b> ${esc(e.message)} Reload the page to try again.</div></div>`;
