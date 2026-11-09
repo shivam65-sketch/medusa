@@ -188,4 +188,5 @@ the tab deletes it.
 | `binance_markets` | Binance's contract list once a day (`market_type`, grouped as in `dim_market_type`), and Binance's daily candle for yesterday (`yesterday_close`, `yesterday_high`, `yesterday_low`) while the lakehouse doesn't have yesterday yet |
 
 From here every number on the page is a query in `market_metrics` (or the account's own version) run over
-these tables. What each of those queries calculates is the subject of a separate page.
+these tables. What each of those queries calculates is in
+[The Markets page, explained](../../../docs/markets-page/README.md).

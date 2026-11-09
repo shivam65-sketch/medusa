@@ -56,6 +56,8 @@ Each market's move today is compared with its own normal, its last 30 days from 
 
 Live prices come straight from Binance to your browser while the page is open; the daily numbers come from MEDUSA. Like every page, it needs a signed-in account. Live numbers are unchecked until the next daily run, and the evidence is history, not a trading signal.
 
+**Every card, table, graph and window, in plain words:** what it shows, how its numbers are worked out, with an example, and what a click opens, in [`docs/markets-page/`](docs/markets-page/README.md). No maths or trading knowledge needed.
+
 ## Risk
 
 **The question it answers:** can a strategy that works only some of the time be made profitable with risk management?
@@ -342,6 +344,7 @@ The Lab's folders use Workers KV: 1 GB in total, 100,000 reads and 1,000 writes 
 - `wrangler.example.toml`: the Cloudflare settings, without anyone's ids; copy it to `wrangler.toml` (step 4)
 - `CHANGELOG.md`: every release and what changed in it (the current version is in `public/version.json`)
 - `docs/how-the-data-works.md`: from a Binance file to a number on the Markets page: every table and how they relate, a day in the pipeline, a page refresh, the one-second loop, one number followed all the way, and how to trace a problem back upstream
+- `docs/markets-page/`: the Markets page explained in plain words: every card, table, graph and window, how its numbers are worked out with an example, and the building blocks they share
 - `lakehouse/docs/lineage/`: lineage and transformations: how every column of every table is made, from Binance's files to the Markets page, with the SQL and the tests that check it
 - `docs/risk-research.md`: the tests behind the Risk page, on crypto, Indian futures and other markets
 - `docs/issue-log.md`: every problem reported on MEDUSA: what was seen, why it happened, what changed and how it was checked

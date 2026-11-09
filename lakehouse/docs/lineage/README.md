@@ -16,7 +16,8 @@ goes one level down, column by column.
 | [4. Gold: moves and evidence](4-gold-moves-and-evidence.md) | `intraday_events`, `event_evidence`, `move_outcomes`, `hour_drift` |
 | [5. Definitions, logs and MEDUSA's copy](5-definitions-logs-and-serving.md) | `semantic.metric_definitions`, `semantic.user_metric_definitions`, `ops.logs`, MEDUSA's D1 tables, the files in Workers KV, the Markets page's tables in the browser |
 
-What each number on the Markets page calculates from these tables is a separate page.
+What each number on the Markets page shows and how it is worked out from these tables is in
+[The Markets page, explained](../../../docs/markets-page/README.md).
 
 ## How to read each table
 
