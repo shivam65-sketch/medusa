@@ -16,6 +16,7 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 
 | Id | Reported | Area | What was seen | Kind | State |
 |---|---|---|---|---|---|
+| [47](#issue-47) | 2026-11-10 | Lakehouse | The daily load failed: Databricks wouldn't start compute (*RESOURCE_EXHAUSTED*) | Limit | Closed |
 | [46](#issue-46) | 2026-11-05 | Markets | A verdict said *no pattern* about years that hardly had the moves | Bug | Fixed |
 | [44](#issue-44) | 2026-11-02 | Markets | Patterns showed fades as held up without counting funding | Bug | Fixed |
 | [43](#issue-43) | 2026-11-02 | Lakehouse | Five markets with non-Latin names were never loaded | Bug | Fixed |
@@ -63,6 +64,35 @@ The entries before 2026-10-31 were written afterwards, from the records of the w
 | [1](#issue-1) | 2026-09-27 | Local copy | The app kept loading and never opened | Setup | Closed |
 
 ## Details
+
+<a id="issue-47"></a>
+### 47. The daily load failed: Databricks wouldn't start compute
+
+- **Seen:** the scheduled daily load of 9 November (run 28, which loads 8 November) started at 23:02 UTC, almost
+  ten hours after its 13:23 schedule. The download and the recheck passed; the transform stopped at *Load new
+  landing files into bronze* with `Failed to create a cluster because you've exceeded resource limits:
+  RESOURCE_EXHAUSTED: Cannot create the resource, please try again later.` The log job couldn't write the run to the
+  ETL log tables either. Earlier, at 19:02 UTC, the SQL warehouse had already refused a read-only query (*The request
+  could not be processed by the warehouse*). The Markets page stayed on 7 November.
+- **Why:** Databricks refused to start any compute for the workspace, from at least 19:02 UTC on 9 November until
+  sometime between 23:08 and 00:35 UTC. Free Edition stops compute for the rest of the day when its daily fair-use
+  limit is reached, and publishes neither the limit nor when it resets. MEDUSA's own use wasn't unusual:
+  `system.billing.usage` shows 3.9 to 6.6 DBUs a day from 5 to 8 November, storage included, with no spike, and
+  nothing but storage for 9 November (read at 00:50 UTC on 10 November; its rows can arrive hours late).
+  Databricks' status page lists no incident. So the refusal came from Databricks' side, and what set it off isn't
+  known.
+- **Change:** nothing in the code. Nothing was lost: the day's files stayed in the landing volume, bronze reads
+  every file it hasn't read yet, and the copy of MEDUSA's failures continues from the last id it copied. The
+  runbook has a row for this error, an incident row, and *Costs and limits* now says what a refusal looks like, how
+  long this one lasted and how to see what used compute.
+- **Checked:** a run started by hand at 00:29 UTC (run 29) loaded nothing, as it should: it was for 9 November,
+  which Binance hadn't published yet. Run 28 with **Re-run failed jobs** at 00:35 UTC on 10 November: bronze in
+  1 min 18 s, silver and gold built and tested, published to MEDUSA, the run written to the ETL log tables and
+  MEDUSA's failures copied. **Lakehouse log run** from 9 November then added the runs the log tables had missed
+  (run 28's first attempt and run 29).
+- **State:** closed. If it happens again: wait a few hours, then **Re-run failed jobs** on that run (not **Run
+  workflow**, which starts a new run for another day), or leave it to the next daily run, which takes both days
+  through.
 
 <a id="issue-46"></a>
 ### 46. A verdict said *no pattern* about years that hardly had the moves

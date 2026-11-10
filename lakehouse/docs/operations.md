@@ -137,6 +137,7 @@ and it replaces the repair.
 |---|---|---|
 | `default auth: cannot configure default credentials`, and the `env:` section shows `DATABRICKS_HOST:` with nothing after it | The secrets are missing or saved in the wrong place | Settings → Secrets and variables → **Actions** → **Secrets** tab → *Repository secrets* must list `DATABRICKS_HOST` and `DATABRICKS_TOKEN` |
 | `403` / invalid access token on upload | The GitHub token expired or was revoked | Create a new token, update the `DATABRICKS_TOKEN` secret (see below), re-run |
+| Transform: *Load new landing files into bronze* fails with `RESOURCE_EXHAUSTED: Cannot create the resource, please try again later`; the log job warns too | Databricks won't start compute for the workspace (Free Edition's daily limit, which isn't published; see **Costs and limits**) | Nothing is lost: the files stay in the landing volume. Wait a few hours, then open the run → **Re-run failed jobs** (not **Run workflow**, which starts a new run for another day). Or leave it: the next daily run takes both days through. Afterwards, **Lakehouse log run** from that day fills in the log rows |
 | Download step: `NOT READY ... no files yet` or `NOT READY ... coins have metrics but no candles yet` | Binance hasn't finished publishing the day. Nothing was uploaded. | Later the same day: open the run → **Re-run failed jobs**. The whole load runs again from the start. |
 | Download step: `FAILED ... Connection reset by peer` or a timeout | The network dropped 4 times in a row for one file (each file is tried 4 times) | **Re-run failed jobs** |
 | Download step: `FAILED ... checksum mismatch` | A file was damaged in transfer | Re-run; if it repeats, the file on Binance's side is broken: report and skip the day |
@@ -225,6 +226,7 @@ A calculation window shows the server's message in its save form. Nothing is hal
 
 | Date | What happened | Cause | Fix |
 |---|---|---|---|
+| 2026-11-09 | The scheduled daily load (8 November's data) started at 23:02 UTC and failed at bronze: Databricks wouldn't start compute (`RESOURCE_EXHAUSTED`). The SQL warehouse had already refused a query at 19:02 UTC. The Markets page stayed on 7 November until the re-run. | Databricks stopped compute for the workspace. MEDUSA's use the days before was small and steady (3.9–6.6 DBUs a day) and the status page showed no incident, so what set it off on Databricks' side isn't known ([issue 47](../../docs/issue-log.md#issue-47)). | **Re-run failed jobs** at 00:35 UTC on 10 November: built, tested and published; **Lakehouse log run** filled in the missed log rows. No code change. |
 | 2026-10-28 | Binance's daily archive left out every coin's candles for 2026-10-28; its metrics and raw trades were there, and the days either side came on time. The runs of 29 October stopped at the download check. The next day's run loaded the 29th, and everything looked healthy: gold had no row for the 28th, the 29th had no daily returns, and no test or page showed it. Found by a person's query on 31 October. | Tests look at rows that exist, a daily load only fetches its own day, and the recheck only covers days with a manifest. The source's gap is Binance's; ours was not noticing. | `gold.missing_days`, a warning test, a warning on the Markets page and a daily catch-up for the last 7 days ([ADR-036](decisions.md#adr-036-a-missing-day-is-found-against-the-calendar-shown-on-the-page-and-tried-again-for-a-week)). The day itself: October's monthly file skips it too, so on 4 November it was rebuilt from Binance's trades with **Lakehouse repair day** ([step 32b](steps/32b-repair-a-day.md)): 886 markets, 751 from trades and 135 dead contracts flat, every minute there. |
 | 2026-10-25 | The first real save, version 2 of `bitcoin`, was removed by hand in the Databricks SQL editor (a `DELETE` of version 2 and an `UPDATE` making version 1 current again). MEDUSA kept running version 2 until **Lakehouse transform** republished the definitions at 05:46 UTC. | MEDUSA's copy changes only with a save from the page or a publish, so a hand change in Databricks waited for the next publish. | Undo now means **Use this version again**, which saves the old SQL as the next version; the owner's **Reload** brings any hand change to MEDUSA in seconds ([step 28](steps/28-editing-the-definitions.md)). |
 | 2026-10-21 | The first scheduled daily load (for 2026-10-20) failed in the download step: `FAILED metrics ATHUSDT 2026-10-20: [Errno 104] Connection reset by peer` (1,527 saved, 280 missing, 1 failed). Re-run at 21:51 UTC: all 872 coins loaded and every test passed; no data was lost. | 1. The downloader retried a connection that failed to open, but not one that dropped mid-download. 2. GitHub started the 06:00 schedule at 11:19, before Binance had finished publishing: 88 coins' candle files appeared only at 11:55. Without the network error, the day would have loaded without those coins. | Mid-download errors are retried; the schedule moved to 13:00 UTC; the download step refuses a day that isn't fully published ([ADR-021](decisions.md#adr-021-load-a-day-only-after-binance-has-finished-publishing-it)). |
@@ -285,3 +287,17 @@ saving; it can only be replaced.
 Everything runs on free plans: GitHub Actions (public repository), Databricks Free Edition and
 Binance's public archive. If Databricks' daily fair-use quota is exceeded, compute stops for the
 rest of the day; data is kept and work continues the next day.
+
+Databricks publishes neither the quota nor when it resets. On 9 November (issue 47) a refusal looked like this:
+the bronze pipeline failed with `RESOURCE_EXHAUSTED: Cannot create the resource, please try again later` and the
+SQL warehouse answered *The request could not be processed by the warehouse*. Compute was refused from at least
+19:02 UTC and was back by 00:35 UTC, though MEDUSA had used only 3.9–6.6 DBUs a day before it. To see what used
+compute each day (the rows arrive hours late):
+
+```sql
+SELECT usage_date, billing_origin_product AS used_by, ROUND(SUM(usage_quantity), 1) AS dbus
+FROM system.billing.usage
+WHERE usage_date >= current_date() - INTERVAL 7 DAYS
+GROUP BY usage_date, billing_origin_product
+ORDER BY usage_date, dbus DESC;
+```
